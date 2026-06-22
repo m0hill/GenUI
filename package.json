@@ -1,0 +1,35 @@
+{
+  "name": "hono-ai",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n css,server \"bun run css:watch\" \"bun --hot --no-clear-screen src/index.tsx\"",
+    "build": "bun run css:build",
+    "start": "bun src/index.tsx",
+    "check": "bun run lint && bun run format:check && bun run typecheck && bun run build",
+    "typecheck": "tsc --noEmit",
+    "css:build": "tailwindcss -i ./src/styles.css -o ./public/styles.css --minify",
+    "css:watch": "tailwindcss -i ./src/styles.css -o ./public/styles.css --watch",
+    "lint": "oxlint --type-aware",
+    "lint:fix": "oxlint --type-aware --fix",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "^0.79.0",
+    "datastar-kit": "^0.4.0",
+    "hono": "^4.12.19",
+    "marked": "^15.0.12",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.0.0",
+    "@types/bun": "^1.3.8",
+    "concurrently": "^10.0.3",
+    "oxfmt": "^0.55.0",
+    "oxlint": "^1.70.0",
+    "oxlint-tsgolint": "^0.23.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "7.0.1-rc"
+  }
+}
