@@ -1,12 +1,12 @@
-import { unsafeHtml, type HtmlChild } from "datastar-kit";
+import { unsafeHtml, type HtmlChild } from "datastar-kit"
 
 const DATASTAR_RUNTIME =
-  "https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js";
+  "https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js"
 
 const THEME_INIT =
   "(function(){try{var s=localStorage.getItem('theme');" +
   "if(s?s==='dark':matchMedia('(prefers-color-scheme: dark)').matches){" +
-  "document.documentElement.classList.add('dark')}}catch(e){}})()";
+  "document.documentElement.classList.add('dark')}}catch(e){}})()"
 
 /** Shared <head> for every full-page render. */
 export const pageHead: HtmlChild[] = [
@@ -28,4 +28,4 @@ export const pageHead: HtmlChild[] = [
   />,
   <link rel="stylesheet" href="/public/styles.css" />,
   <script type="module" src={DATASTAR_RUNTIME} />,
-];
+]

@@ -1,4 +1,4 @@
-import type { AssistantMessage, ToolCall } from "@earendil-works/pi-ai";
+import type { AssistantMessage, ToolCall } from "@earendil-works/pi-ai"
 import {
   js,
   mod,
@@ -8,13 +8,13 @@ import {
   state as signalState,
   unsafeHtml,
   type HtmlChild,
-} from "datastar-kit";
-import type { CreateUiState } from "../../ai/index.js";
-import type { WebSearchState } from "../../ai/web-search-tool.js";
-import { Icons } from "../../ui/icons.js";
-import type { AssistantTurn, UserChatMessage } from "../../session/chat-session.js";
-import { renderGeneratedHtml } from "./generated-html.js";
-import { renderMarkdown } from "./markdown.js";
+} from "datastar-kit"
+import type { CreateUiState } from "../../ai/index.js"
+import type { WebSearchState } from "../../ai/web-search-tool.js"
+import { Icons } from "../../ui/icons.js"
+import type { AssistantTurn, UserChatMessage } from "../../session/chat-session.js"
+import { renderGeneratedHtml } from "./generated-html.js"
+import { renderMarkdown } from "./markdown.js"
 
 export const chatForm = signalState({
   chatId: "",
@@ -22,17 +22,17 @@ export const chatForm = signalState({
   error: "",
   _sending: false,
   _generating: false,
-});
+})
 
 const EmptyState = () => (
   <li id="empty-state" class="max-w-md text-fg-muted">
     Ask a normal question, or ask for a tiny interface like “make a minimalist weather card for San
     Francisco”.
   </li>
-);
+)
 
 export const MessagesList = (props: {
-  messages: ReadonlyArray<UserChatMessage | AssistantTurn>;
+  messages: ReadonlyArray<UserChatMessage | AssistantTurn>
 }) => (
   <ol id="messages" class="flex flex-col gap-8">
     {props.messages.length === 0 ? (
@@ -47,18 +47,18 @@ export const MessagesList = (props: {
       )
     )}
   </ol>
-);
+)
 
 export const UserMessageItem = (props: { message: UserChatMessage }) => (
   <li id={props.message.id} class="message flex justify-end">
     <div class="user-bubble">{props.message.text}</div>
   </li>
-);
+)
 
 const AssistantText = (props: { text: string }) =>
   props.text.trim().length === 0 ? null : (
     <div class="prose">{unsafeHtml(renderMarkdown(props.text))}</div>
-  );
+  )
 
 const AssistantThinking = (props: { text: string }) =>
   props.text.trim().length === 0 ? null : (
@@ -69,14 +69,14 @@ const AssistantThinking = (props: { text: string }) =>
       </summary>
       <div class="thinking-text">{unsafeHtml(renderMarkdown(props.text))}</div>
     </details>
-  );
+  )
 
-const pendingCreateUiState: CreateUiState = { status: "pending", html: "" };
+const pendingCreateUiState: CreateUiState = { status: "pending", html: "" }
 
-const chatBusy = js<boolean>`(${chatForm.refs._sending} || ${chatForm.refs._generating})`;
+const chatBusy = js<boolean>`(${chatForm.refs._sending} || ${chatForm.refs._generating})`
 
 const CreateUiToolView = (props: { toolCall: ToolCall; state: CreateUiState | undefined }) => {
-  const state = props.state ?? pendingCreateUiState;
+  const state = props.state ?? pendingCreateUiState
 
   return (
     <div
@@ -102,26 +102,26 @@ const CreateUiToolView = (props: { toolCall: ToolCall; state: CreateUiState | un
         <small class="error-text">{state.error ?? "Could not build the UI."}</small>
       ) : null}
     </div>
-  );
-};
+  )
+}
 
-const pendingWebSearchState: WebSearchState = { status: "pending", query: "" };
+const pendingWebSearchState: WebSearchState = { status: "pending", query: "" }
 
 const WebSearchToolView = (props: { toolCall: ToolCall; state: WebSearchState | undefined }) => {
-  const state = props.state ?? pendingWebSearchState;
+  const state = props.state ?? pendingWebSearchState
   const label =
     state.status === "complete"
       ? "Web search complete"
       : state.status === "error"
         ? "Web search failed"
-        : "Searching the web";
+        : "Searching the web"
 
   const statusLine = (
     <>
       <Icons.search role="img" aria-label={label} class="search-icon h-4 w-4 shrink-0" />
       {state.query ? <span class="normal-case text-fg-secondary">{state.query}</span> : null}
     </>
-  );
+  )
 
   return (
     <div
@@ -142,46 +142,46 @@ const WebSearchToolView = (props: { toolCall: ToolCall; state: WebSearchState | 
       )}
       {state.status === "error" ? <small class="error-text">{state.error}</small> : null}
     </div>
-  );
-};
+  )
+}
 
 const AssistantContent = (props: { message: AssistantMessage; turn: AssistantTurn }) => (
   <>
     {props.message.content.map((content): HtmlChild => {
-      if (content.type === "text") return <AssistantText text={content.text} />;
-      if (content.type === "thinking") return <AssistantThinking text={content.thinking} />;
+      if (content.type === "text") return <AssistantText text={content.text} />
+      if (content.type === "thinking") return <AssistantThinking text={content.thinking} />
       if (content.type === "toolCall" && content.name === "create_ui") {
-        const state = props.turn.tools.get(content.id);
+        const state = props.turn.tools.get(content.id)
         return (
           <CreateUiToolView
             toolCall={content}
             state={state && "html" in state ? state : undefined}
           />
-        );
+        )
       }
       if (content.type === "toolCall" && content.name === "web_search") {
-        const state = props.turn.tools.get(content.id);
+        const state = props.turn.tools.get(content.id)
         return (
           <WebSearchToolView
             toolCall={content}
             state={state && "query" in state ? state : undefined}
           />
-        );
+        )
       }
-      return null;
+      return null
     })}
   </>
-);
+)
 
 const turnStatusText = (turn: AssistantTurn): string => {
-  if (turn.status !== "streaming") return "";
+  if (turn.status !== "streaming") return ""
   const activeTool = [...turn.tools.values()].find(
     (tool) => tool.status === "streaming" || tool.status === "searching",
-  );
-  if (activeTool?.status === "streaming") return "Building UI…";
-  if (activeTool?.status === "searching") return "Searching web…";
-  return turn.messages.length === 0 ? "Thinking…" : "Writing…";
-};
+  )
+  if (activeTool?.status === "streaming") return "Building UI…"
+  if (activeTool?.status === "searching") return "Searching web…"
+  return turn.messages.length === 0 ? "Thinking…" : "Writing…"
+}
 
 export const AssistantTurnItem = (props: { turn: AssistantTurn }) => (
   <li id={props.turn.id} class="message">
@@ -196,7 +196,7 @@ export const AssistantTurnItem = (props: { turn: AssistantTurn }) => (
       {props.turn.status === "error" ? <small class="error-text">{props.turn.error}</small> : null}
     </div>
   </li>
-);
+)
 
 export const ComposerBar = () => (
   <div class="pointer-events-none fixed inset-x-0 bottom-0 z-40 bg-linear-to-t from-bg via-bg/92 to-transparent pt-14 pb-5">
@@ -234,4 +234,4 @@ export const ComposerBar = () => (
       ></p>
     </form>
   </div>
-);
+)

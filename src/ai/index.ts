@@ -8,9 +8,9 @@ import {
   type Tool,
   type ToolCall,
   type ToolResultMessage,
-} from "@earendil-works/pi-ai";
-import { aiModel, getAiApiKey } from "./provider.js";
-import { executeWebSearchTool, webSearchTool, type WebSearchState } from "./web-search-tool.js";
+} from "@earendil-works/pi-ai"
+import { aiModel, getAiApiKey } from "./provider.js"
+import { executeWebSearchTool, webSearchTool, type WebSearchState } from "./web-search-tool.js"
 
 const chatPrompt = `
 You are a concise assistant that can answer normally or create polished server-rendered interactive UI.
@@ -59,7 +59,7 @@ Quality bar for create_ui:
 - Prefer small but complete interfaces: cards, calculators, selectors, comparisons, timelines, itineraries, dashboards, galleries, quizzes, or forms.
 - Use real source-backed text/images when available; cite source URLs in the UI or surrounding answer.
 - Keep interactions declarative with Datastar signals. If an interaction needs arbitrary JavaScript, redesign it using signals or keep it static.
-`.trim();
+`.trim()
 
 const createUiParameters = Type.Object({
   html: Type.String({
@@ -67,38 +67,38 @@ const createUiParameters = Type.Object({
     description:
       "A self-contained HTML fragment. Inline styles, safe HTTPS images/links, and the documented Datastar subset are allowed. Scripts and external CSS are not.",
   }),
-});
+})
 
-type CreateUiInput = Static<typeof createUiParameters>;
+type CreateUiInput = Static<typeof createUiParameters>
 
 const createUiTool = {
   name: "create_ui",
   description: "Render a small visual HTML UI fragment for the user.",
   parameters: createUiParameters,
-} satisfies Tool<typeof createUiParameters>;
+} satisfies Tool<typeof createUiParameters>
 
 export type CreateUiState =
   | { status: "pending"; html: string }
   | { status: "streaming"; html: string }
   | { status: "complete"; html: string }
-  | { status: "error"; html: string; error: string };
+  | { status: "error"; html: string; error: string }
 
-export type AssistantToolState = CreateUiState | WebSearchState;
+export type AssistantToolState = CreateUiState | WebSearchState
 
-type StreamAiOptions = { sessionId: string; signal: AbortSignal };
+type StreamAiOptions = { sessionId: string; signal: AbortSignal }
 
 type StreamAiTurnUpdate =
   | { type: "assistant_update"; messageIndex: number; message: AssistantMessage }
-  | { type: "tool_update"; toolCall: ToolCall; state: AssistantToolState };
+  | { type: "tool_update"; toolCall: ToolCall; state: AssistantToolState }
 
 export async function* streamAiTurn(
   messages: Message[],
   options: StreamAiOptions,
 ): AsyncGenerator<StreamAiTurnUpdate> {
-  let messageIndex = 0;
+  let messageIndex = 0
 
   while (true) {
-    const toolResults: ToolResultMessage[] = [];
+    const toolResults: ToolResultMessage[] = []
     const responseStream = streamAssistant(
       aiModel,
       { systemPrompt: chatPrompt, messages, tools: [createUiTool, webSearchTool] },
@@ -110,36 +110,36 @@ export async function* streamAiTurn(
         signal: options.signal,
         transport: "sse",
       },
-    );
+    )
 
     for await (const aiEvent of responseStream) {
       if ("partial" in aiEvent) {
-        yield { type: "assistant_update", messageIndex, message: aiEvent.partial };
+        yield { type: "assistant_update", messageIndex, message: aiEvent.partial }
       }
 
       if (aiEvent.type === "toolcall_start" || aiEvent.type === "toolcall_delta") {
-        const toolCall = aiEvent.partial.content[aiEvent.contentIndex];
+        const toolCall = aiEvent.partial.content[aiEvent.contentIndex]
         if (toolCall?.type === "toolCall" && toolCall.name === createUiTool.name) {
-          const html = typeof toolCall.arguments.html === "string" ? toolCall.arguments.html : "";
+          const html = typeof toolCall.arguments.html === "string" ? toolCall.arguments.html : ""
           yield {
             type: "tool_update",
             toolCall,
             state: html.length === 0 ? { status: "pending", html } : { status: "streaming", html },
-          };
+          }
         }
 
         if (toolCall?.type === "toolCall" && toolCall.name === webSearchTool.name) {
           const query =
-            typeof toolCall.arguments.query === "string" ? toolCall.arguments.query.trim() : "";
-          yield { type: "tool_update", toolCall, state: { status: "pending", query } };
+            typeof toolCall.arguments.query === "string" ? toolCall.arguments.query.trim() : ""
+          yield { type: "tool_update", toolCall, state: { status: "pending", query } }
         }
       }
 
       if (aiEvent.type === "toolcall_end" && aiEvent.toolCall.name === createUiTool.name) {
-        let state: CreateUiState;
+        let state: CreateUiState
         try {
-          const input: CreateUiInput = validateToolArguments(createUiTool, aiEvent.toolCall);
-          state = { status: "complete", html: input.html };
+          const input: CreateUiInput = validateToolArguments(createUiTool, aiEvent.toolCall)
+          state = { status: "complete", html: input.html }
         } catch {
           state = {
             status: "error",
@@ -148,7 +148,7 @@ export async function* streamAiTurn(
                 ? aiEvent.toolCall.arguments.html
                 : "",
             error: "The model called create_ui with invalid arguments.",
-          };
+          }
         }
 
         toolResults.push({
@@ -164,24 +164,24 @@ export async function* streamAiTurn(
           ],
           isError: state.status === "error",
           timestamp: Date.now(),
-        });
-        yield { type: "tool_update", toolCall: aiEvent.toolCall, state };
+        })
+        yield { type: "tool_update", toolCall: aiEvent.toolCall, state }
       }
 
       if (aiEvent.type === "toolcall_end" && aiEvent.toolCall.name === webSearchTool.name) {
         const query =
           typeof aiEvent.toolCall.arguments.query === "string"
             ? aiEvent.toolCall.arguments.query.trim()
-            : "";
+            : ""
         yield {
           type: "tool_update",
           toolCall: aiEvent.toolCall,
           state: { status: "searching", query },
-        };
+        }
 
-        const result = await executeWebSearchTool(aiEvent.toolCall, options.signal);
-        const details = result.details ?? { query };
-        toolResults.push(result);
+        const result = await executeWebSearchTool(aiEvent.toolCall, options.signal)
+        const details = result.details ?? { query }
+        toolResults.push(result)
         yield {
           type: "tool_update",
           toolCall: aiEvent.toolCall,
@@ -196,15 +196,15 @@ export async function* streamAiTurn(
                 query: details.query,
                 summary: details.summary ?? "",
               },
-        };
+        }
       }
     }
 
-    const response = await responseStream.result();
-    yield { type: "assistant_update", messageIndex, message: response };
-    messages.push(response, ...toolResults);
+    const response = await responseStream.result()
+    yield { type: "assistant_update", messageIndex, message: response }
+    messages.push(response, ...toolResults)
 
-    if (response.stopReason !== "toolUse" || toolResults.length === 0) return;
-    messageIndex += 1;
+    if (response.stopReason !== "toolUse" || toolResults.length === 0) return
+    messageIndex += 1
   }
 }

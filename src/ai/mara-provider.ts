@@ -1,7 +1,7 @@
-import type { Model } from "@earendil-works/pi-ai";
+import type { Model } from "@earendil-works/pi-ai"
 
-export const maraProviderId = "MARA";
-export const maraModelId = "MiniMax-M2.5";
+export const maraProviderId = "MARA"
+export const maraModelId = "MiniMax-M2.5"
 
 export const maraModel: Model<"openai-completions"> = {
   id: maraModelId,
@@ -22,12 +22,12 @@ export const maraModel: Model<"openai-completions"> = {
   compat: {
     supportsDeveloperRole: false,
   },
-};
+}
 
 export function getMaraApiKey(): string {
-  const apiKey = process.env.MARA_API_KEY;
+  const apiKey = process.env.MARA_API_KEY
   if (apiKey === undefined || apiKey.length === 0) {
-    throw new Error("MARA_API_KEY is required to use the MARA provider");
+    throw new Error("MARA_API_KEY is required to use the MARA provider")
   }
-  return apiKey;
+  return apiKey
 }

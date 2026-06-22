@@ -1,7 +1,7 @@
-import type { HtmlChild } from "datastar-kit";
-import { Icons } from "./icons.js";
+import type { HtmlChild } from "datastar-kit"
+import { Icons } from "./icons.js"
 
-const KICKER = "Datastar Kit · example";
+const KICKER = "Datastar Kit · example"
 
 const ThemeToggle = () => (
   <button
@@ -13,7 +13,7 @@ const ThemeToggle = () => (
     <Icons.moon aria-hidden="true" class="h-4 w-4 dark:hidden" />
     <Icons.sun aria-hidden="true" class="hidden h-4 w-4 dark:block" />
   </button>
-);
+)
 
 export const PageHeader = (props: { title: string; actions?: HtmlChild }) => (
   <header class="mb-8">
@@ -26,18 +26,18 @@ export const PageHeader = (props: { title: string; actions?: HtmlChild }) => (
       </div>
     </div>
   </header>
-);
+)
 
 export const SessionsLink = () => (
   <a href="/sessions" class="nav-pill">
     <Icons.grid aria-hidden="true" class="h-3.5 w-3.5" />
     Sessions
   </a>
-);
+)
 
 export const NewChatButton = () => (
   <a href="/" class="nav-pill nav-pill-accent">
     <Icons.plus aria-hidden="true" class="h-3.5 w-3.5" />
     New
   </a>
-);
+)

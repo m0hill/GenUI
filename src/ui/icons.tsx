@@ -1,6 +1,6 @@
-import type { JSX } from "datastar-kit/jsx-runtime";
+import type { JSX } from "datastar-kit/jsx-runtime"
 
-type IconProps = JSX.IntrinsicElements["svg"];
+type IconProps = JSX.IntrinsicElements["svg"]
 
 export const Icons = {
   sun: (props: IconProps) => (
@@ -112,4 +112,4 @@ export const Icons = {
       <rect x="14" y="14" width="7" height="7" rx="1.5" />
     </svg>
   ),
-} as const;
+} as const

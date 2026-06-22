@@ -1,37 +1,37 @@
-import { Hono } from "hono";
-import { reply } from "datastar-kit";
-import { listSessions, type ChatThread } from "../session/store.js";
-import { pageHead } from "../ui/head.js";
-import { Icons } from "../ui/icons.js";
-import { NewChatButton, PageHeader } from "../ui/layout.js";
+import { Hono } from "hono"
+import { reply } from "datastar-kit"
+import { listSessions, type ChatThread } from "../session/store.js"
+import { pageHead } from "../ui/head.js"
+import { Icons } from "../ui/icons.js"
+import { NewChatButton, PageHeader } from "../ui/layout.js"
 
-const sessionUrl = (chatId: string): string => `/?chatId=${encodeURIComponent(chatId)}`;
+const sessionUrl = (chatId: string): string => `/?chatId=${encodeURIComponent(chatId)}`
 
 const relativeTime = (iso: string): string => {
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) return "";
+  const then = Date.parse(iso)
+  if (Number.isNaN(then)) return ""
 
-  const minutes = Math.round((Date.now() - then) / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
+  const minutes = Math.round((Date.now() - then) / 60_000)
+  if (minutes < 1) return "just now"
+  if (minutes < 60) return `${minutes}m ago`
 
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
 
-  const days = Math.round(hours / 24);
-  if (days < 7) return `${days}d ago`;
+  const days = Math.round(hours / 24)
+  if (days < 7) return `${days}d ago`
 
-  return new Date(then).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-};
+  return new Date(then).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+}
 
 const threadMeta = (thread: ChatThread): string => {
   const count =
     thread.messageCount === 0
       ? "Empty"
-      : `${thread.messageCount} msg${thread.messageCount === 1 ? "" : "s"}`;
-  const when = relativeTime(thread.updatedAt);
-  return when ? `${count} · ${when}` : count;
-};
+      : `${thread.messageCount} msg${thread.messageCount === 1 ? "" : "s"}`
+  const when = relativeTime(thread.updatedAt)
+  return when ? `${count} · ${when}` : count
+}
 
 export const ChatLink = () => (
   <a
@@ -42,7 +42,7 @@ export const ChatLink = () => (
     <Icons.chevron aria-hidden="true" class="h-3.5 w-3.5 rotate-180" />
     Chat
   </a>
-);
+)
 
 const SessionRow = (props: { thread: ChatThread }) => (
   <li>
@@ -52,7 +52,7 @@ const SessionRow = (props: { thread: ChatThread }) => (
       <Icons.chevron aria-hidden="true" class="session-row-arrow h-4 w-4" />
     </a>
   </li>
-);
+)
 
 const EmptySessions = () => (
   <div class="session-empty">
@@ -62,7 +62,7 @@ const EmptySessions = () => (
       <NewChatButton />
     </div>
   </div>
-);
+)
 
 const SessionsPage = (props: { threads: readonly ChatThread[] }) => (
   <div class="min-h-dvh">
@@ -93,16 +93,16 @@ const SessionsPage = (props: { threads: readonly ChatThread[] }) => (
       )}
     </main>
   </div>
-);
+)
 
-const sessions = new Hono();
+const sessions = new Hono()
 
 sessions.get("/", async () => {
-  const threads = await listSessions();
+  const threads = await listSessions()
   return reply.page(<SessionsPage threads={threads} />, {
     title: "Sessions · Hono AI chat",
     head: pageHead,
-  });
-});
+  })
+})
 
-export default sessions;
+export default sessions

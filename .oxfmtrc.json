@@ -1,4 +1,5 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "ignorePatterns": ["dist/**", "public/styles.css"]
+  "semi": false,
+  "ignorePatterns": ["dist/**", "public/styles.css", ".sessions/*"]
 }
