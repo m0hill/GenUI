@@ -5,7 +5,7 @@
     "moduleResolution": "bundler",
     "moduleDetection": "force",
     "lib": ["ESNext", "DOM"],
-    "types": ["bun"],
+    "types": ["node"],
     "jsx": "react-jsx",
     "jsxImportSource": "datastar-kit",
     "allowImportingTsExtensions": true,
