@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "worker-hono-live-todos",
+  "main": "src/index.tsx",
+  "compatibility_date": "2026-05-25",
+  "assets": {
+    "directory": "./public"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "LIVE_ROOMS",
+        "class_name": "LiveRoom"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["LiveRoom"]
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "todos",
+      "database_id": "be3df79e-57e8-4dc0-9e4e-c9b21bacbd72",
+      "migrations_dir": "./migrations"
+    }
+  ]
+}

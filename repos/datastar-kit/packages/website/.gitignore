@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.wrangler/
+src/generated/
+public/styles.css
+public/fonts/

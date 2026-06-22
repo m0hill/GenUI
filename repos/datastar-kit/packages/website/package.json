@@ -1,0 +1,39 @@
+{
+  "name": "@datastar-kit/website",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm run build:workspace-sdk && pnpm run build:only",
+    "build:only": "pnpm run docs:build && pnpm run css:build",
+    "build:workspace-sdk": "if [ -f ../../packages/datastar-kit/package.json ]; then pnpm --filter datastar-kit build; fi",
+    "check": "pnpm run build && pnpm run typecheck",
+    "css:build": "pnpm run fonts:copy && tailwindcss -i ./src/styles.css -o ./public/styles.css --minify",
+    "css:watch": "tailwindcss -i ./src/styles.css -o ./public/styles.css --watch",
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings",
+    "deploy": "pnpm run build && wrangler deploy --minify",
+    "dev": "pnpm run build && (pnpm run css:watch & tsx scripts/build-docs.ts --watch & trap 'kill 0' EXIT; wrangler dev)",
+    "docs:build": "tsx scripts/build-docs.ts",
+    "fonts:copy": "mkdir -p public/fonts && cp node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2 node_modules/@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2 public/fonts/",
+    "preview": "pnpm run build && wrangler dev",
+    "typecheck": "pnpm run docs:build && tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "datastar-kit": "workspace:*",
+    "hono": "^4.12.21",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@fontsource-variable/geist": "^5.2.5",
+    "@fontsource-variable/geist-mono": "^5.2.5",
+    "@tailwindcss/cli": "^4.0.0",
+    "@types/markdown-it": "^14.1.2",
+    "@types/node": "^24.10.1",
+    "markdown-it": "^14.1.0",
+    "markdown-it-anchor": "^9.2.0",
+    "shiki": "^3.0.0",
+    "tailwindcss": "^4.0.0",
+    "tsx": "^4.22.3",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.93.0"
+  }
+}

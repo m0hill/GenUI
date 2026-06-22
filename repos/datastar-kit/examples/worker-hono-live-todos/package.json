@@ -1,0 +1,27 @@
+{
+  "name": "@datastar-kit/example-worker-hono-live-todos",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "check": "pnpm run typecheck",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy --minify",
+    "db:generate": "drizzle-kit generate && node ./scripts/sync-drizzle-d1-migrations.mjs",
+    "db:migrate:local": "wrangler d1 migrations apply todos --local",
+    "db:migrate:remote": "wrangler d1 migrations apply todos --remote",
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings"
+  },
+  "dependencies": {
+    "datastar-kit": "workspace:*",
+    "drizzle-orm": "1.0.0-rc.4-5d5b77c",
+    "hono": "4.12.21",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "better-sqlite3": "^12.10.0",
+    "drizzle-kit": "1.0.0-rc.4-5d5b77c",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.4.0"
+  }
+}

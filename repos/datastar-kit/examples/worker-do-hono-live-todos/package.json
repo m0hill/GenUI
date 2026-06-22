@@ -1,0 +1,21 @@
+{
+  "name": "@datastar-kit/example-worker-do-hono-live-todos",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "check": "pnpm run typecheck",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy --minify",
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings"
+  },
+  "dependencies": {
+    "datastar-kit": "workspace:*",
+    "hono": "4.12.21",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "wrangler": "^4.4.0"
+  }
+}
