@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "datastar-kit",
+    "lib": ["ES2023", "DOM"],
+    "types": ["node"],
+    "paths": {
+      "datastar-kit": ["../../packages/datastar-kit/src/index.ts"],
+      "datastar-kit/jsx-runtime": ["../../packages/datastar-kit/src/jsx-runtime.ts"],
+      "datastar-kit/jsx-dev-runtime": ["../../packages/datastar-kit/src/jsx-dev-runtime.ts"],
+      "datastar-kit/sse": ["../../packages/datastar-kit/src/sse.ts"],
+      "datastar-kit/debugger": ["../../packages/datastar-kit/src/debugger.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["dist", "node_modules"]
+}

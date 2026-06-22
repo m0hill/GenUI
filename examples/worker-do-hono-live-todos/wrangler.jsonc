@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "worker-do-hono-live-todos",
+  "main": "src/index.tsx",
+  "compatibility_date": "2026-05-25",
+  "assets": {
+    "directory": "./public"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "TODO_ROOMS",
+        "class_name": "TodoRoom"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["TodoRoom"]
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "tasks": {
+    "check": "deno check src/index.tsx",
+    "dev": "deno run --watch --allow-net src/index.tsx"
+  },
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "datastar-kit"
+  },
+  "unstable": ["sloppy-imports"],
+  "imports": {
+    "@std/http/unstable-route": "jsr:@std/http@1/unstable-route",
+    "datastar-kit": "../../packages/datastar-kit/src/index.ts",
+    "datastar-kit/jsx-dev-runtime": "../../packages/datastar-kit/src/jsx-dev-runtime.ts",
+    "datastar-kit/jsx-runtime": "../../packages/datastar-kit/src/jsx-runtime.ts",
+    "zod": "npm:zod@^4.4.3"
+  }
+}

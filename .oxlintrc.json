@@ -1,0 +1,70 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "vitest", "import"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "perf": "warn"
+  },
+  "ignorePatterns": [
+    "node_modules/**",
+    "dist/**",
+    "coverage/**",
+    ".pi-cache/**",
+    ".pnpm-store/**",
+    "packages/**/dist/**",
+    "examples/**/dist/**",
+    "examples/**/static/**",
+    "examples/**/public/**",
+    "packages/website/content/snippets/**",
+    "packages/website/src/generated/**",
+    "packages/website/public/**"
+  ],
+  "rules": {
+    "no-constant-condition": "off",
+    "no-console": "off",
+    "no-control-regex": "off",
+    "no-unused-vars": "warn",
+    "typescript/no-base-to-string": "warn",
+    "no-await-in-loop": "off",
+    "typescript/no-explicit-any": "off",
+    "vitest/no-standalone-expect": "off",
+    "no-underscore-dangle": "off"
+  },
+  "overrides": [
+    {
+      "files": ["packages/datastar-kit/src/reply.ts"],
+      "rules": {
+        "no-await-in-loop": "off"
+      }
+    },
+    {
+      "files": ["packages/datastar-kit/src/html.ts"],
+      "rules": {
+        "no-underscore-dangle": "off",
+        "typescript/no-base-to-string": "off"
+      }
+    },
+    {
+      "files": ["packages/datastar-kit/src/ds/signals.ts", "packages/datastar-kit/src/ds/state.ts"],
+      "rules": {
+        "typescript/no-unsafe-type-assertion": "off"
+      }
+    },
+    {
+      "files": ["packages/datastar-kit/test/**/*.ts", "packages/datastar-kit/test/**/*.tsx"],
+      "rules": {
+        "typescript/no-unsafe-type-assertion": "off",
+        "unicorn/consistent-function-scoping": "off"
+      }
+    }
+  ],
+  "env": {
+    "builtin": true,
+    "browser": true,
+    "node": true
+  },
+  "options": {
+    "typeAware": true
+  }
+}
