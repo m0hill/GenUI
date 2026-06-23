@@ -5,3 +5,4 @@ auth.json
 .env
 .DS_Store
 .sessions/
+public/styles.css

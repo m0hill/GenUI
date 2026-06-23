@@ -1,8 +1,14 @@
 import { getModel } from "@earendil-works/pi-ai"
+import { basetenModel, getBasetenApiKey } from "./baseten-provider.js"
 import { getMaraApiKey, maraModel } from "./mara-provider.js"
 import { getCodexApiKey, openAICodexProviderId } from "./pi-auth.js"
 
-const useMara = (process.env.AI_PROVIDER ?? "mara") === "mara"
+const codexModel = getModel(openAICodexProviderId, "gpt-5.5")
 
-export const aiModel = useMara ? maraModel : getModel(openAICodexProviderId, "gpt-5.5")
-export const getAiApiKey = useMara ? getMaraApiKey : getCodexApiKey
+const provider = process.env.AI_PROVIDER ?? "mara"
+
+export const aiModel =
+  provider === "baseten" ? basetenModel : provider === "codex" ? codexModel : maraModel
+
+export const getAiApiKey =
+  provider === "baseten" ? getBasetenApiKey : provider === "codex" ? getCodexApiKey : getMaraApiKey
