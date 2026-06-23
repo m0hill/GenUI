@@ -10,10 +10,10 @@
     "typecheck": "tsc --noEmit",
     "css:build": "tailwindcss -i ./src/styles.css -o ./public/styles.css --minify",
     "css:watch": "tailwindcss -i ./src/styles.css -o ./public/styles.css --watch",
-    "lint": "oxlint --type-aware",
-    "lint:fix": "oxlint --type-aware --fix",
-    "format": "oxfmt",
-    "format:check": "oxfmt --check"
+    "lint": "oxlint src --type-aware",
+    "lint:fix": "oxlint src --type-aware --fix",
+    "format": "oxfmt src package.json tsconfig.json .oxlintrc.json",
+    "format:check": "oxfmt --check src package.json tsconfig.json .oxlintrc.json"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.79.0",
