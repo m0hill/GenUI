@@ -76,6 +76,22 @@ const pendingCreateUiState: CreateUiState = {
 
 const chatBusy = js<boolean>`(${chatForm.refs._sending} || ${chatForm.refs._generating})`
 
+const GeneratedUiSurface = (props: { generated: NonNullable<CreateUiState["surface"]> }) => (
+  <div
+    class="generated-ui"
+    data-genui-surface={JSON.stringify(props.generated)}
+    data-attr:inert={chatBusy}
+    data-style:pointer-events={js`${chatBusy} ? 'none' : 'auto'`}
+    data-style:opacity={js`${chatBusy} ? '0.62' : '1'`}
+  ></div>
+)
+
+const GeneratedUiPreview = (props: { generated: NonNullable<CreateUiState["surface"]> }) => (
+  <div class="generated-ui generated-ui-preview" inert aria-busy="true">
+    {unsafeHtml(props.generated.html)}
+  </div>
+)
+
 const CreateUiToolView = (props: { toolCall: ToolCall; state: CreateUiState | undefined }) => {
   const state = props.state ?? pendingCreateUiState
   const generated = state.surface
@@ -90,14 +106,14 @@ const CreateUiToolView = (props: { toolCall: ToolCall; state: CreateUiState | un
       {state.status === "streaming" && generated === undefined ? (
         <small class="message-status">Designing UI</small>
       ) : null}
-      {generated !== undefined ? (
-        <div
-          class="generated-ui"
-          data-genui-surface={JSON.stringify(generated)}
-          data-attr:inert={chatBusy}
-          data-style:pointer-events={js`${chatBusy} ? 'none' : 'auto'`}
-          data-style:opacity={js`${chatBusy} ? '0.62' : '1'`}
-        ></div>
+      {state.status === "streaming" && generated !== undefined ? (
+        <>
+          <small class="message-status">Designing UI</small>
+          <GeneratedUiPreview generated={generated} />
+        </>
+      ) : null}
+      {state.status !== "streaming" && generated !== undefined ? (
+        <GeneratedUiSurface generated={generated} />
       ) : null}
       {state.status === "error" ? (
         <small class="error-text">{state.error ?? "Could not build the UI."}</small>
