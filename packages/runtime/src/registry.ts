@@ -1,3 +1,9 @@
+import {
+  capabilityPolicy,
+  findGrantedCapability,
+  projectGrantedCapabilities,
+  publicCapabilityDescriptors,
+} from "./capability-projections.js"
 import { genui0Instructions } from "./dialect/genui0.js"
 import { sanitizeSurfaceHtml } from "./sanitizer.js"
 import { parseWithSchema } from "./schema.js"
@@ -11,7 +17,6 @@ import {
   type CapabilityResult,
   type CreateSurfaceInput,
   type ExecuteOptions,
-  type Policy,
   type Registry,
   type Surface,
 } from "./types.js"
@@ -22,49 +27,10 @@ export interface CreateRegistryOptions<Ctx> {
 
 const capabilityNamePattern = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$/i
 
-const capabilityPolicy = (definition: AnyCapabilityDefinition<unknown>): Policy =>
-  definition.policy ?? "allow"
-
-const descriptorFor = (definition: AnyCapabilityDefinition<unknown>): CapabilityDescriptor => ({
-  name: definition.name,
-  description: definition.description,
-  effect: definition.effect,
-  requiresApproval: capabilityPolicy(definition) === "require_approval",
-})
-
 const capabilityError = (code: CapabilityErrorCode, message: string): CapabilityResult => ({
   ok: false,
   error: { code, message },
 })
-
-const publicCapabilities = <Ctx>(
-  capabilities: Iterable<AnyCapabilityDefinition<Ctx>>,
-): CapabilityDescriptor[] => {
-  const descriptors: CapabilityDescriptor[] = []
-  for (const capability of capabilities) {
-    if (capabilityPolicy(capability) !== "block") descriptors.push(descriptorFor(capability))
-  }
-  return descriptors
-}
-
-const grantedCapabilities = <Ctx>(
-  requested: readonly string[],
-  byName: ReadonlyMap<string, AnyCapabilityDefinition<Ctx>>,
-): CapabilityDescriptor[] => {
-  const seen = new Set<string>()
-  const granted: CapabilityDescriptor[] = []
-
-  for (const name of requested) {
-    if (seen.has(name)) continue
-    seen.add(name)
-
-    const capability = byName.get(name)
-    if (capability === undefined || capabilityPolicy(capability) === "block") continue
-    granted.push(descriptorFor(capability))
-  }
-
-  return granted
-}
 
 /** Preserve a capability definition's input and output types at declaration sites. */
 export const defineCapability = <Ctx, Input, Output>(
@@ -87,10 +53,13 @@ export const createRegistry = <Ctx>(options: CreateRegistryOptions<Ctx>): Regist
   }
 
   const createSurface = (input: CreateSurfaceInput): Surface => {
-    const capabilities = grantedCapabilities(input.requested, byName)
-    const grantedNames = new Set(capabilities.map((capability) => capability.name))
-    const html = sanitizeSurfaceHtml(input.html, grantedNames)
-    return surfaceRecords.create({ html, capabilities, meta: input.meta })
+    const grantProjection = projectGrantedCapabilities({ requested: input.requested, byName })
+    const html = sanitizeSurfaceHtml(input.html, grantProjection.names)
+    return surfaceRecords.create({
+      html,
+      capabilities: grantProjection.capabilities,
+      meta: input.meta,
+    })
   }
 
   const execute = async (
@@ -108,9 +77,7 @@ export const createRegistry = <Ctx>(options: CreateRegistryOptions<Ctx>): Regist
       return capabilityError("blocked", "Capability is blocked.")
     }
 
-    const descriptor = surface.grant.capabilities.find(
-      (granted) => granted.name === call.capability,
-    )
+    const descriptor = findGrantedCapability(surface.grant, call.capability)
     if (descriptor === undefined || capability === undefined) {
       return capabilityError("not_granted", "Capability is not granted to this surface.")
     }
@@ -136,7 +103,7 @@ export const createRegistry = <Ctx>(options: CreateRegistryOptions<Ctx>): Regist
     }
   }
 
-  const descriptors = (): CapabilityDescriptor[] => publicCapabilities(byName.values())
+  const descriptors = (): CapabilityDescriptor[] => publicCapabilityDescriptors(byName.values())
 
   const instructions = (): string => {
     return genui0Instructions(descriptors())
