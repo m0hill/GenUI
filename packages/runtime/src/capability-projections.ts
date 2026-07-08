@@ -10,10 +10,18 @@ interface ProjectGrantedCapabilitiesInput<Ctx> {
   readonly byName: ReadonlyMap<string, AnyCapabilityDefinition<Ctx>>
 }
 
+export type DroppedCapabilityReason = "duplicate" | "unknown" | "blocked"
+
+export interface DroppedCapabilityRequest {
+  readonly name: string
+  readonly reason: DroppedCapabilityReason
+}
+
 /** Internal projection returned when requested capability names become a surface grant. */
 export interface ProjectedCapabilityGrant {
   readonly capabilities: readonly CapabilityDescriptor[]
   readonly names: ReadonlySet<string>
+  readonly dropped: readonly DroppedCapabilityRequest[]
 }
 
 /** Resolve the effective generated UI policy for a capability definition. */
@@ -45,19 +53,31 @@ export const projectGrantedCapabilities = <Ctx>({
 }: ProjectGrantedCapabilitiesInput<Ctx>): ProjectedCapabilityGrant => {
   const seen = new Set<string>()
   const capabilities: CapabilityDescriptor[] = []
+  const dropped: DroppedCapabilityRequest[] = []
 
   for (const name of requested) {
-    if (seen.has(name)) continue
+    if (seen.has(name)) {
+      dropped.push({ name, reason: "duplicate" })
+      continue
+    }
     seen.add(name)
 
     const capability = byName.get(name)
-    if (capability === undefined || capabilityPolicy(capability) === "block") continue
+    if (capability === undefined) {
+      dropped.push({ name, reason: "unknown" })
+      continue
+    }
+    if (capabilityPolicy(capability) === "block") {
+      dropped.push({ name, reason: "blocked" })
+      continue
+    }
     capabilities.push(descriptorFor(capability))
   }
 
   return {
     capabilities,
     names: new Set(capabilities.map((capability) => capability.name)),
+    dropped,
   }
 }
 

@@ -1,6 +1,6 @@
 import { genuiDialect, type CapabilityDescriptor, type Grant, type Surface } from "./types.js"
 
-interface SurfaceSource {
+export interface SurfaceSource {
   readonly html: string
   readonly requested: readonly string[]
   readonly meta?: Readonly<Record<string, unknown>>
@@ -12,14 +12,21 @@ interface CreateSurfaceRecordInput {
   readonly source: SurfaceSource
 }
 
-interface SurfaceRecord {
+export interface SurfaceRecord {
   readonly surface: Surface
   readonly source: SurfaceSource
 }
 
 interface SurfaceRecords {
   create(input: CreateSurfaceRecordInput): Surface
+  replace(input: ReplaceSurfaceRecordInput): Surface | undefined
   get(id: string): SurfaceRecord | undefined
+}
+
+interface ReplaceSurfaceRecordInput {
+  readonly id: string
+  readonly html: string
+  readonly capabilities: readonly CapabilityDescriptor[]
 }
 
 interface CreateSurfaceValueInput {
@@ -72,7 +79,7 @@ const copySurface = (surface: Surface): Surface =>
     meta: surface.meta,
   })
 
-/** Owns generated surface identity, grant construction, and in-memory record lookup. */
+/** Owns generated surface identity, immutable public values, and in-memory record lookup. */
 export const createSurfaceRecords = (): SurfaceRecords => {
   const records = new Map<string, SurfaceRecord>()
 
@@ -88,8 +95,23 @@ export const createSurfaceRecords = (): SurfaceRecords => {
     return copySurface(surface)
   }
 
+  const replace = (input: ReplaceSurfaceRecordInput): Surface | undefined => {
+    const record = records.get(input.id)
+    if (record === undefined) return undefined
+
+    const surface = createSurfaceValue({
+      id: input.id,
+      html: input.html,
+      capabilities: input.capabilities,
+      meta: record.source.meta,
+    })
+    records.set(input.id, Object.freeze({ surface, source: record.source }))
+    return copySurface(surface)
+  }
+
   return {
     create,
+    replace,
     get: (id) => records.get(id),
   }
 }

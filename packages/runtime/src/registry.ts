@@ -1,14 +1,12 @@
 import {
   capabilityPolicy,
   findGrantedCapability,
-  projectGrantedCapabilities,
   publicCapabilityDescriptors,
 } from "./capability-projections.js"
 import { genui0Instructions } from "./dialect/genui0.js"
 import { isGenui0CapabilityName } from "./dialect/genui0-language.js"
-import { sanitizeSurfaceHtml } from "./sanitizer.js"
 import { parseWithSchema } from "./schema.js"
-import { createSurfaceRecords } from "./surface-records.js"
+import { createSurfaceRuntime } from "./surface-runtime.js"
 import {
   type AnyCapabilityDefinition,
   type CapabilityCall,
@@ -39,7 +37,6 @@ export const defineCapability = <Ctx, Input, Output>(
 /** Create an isolated registry that owns capability definitions and per-surface grants. */
 export const createRegistry = <Ctx>(options: CreateRegistryOptions<Ctx>): Registry<Ctx> => {
   const byName = new Map<string, AnyCapabilityDefinition<Ctx>>()
-  const surfaceRecords = createSurfaceRecords()
 
   for (const capability of options.capabilities) {
     if (!isGenui0CapabilityName(capability.name)) {
@@ -51,22 +48,16 @@ export const createRegistry = <Ctx>(options: CreateRegistryOptions<Ctx>): Regist
     byName.set(capability.name, capability)
   }
 
-  const createSurface = (input: CreateSurfaceInput): Surface => {
-    const grantProjection = projectGrantedCapabilities({ requested: input.requested, byName })
-    const html = sanitizeSurfaceHtml(input.html, grantProjection.names)
-    return surfaceRecords.create({
-      html,
-      capabilities: grantProjection.capabilities,
-      source: input,
-    })
-  }
+  const surfaceRuntime = createSurfaceRuntime({ byName })
+
+  const createSurface = (input: CreateSurfaceInput): Surface => surfaceRuntime.createSurface(input)
 
   const execute = async (
     call: CapabilityCall,
     ctx: Ctx,
     options?: ExecuteOptions,
   ): Promise<CapabilityResult> => {
-    const record = surfaceRecords.get(call.surfaceId)
+    const record = surfaceRuntime.getRecord(call.surfaceId)
     if (record === undefined) {
       return capabilityError("unknown_surface", "Surface is not available.")
     }
