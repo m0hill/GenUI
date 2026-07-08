@@ -84,6 +84,33 @@ void test("genui/0 language validates safe expressions", () => {
   assert.equal(genui0Language.isSafeBindingExpression("count + 1"), false)
 })
 
+void test("genui/0 language rejects malformed tokenizer input", () => {
+  for (const expression of [
+    "'",
+    "'unfinished",
+    "$a '",
+    "$a == $b '",
+    "$a == '",
+    "--1",
+    "1x",
+    "$a true",
+  ]) {
+    assert.equal(genui0Language.isSafeSimpleExpression(expression), false, expression)
+  }
+
+  assert.equal(genui0Language.isSafeSimpleExpression(`"single ' quote"`), true)
+  assert.equal(genui0Language.isSafeSimpleExpression(`'double " quote'`), true)
+  assert.equal(
+    genui0Language.parseCapabilityAction("@action ('dice.roll', { sides: 6 })"),
+    undefined,
+  )
+  assert.equal(
+    genui0Language.parseCapabilityAction("@action('dice.roll', { sides: [1] })"),
+    undefined,
+  )
+  assert.equal(genui0Language.parseSetAction("@set('tab', true) false"), undefined)
+})
+
 void test("genui/0 language treats prototype-shaped object keys as data only", () => {
   const pollutionKey = "genuiPolluted"
   Reflect.deleteProperty(Object.prototype, pollutionKey)

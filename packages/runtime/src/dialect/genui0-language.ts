@@ -218,6 +218,7 @@ const createGenui0Language = (): Genui0Language => {
         const start = index
         index += 1
         let value = ""
+        let closed = false
 
         while (index < source.length) {
           const current = source[index]
@@ -227,14 +228,14 @@ const createGenui0Language = (): Genui0Language => {
           if (current === quote) {
             index += 1
             tokens.push({ type: "string", value, start, end: index })
-            value = ""
+            closed = true
             break
           }
           value += current
           index += 1
         }
 
-        if (value.length > 0 || source[index - 1] !== quote) return undefined
+        if (!closed) return undefined
         continue
       }
 
