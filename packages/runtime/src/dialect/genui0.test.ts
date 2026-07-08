@@ -10,8 +10,23 @@ import {
   genui0Instructions,
   genui0RuntimeDirectiveFromAttribute,
 } from "./genui0.js"
+import type { Action } from "../types.js"
 
-const grantedActions = new Set(["dice.roll"])
+const grantedActionList: readonly Action[] = [
+  {
+    name: "dice.roll",
+    description: "Roll a die.",
+    effect: "read",
+    requiresApproval: false,
+  },
+  {
+    name: "notes.create",
+    description: "Create a note.",
+    effect: "write",
+    requiresApproval: false,
+  },
+]
+const grantedActions = new Map(grantedActionList.map((action) => [action.name, action]))
 
 const runtimeContext = {
   isTruthy(value: unknown): boolean {
@@ -82,6 +97,41 @@ void test("genui/0 allows only granted capability actions with v0 object inputs"
       grantedActions,
     }),
     { reason: "invalid_genui_expression" },
+  )
+  assert.deepEqual(
+    allowGenui0DataAttribute({
+      name: "data-genui-on-load",
+      value: "@action('dice.roll', { sides: 6 }, { target: 'rollResult' })",
+      grantedActions,
+    }),
+    {
+      name: "data-genui-on-load",
+      value: "@action('dice.roll', { sides: 6 }, { target: 'rollResult' })",
+    },
+  )
+  assert.deepEqual(
+    allowGenui0DataAttribute({
+      name: "data-genui-on-load",
+      value: "@action('demo.secret', {})",
+      grantedActions,
+    }),
+    { reason: "ungranted_action" },
+  )
+  assert.deepEqual(
+    allowGenui0DataAttribute({
+      name: "data-genui-on-load",
+      value: "@action('notes.create', { text: 'Loaded' })",
+      grantedActions,
+    }),
+    { reason: "forbidden_load_action" },
+  )
+  assert.deepEqual(
+    allowGenui0DataAttribute({
+      name: "data-genui-on-load",
+      value: "@set('ready', true)",
+      grantedActions,
+    }),
+    { reason: "forbidden_load_action" },
   )
 })
 
@@ -320,6 +370,7 @@ void test("genui/0 instructions describe dialect and capability descriptors", ()
 
   assert.match(instructions, /Generated UI dialect: genui\/0/)
   assert.match(instructions, /data-genui-on-submit/)
+  assert.match(instructions, /data-genui-on-load/)
   assert.match(instructions, /data-genui-each/)
   assert.match(instructions, /data-genui-as/)
   assert.match(instructions, /@set\('state\.path', value\)/)
@@ -339,6 +390,7 @@ void test("genui/0 instructions describe dialect and capability descriptors", ()
   assert.match(instructions, /Ordering comparisons require matching types/)
   assert.match(instructions, /formatCurrency/)
   assert.match(instructions, /formatPercent takes a fraction/)
+  assert.match(instructions, /load initial data/)
 })
 
 void test("genui/0 instructions include every directive usage and directive line", () => {

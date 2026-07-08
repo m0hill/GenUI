@@ -55,6 +55,11 @@ export const installSandboxRuntime = (
     directives: Directive[]
   }
 
+  type LoadAction = {
+    readonly expression: string
+    readonly scope: StateScope
+  }
+
   type OwnPropertyRead =
     | { readonly found: false }
     | { readonly found: true; readonly value: unknown }
@@ -65,6 +70,7 @@ export const installSandboxRuntime = (
   const state: Record<string, unknown> = {}
   const directives: Directive[] = []
   const eachBlocks: EachBlock[] = []
+  const loadActions: LoadAction[] = []
   const boundElements = new Map<Element, readonly string[]>()
   const elementScopes = new WeakMap<Element, StateScope>()
   const emptyScope: StateScope = {}
@@ -348,6 +354,10 @@ export const installSandboxRuntime = (
   const runAuthoredAction = (expression: string, scope: StateScope): boolean =>
     runLocalAction(expression, scope) || postActionCall(expression, scope)
 
+  const runLoadActions = (): void => {
+    for (const action of loadActions) runAuthoredAction(action.expression, action.scope)
+  }
+
   const handleClick = (event: MouseEvent): void => {
     const action = closestWithAttribute(event.target, genui0AttributeNames.onClick)
     const expression = action?.getAttribute(genui0AttributeNames.onClick) ?? null
@@ -436,6 +446,15 @@ export const installSandboxRuntime = (
     }
   }
 
+  const installLoadAction = (element: Element, scope: StateScope, mode: RenderMode): void => {
+    if (mode !== "static") return
+
+    const expression = element.getAttribute(genui0AttributeNames.onLoad)
+    if (expression === null) return
+
+    loadActions.push({ expression, scope })
+  }
+
   const installDirective = (
     element: Element,
     attribute: Attr,
@@ -463,6 +482,7 @@ export const installSandboxRuntime = (
     }
 
     if (mode === "static") installStaticBinding(element)
+    installLoadAction(element, scope, mode)
 
     if (element.hasAttribute(genui0AttributeNames.each)) {
       if (mode === "static") {
@@ -555,6 +575,8 @@ export const installSandboxRuntime = (
     resizeObserver = new global.ResizeObserver(reportHeight)
     resizeObserver.observe(global.document.body)
   }
+
+  runLoadActions()
 
   return {
     dispose() {

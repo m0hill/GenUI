@@ -87,6 +87,41 @@ void test("sandbox runtime posts capability calls from submit actions", () => {
   assert.equal(message.target, undefined)
 })
 
+void test("sandbox runtime posts load actions and renders pending/result state", () => {
+  const { window, messages } = createHarness(`
+    <section data-genui-state="{ status: 'open' }" data-genui-on-load="@action('orders.search', { status: $status }, { target: 'orders' })">
+      <p id="pending" data-genui-show="$orders.status == 'pending'">Loading</p>
+      <p id="ready" data-genui-show="$orders.status == 'complete'">Ready</p>
+      <ul data-genui-each="$orders.value.items" data-genui-as="order">
+        <li data-genui-text="$order.id"></li>
+      </ul>
+    </section>
+  `)
+
+  const message = capabilityPostMessage(messages)
+  assert.equal(message.action, "orders.search")
+  assert.equal(message.target, "orders")
+  assert.deepEqual(jsonRoundTrip(message.input), { status: "open" })
+  assert.equal(displayStyle(window.document.querySelector("#pending")), "")
+  assert.equal(displayStyle(window.document.querySelector("#ready")), "none")
+
+  window.dispatchEvent(
+    new window.MessageEvent("message", {
+      data: {
+        channel: protocolChannel,
+        surfaceId: "surface-test",
+        type: "result",
+        target: "orders",
+        state: { status: "complete", value: { items: [{ id: "order-1" }] } },
+      },
+    }),
+  )
+
+  assert.equal(displayStyle(window.document.querySelector("#pending")), "none")
+  assert.equal(displayStyle(window.document.querySelector("#ready")), "")
+  assert.equal(window.document.querySelector("li")?.textContent, "order-1")
+})
+
 void test("sandbox runtime exposes result state to later capability inputs", () => {
   const { window, messages } = createHarness(`
     <button data-genui-on-click="@capability('notes.create', { total: $rollResult.value.total })">

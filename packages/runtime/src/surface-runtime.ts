@@ -182,7 +182,7 @@ export const createSurfaceRuntime = <Ctx>({
 }: CreateSurfaceRuntimeOptions<Ctx>): SurfaceRuntime => {
   const project = (source: SurfaceInput): ProjectedSurfaceInput => {
     const grantProjection = projectGrantedActions({ actions: source.actions, byName })
-    const sanitized = sanitizeSurfaceHtml(source.html, grantProjection.names)
+    const sanitized = sanitizeSurfaceHtml(source.html, grantProjection.actions)
     return {
       html: sanitized.html,
       actions: grantProjection.actions,

@@ -80,6 +80,20 @@ void test("sandbox bridge posts capability calls from submit actions", () => {
   assert.equal(message.target, undefined)
 })
 
+void test("sandbox bridge posts capability calls from load actions", () => {
+  const { window, messages } = createHarness(`
+    <section data-genui-state="{ status: 'open' }" data-genui-on-load="@action('orders.search', { status: $status }, { target: 'orders' })">
+      <p id="pending" data-genui-show="$orders.status == 'pending'">Loading</p>
+    </section>
+  `)
+
+  const message = capabilityPostMessage(messages)
+  assert.equal(message.action, "orders.search")
+  assert.equal(message.target, "orders")
+  assert.deepEqual(jsonRoundTrip(message.input), { status: "open" })
+  assert.equal(displayStyle(window.document.querySelector("#pending")), "")
+})
+
 void test("sandbox bridge runs local set actions without posting messages", () => {
   const { window, messages } = createHarness(`
     <section data-genui-state="{ tab: 'summary' }">

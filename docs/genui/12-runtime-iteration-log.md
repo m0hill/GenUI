@@ -111,6 +111,7 @@ Supported directive shapes:
 - `data-genui-bind`
 - `data-genui-on-click`
 - `data-genui-on-submit`
+- `data-genui-on-load`
 - `data-genui-show`
 - `data-genui-text`
 - `data-genui-each`
@@ -147,6 +148,15 @@ Supported event actions:
 - `@action('name', input, { target: 'resultName' })`;
 - `@capability('name', input)` and target variants are accepted as legacy spellings;
 - `@set('state.path', value)`.
+
+Mount-time loading is declarative:
+
+- put `data-genui-on-load="@action('read.name', input, { target: 'resultName' })"` on a
+  static wrapper when a surface should load initial data immediately;
+- load actions use the same grant checks, pending state, result routing, and result
+  rendering model as click and submit actions;
+- `data-genui-on-load` is stripped from repeated templates because row lifecycle
+  semantics are not defined yet.
 
 Bindings are reactive in both directions for installed static controls:
 
@@ -334,6 +344,14 @@ Bindings are reactive in both directions for installed static controls:
       authored actions and action results still sync focused controls.
     - Done in code: repeated-template bindings remain inactive because editable row
       semantics are still deferred.
+
+18. Mount-time loading.
+    - Done in code: `data-genui-on-load` runs static mount-time authored actions after
+      sandbox listeners are installed.
+    - Done in code: load actions use the existing grant-checked action path and render
+      pending/result state through the normal target result model.
+    - Done in code: `data-genui-on-load` is stripped from repeated templates until row
+      lifecycle semantics are designed.
 
 ## Important Deferred Work
 

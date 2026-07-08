@@ -57,8 +57,6 @@ const installHostHarness = async (
       iframe.style.border = "0"
       iframe.style.display = "block"
       iframe.style.width = "100%"
-      iframe.srcdoc = srcdoc
-      root.replaceChildren(iframe)
 
       const completeLastCall = (result: unknown): void => {
         if (lastCall === undefined) throw new Error("No capability call is pending.")
@@ -132,6 +130,9 @@ const installHostHarness = async (
           events.push({ type: "call", target: lastCall.target })
         }
       })
+
+      iframe.srcdoc = srcdoc
+      root.replaceChildren(iframe)
 
       Object.assign(window, { __genuiHost: { calls, completeLastCall, events } })
     },
@@ -225,6 +226,36 @@ void test("browser sandbox renders capability pending and result state", async (
   assert.equal(await frame.locator("#total").textContent(), "8")
   await page.waitForFunction(() => document.querySelector("iframe")?.style.height === "80px")
   assert.equal(await page.locator("iframe").evaluate((iframe) => iframe.style.height), "80px")
+})
+
+void test("browser sandbox runs load actions on mount", async (context) => {
+  const page = await newBrowserPage()
+  context.after(async () => {
+    await page.close()
+  })
+
+  const frame = await installHostHarness(
+    page,
+    `
+      <section data-genui-state="{ status: 'open' }" data-genui-on-load="@action('orders.search', { status: $status }, { target: 'orders' })">
+        <p id="pending" data-genui-show="$orders.status == 'pending'">Loading</p>
+        <ul data-genui-each="$orders.value.items" data-genui-as="order">
+          <li data-genui-text="$order.id"></li>
+        </ul>
+      </section>
+    `,
+  )
+
+  await page.waitForFunction(() => window.__genuiHost.calls.length === 1)
+  await expectVisible(frame, "#pending")
+  const calls = await hostCalls(page)
+  assert.equal(calls[0]?.action, "orders.search")
+  assert.equal(calls[0]?.target, "orders")
+  assert.deepEqual(calls[0]?.input, { status: "open" })
+
+  await completeLastCall(page, { ok: true, value: { items: [{ id: "order-1" }] } })
+  await frame.locator("li").first().waitFor()
+  assert.equal(await frame.locator("li").textContent(), "order-1")
 })
 
 void test("browser sandbox prevents parent DOM access and network fetch", async (context) => {

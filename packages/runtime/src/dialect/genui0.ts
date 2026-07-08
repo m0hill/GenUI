@@ -11,6 +11,7 @@ export const genui0AttributeNames = {
   bind: "data-genui-bind",
   onClick: "data-genui-on-click",
   onSubmit: "data-genui-on-submit",
+  onLoad: "data-genui-on-load",
   show: "data-genui-show",
   text: "data-genui-text",
   each: "data-genui-each",
@@ -25,7 +26,7 @@ export const genui0AttributeNames = {
 interface Genui0DataAttribute {
   readonly name: string
   readonly value: string | undefined
-  readonly grantedActions: ReadonlySet<string>
+  readonly grantedActions: ReadonlyMap<string, Action>
   readonly insideRepeatedTemplate?: boolean
   readonly elementStartsRepeatedTemplate?: boolean
 }
@@ -51,7 +52,13 @@ type Genui0AttributePattern =
       readonly prefix: string
     }
 
-type Genui0DirectiveValueKind = "action" | "object" | "binding" | "state_name" | "simple"
+type Genui0DirectiveValueKind =
+  | "action"
+  | "load_action"
+  | "object"
+  | "binding"
+  | "state_name"
+  | "simple"
 
 interface Genui0DirectiveMatch {
   readonly name: string
@@ -202,6 +209,15 @@ const genui0DirectiveDefinitions = [
     valueKind: "action",
   },
   {
+    key: "on_load",
+    pattern: { type: "exact", name: genui0AttributeNames.onLoad },
+    usage: genui0AttributeNames.onLoad,
+    instruction:
+      "Use data-genui-on-load on a static wrapper for mount-time read @action(...) calls that load initial data.",
+    valueKind: "load_action",
+    forbiddenInRepeatedTemplate: true,
+  },
+  {
     key: "show",
     pattern: { type: "exact", name: genui0AttributeNames.show },
     usage: genui0AttributeNames.show,
@@ -331,7 +347,7 @@ const findDirective = (
 
 const actionExpressionRejectionReason = (
   value: string,
-  grantedActions: ReadonlySet<string>,
+  grantedActions: ReadonlyMap<string, Action>,
 ): SanitizationDropReason | undefined => {
   if (genui0Language.parseSetAction(value) !== undefined) return undefined
 
@@ -341,12 +357,27 @@ const actionExpressionRejectionReason = (
   return grantedActions.has(action.capability) ? undefined : "ungranted_action"
 }
 
+const loadActionExpressionRejectionReason = (
+  value: string,
+  grantedActions: ReadonlyMap<string, Action>,
+): SanitizationDropReason | undefined => {
+  if (genui0Language.parseSetAction(value) !== undefined) return "forbidden_load_action"
+
+  const action = genui0Language.parseCapabilityAction(value)
+  if (action === undefined) return "invalid_genui_expression"
+
+  const granted = grantedActions.get(action.capability)
+  if (granted === undefined) return "ungranted_action"
+  return granted.effect === "read" ? undefined : "forbidden_load_action"
+}
+
 const valueRejectionReason = (
   valueKind: Genui0DirectiveValueKind,
   value: string,
-  grantedActions: ReadonlySet<string>,
+  grantedActions: ReadonlyMap<string, Action>,
 ): SanitizationDropReason | undefined => {
   if (valueKind === "action") return actionExpressionRejectionReason(value, grantedActions)
+  if (valueKind === "load_action") return loadActionExpressionRejectionReason(value, grantedActions)
   if (valueKind === "object") {
     return genui0Language.isSafeObjectExpression(value) ? undefined : "invalid_genui_expression"
   }

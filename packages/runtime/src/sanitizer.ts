@@ -5,7 +5,12 @@ import {
   genui0AttributeForbiddenInRepeatedTemplate,
   genui0AttributeStartsRepeatedTemplate,
 } from "./dialect/genui0.js"
-import type { SanitizationDrop, SanitizationDropReason, SanitizationResult } from "./types.js"
+import type {
+  Action,
+  SanitizationDrop,
+  SanitizationDropReason,
+  SanitizationResult,
+} from "./types.js"
 
 type ParentNode = DefaultTreeAdapterMap["parentNode"]
 type ChildNode = DefaultTreeAdapterMap["childNode"]
@@ -13,7 +18,7 @@ type ElementNode = DefaultTreeAdapterMap["element"]
 type Attribute = ElementNode["attrs"][number]
 
 interface SanitizationContext {
-  readonly grantedActions: ReadonlySet<string>
+  readonly grantedActions: ReadonlyMap<string, Action>
   readonly dropped: SanitizationDrop[]
 }
 
@@ -118,7 +123,7 @@ const dropAttribute = (reason: SanitizationDropReason, value?: string): Sanitize
 
 const sanitizeDataAttribute = (
   attribute: Attribute,
-  grantedActions: ReadonlySet<string>,
+  grantedActions: ReadonlyMap<string, Action>,
   insideRepeatedTemplate: boolean,
   elementStartsRepeatedTemplate: boolean,
 ): SanitizedAttribute => {
@@ -137,7 +142,7 @@ const sanitizeDataAttribute = (
 
 const sanitizeAttribute = (
   attribute: Attribute,
-  grantedActions: ReadonlySet<string>,
+  grantedActions: ReadonlyMap<string, Action>,
   insideRepeatedTemplate: boolean,
 ): SanitizedAttribute => {
   const name = attributeName(attribute).toLowerCase()
@@ -260,10 +265,13 @@ const sanitizeChildren = (
 
 export const sanitizeSurfaceHtml = (
   html: string,
-  grantedActions: ReadonlySet<string>,
+  grantedActions: readonly Action[],
 ): SanitizationResult => {
   const fragment = parseFragment(html)
-  const context: SanitizationContext = { grantedActions, dropped: [] }
+  const context: SanitizationContext = {
+    grantedActions: new Map(grantedActions.map((action) => [action.name, action])),
+    dropped: [],
+  }
   sanitizeChildren(fragment, context)
   return Object.freeze({
     html: serialize(fragment),

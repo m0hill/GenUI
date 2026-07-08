@@ -161,6 +161,7 @@ export type SanitizationDropReason =
   | "invalid_genui_attribute"
   | "invalid_genui_expression"
   | "ungranted_action"
+  | "forbidden_load_action"
   | "unsafe_url"
   | "url_attribute"
 

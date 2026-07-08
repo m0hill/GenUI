@@ -1,8 +1,22 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { sanitizeSurfaceHtml } from "./sanitizer.js"
+import type { Action } from "./types.js"
 
-const granted = new Set(["dice.roll"])
+const granted: readonly Action[] = [
+  {
+    name: "dice.roll",
+    description: "Roll a die.",
+    effect: "read",
+    requiresApproval: false,
+  },
+  {
+    name: "notes.create",
+    description: "Create a note.",
+    effect: "write",
+    requiresApproval: false,
+  },
+]
 const sanitize = (html: string): string => sanitizeSurfaceHtml(html, granted).html
 
 void test("sanitizer strips dangerous tags, event handlers, and URL schemes", () => {
@@ -107,7 +121,11 @@ void test("sanitizer preserves only granted capability calls", () => {
   const sanitized = sanitizeSurfaceHtml(
     [
       `<button data-genui-on-click="@capability('dice.roll', { sides: 6 }, { target: 'rollResult' })">Roll</button>`,
+      `<section data-genui-on-load="@action('dice.roll', { sides: 6 }, { target: 'rollResult' })">Load</section>`,
+      `<section data-genui-on-load="@set('ready', true)">Local load</section>`,
+      `<section data-genui-on-load="@action('notes.create', { text: 'Loaded' })">Write load</section>`,
       `<button data-genui-on-click="@capability('demo.secret', {})">Secret</button>`,
+      `<section data-genui-on-load="@action('demo.secret', {})">Secret load</section>`,
       `<table><tbody data-genui-each="$orders.value.items" data-genui-as="order"><tr><td data-genui-text="$order.id"></td><td><button data-genui-on-click="@capability('demo.secret', { id: $order.id })">Secret</button></td></tr></tbody></table>`,
     ].join(""),
     granted,
@@ -118,15 +136,37 @@ void test("sanitizer preserves only granted capability calls", () => {
     safe,
     /data-genui-on-click="@capability\('dice\.roll', \{ sides: 6 \}, \{ target: 'rollResult' \}\)"/,
   )
+  assert.match(
+    safe,
+    /data-genui-on-load="@action\('dice\.roll', \{ sides: 6 \}, \{ target: 'rollResult' \}\)"/,
+  )
   assert.doesNotMatch(safe, /demo\.secret/)
   assert.match(safe, /data-genui-each="\$orders.value.items"/)
   assert.match(safe, /data-genui-as="order"/)
   assert.match(safe, /data-genui-text="\$order.id"/)
   assert.deepEqual(sanitized.dropped, [
     {
+      node: "section",
+      attribute: "data-genui-on-load",
+      value: "@set('ready', true)",
+      reason: "forbidden_load_action",
+    },
+    {
+      node: "section",
+      attribute: "data-genui-on-load",
+      value: "@action('notes.create', { text: 'Loaded' })",
+      reason: "forbidden_load_action",
+    },
+    {
       node: "button",
       attribute: "data-genui-on-click",
       value: "@capability('demo.secret', {})",
+      reason: "ungranted_action",
+    },
+    {
+      node: "section",
+      attribute: "data-genui-on-load",
+      value: "@action('demo.secret', {})",
       reason: "ungranted_action",
     },
     {
@@ -142,8 +182,9 @@ void test("sanitizer strips bindings inside repeated templates", () => {
   const sanitized = sanitizeSurfaceHtml(
     [
       `<input data-genui-bind="outside" value="kept">`,
-      `<section data-genui-each="$orders.value.items" data-genui-as="order" data-genui-bind="root">`,
+      `<section data-genui-each="$orders.value.items" data-genui-as="order" data-genui-bind="root" data-genui-on-load="@action('dice.roll', {})">`,
       `<input data-genui-bind="orderName" value="stripped">`,
+      `<button data-genui-on-load="@action('dice.roll', {})">Load row</button>`,
       `<span data-genui-text="$order.id"></span>`,
       `</section>`,
     ].join(""),
@@ -157,6 +198,7 @@ void test("sanitizer strips bindings inside repeated templates", () => {
   assert.match(safe, /data-genui-text="\$order.id"/)
   assert.doesNotMatch(safe, /data-genui-bind="root"/)
   assert.doesNotMatch(safe, /data-genui-bind="orderName"/)
+  assert.doesNotMatch(safe, /data-genui-on-load/)
   assert.deepEqual(sanitized.dropped, [
     {
       node: "section",
@@ -165,9 +207,21 @@ void test("sanitizer strips bindings inside repeated templates", () => {
       reason: "forbidden_repeated_template_attribute",
     },
     {
+      node: "section",
+      attribute: "data-genui-on-load",
+      value: "@action('dice.roll', {})",
+      reason: "forbidden_repeated_template_attribute",
+    },
+    {
       node: "input",
       attribute: "data-genui-bind",
       value: "orderName",
+      reason: "forbidden_repeated_template_attribute",
+    },
+    {
+      node: "button",
+      attribute: "data-genui-on-load",
+      value: "@action('dice.roll', {})",
       reason: "forbidden_repeated_template_attribute",
     },
   ])

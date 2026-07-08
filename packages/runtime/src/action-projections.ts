@@ -14,7 +14,6 @@ interface ProjectGrantedActionsInput<Ctx> {
 /** Internal projection returned when requested action names become a surface grant. */
 export interface ProjectedActionGrant {
   readonly actions: readonly Action[]
-  readonly names: ReadonlySet<string>
   readonly dropped: readonly DroppedAction[]
 }
 
@@ -68,7 +67,6 @@ export const projectGrantedActions = <Ctx>({
 
   return {
     actions: granted,
-    names: new Set(granted.map((action) => action.name)),
     dropped,
   }
 }

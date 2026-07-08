@@ -61,9 +61,6 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
   iframe.style.border = "0"
   iframe.style.display = "block"
   iframe.style.width = "100%"
-  iframe.srcdoc = surfaceDocument(broker.surface)
-
-  element.replaceChildren(iframe)
 
   const emit = (event: SurfaceEvent): void => options.onEvent?.(event)
 
@@ -95,6 +92,9 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
   }
 
   ownerDocument.defaultView?.addEventListener("message", handleMessage)
+  iframe.srcdoc = surfaceDocument(broker.surface)
+
+  element.replaceChildren(iframe)
 
   return {
     get surface() {
