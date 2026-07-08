@@ -1,8 +1,9 @@
-import type { CapabilityCall, CapabilityDescriptor, CapabilityResult, Surface } from "../types.js"
+import type { Surface } from "../types.js"
 import { sandboxBridgeScript } from "./sandbox-bridge.js"
 import {
   createSurfaceBroker,
   type SurfaceBrokerEffect,
+  type SurfaceBrokerOptions,
   type SurfaceBrokerTask,
   type SurfaceEvent,
 } from "./surface-broker.js"
@@ -15,13 +16,7 @@ export {
 } from "./result-routing.js"
 export type { SurfaceEvent, SurfaceViolationReason } from "./surface-broker.js"
 
-export interface MountSurfaceOptions {
-  readonly transport: (call: CapabilityCall) => Promise<CapabilityResult>
-  readonly approve?: (
-    descriptor: CapabilityDescriptor,
-    call: CapabilityCall,
-  ) => boolean | Promise<boolean>
-  readonly maxHeight?: number
+export interface MountSurfaceOptions extends SurfaceBrokerOptions {
   readonly onEvent?: (event: SurfaceEvent) => void
 }
 

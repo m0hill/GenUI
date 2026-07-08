@@ -1,105 +1,24 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import {
-  Window,
-  type BrowserWindow,
-  type Element as HappyElement,
-  type HTMLIFrameElement as HappyIFrameElement,
-} from "happy-dom"
 import { mountSurface, type SurfaceEvent } from "./index.js"
-import type { CapabilityCall, CapabilityResult, Surface } from "../types.js"
-
-const surface = (capabilities: Surface["grant"]["capabilities"]): Surface => {
-  const id = globalThis.crypto.randomUUID()
-  return {
-    id,
-    html: `<button>Roll</button>`,
-    grant: { surfaceId: id, capabilities },
-    dialect: "genui/0",
-  }
-}
-
-const grantedSurface = (): Surface => {
-  const id = globalThis.crypto.randomUUID()
-  return {
-    id,
-    html: `<button>Roll</button>`,
-    grant: {
-      surfaceId: id,
-      capabilities: [
-        {
-          name: "dice.roll",
-          description: "Roll a die.",
-          effect: "read",
-          requiresApproval: false,
-        },
-      ],
-    },
-    dialect: "genui/0",
-  }
-}
-
-const createMountTarget = (): { readonly window: Window; readonly element: HappyElement } => {
-  const window = new Window()
-  const element = window.document.createElement("div")
-  window.document.body.append(element)
-  return { window, element }
-}
-
-const asDomElement = (element: HappyElement): Element => {
-  // SAFETY: happy-dom implements the DOM Element operations used by mountSurface; its TypeScript
-  // classes are distinct from lib.dom classes even though the runtime API is compatible here.
-  return element as unknown as Element
-}
-
-const mountedIframe = (element: HappyElement): HappyIFrameElement => {
-  const iframe = element.querySelector("iframe")
-  assert.notEqual(iframe, null)
-  assert.equal(iframe?.tagName, "IFRAME")
-  return iframe as HappyIFrameElement
-}
-
-const flushAsync = async (): Promise<void> => {
-  await new Promise<void>((resolve) => {
-    setTimeout(resolve, 0)
-  })
-}
-
-const dispatchSandboxMessage = (
-  window: Window,
-  iframe: HappyIFrameElement,
-  data: Readonly<Record<string, unknown>>,
-): void => {
-  window.dispatchEvent(
-    new window.MessageEvent("message", {
-      data,
-      source: iframe.contentWindow as BrowserWindow | null,
-    }),
-  )
-}
-
-const deferred = <Value>(): {
-  readonly promise: Promise<Value>
-  resolve(value: Value): void
-} => {
-  let resolvePromise: ((value: Value) => void) | undefined
-  const promise = new Promise<Value>((resolve) => {
-    resolvePromise = resolve
-  })
-
-  return {
-    promise,
-    resolve(value) {
-      assert.notEqual(resolvePromise, undefined)
-      resolvePromise?.(value)
-    },
-  }
-}
+import type { CapabilityCall, CapabilityResult } from "../types.js"
+import { protocolChannel } from "./protocol.js"
+import {
+  asDomElement,
+  createMountTarget,
+  deferred,
+  diceDescriptor,
+  dispatchSandboxMessage,
+  flushAsync,
+  mountedIframe,
+  sandboxCapabilityMessage,
+  testSurface,
+} from "./test-support.test-support.js"
 
 void test("mountSurface renders a sandboxed iframe and updates/disposes it", () => {
   const { element } = createMountTarget()
-  const first = grantedSurface()
-  const second = grantedSurface()
+  const first = testSurface([diceDescriptor], `<button>Roll</button>`)
+  const second = testSurface([diceDescriptor], `<button>Roll</button>`)
   const instance = mountSurface(asDomElement(element), first, {
     transport: async (): Promise<CapabilityResult> => ({ ok: true, value: {} }),
   })
@@ -119,7 +38,7 @@ void test("mountSurface renders a sandboxed iframe and updates/disposes it", () 
 
 void test("mountSurface brokers granted capability calls through transport", async () => {
   const { window, element } = createMountTarget()
-  const current = grantedSurface()
+  const current = testSurface([diceDescriptor], `<button>Roll</button>`)
   const events: SurfaceEvent[] = []
   const calls: CapabilityCall[] = []
   const instance = mountSurface(asDomElement(element), current, {
@@ -131,15 +50,7 @@ void test("mountSurface brokers granted capability calls through transport", asy
   })
   const iframe = mountedIframe(element)
 
-  dispatchSandboxMessage(window, iframe, {
-    channel: "genui/dom/0",
-    type: "capability",
-    surfaceId: current.id,
-    callId: "call-1",
-    capability: "dice.roll",
-    input: { sides: 6 },
-    target: "rollResult",
-  })
+  dispatchSandboxMessage(window, iframe, sandboxCapabilityMessage(current))
   await flushAsync()
 
   assert.deepEqual(calls, [
@@ -157,7 +68,7 @@ void test("mountSurface brokers granted capability calls through transport", asy
 
 void test("mountSurface refuses ungranted calls before transport", async () => {
   const { window, element } = createMountTarget()
-  const current = surface([])
+  const current = testSurface([], `<button>Roll</button>`)
   const events: SurfaceEvent[] = []
   let transportCalled = false
   mountSurface(asDomElement(element), current, {
@@ -169,14 +80,7 @@ void test("mountSurface refuses ungranted calls before transport", async () => {
   })
   const iframe = mountedIframe(element)
 
-  dispatchSandboxMessage(window, iframe, {
-    channel: "genui/dom/0",
-    type: "capability",
-    surfaceId: current.id,
-    callId: "call-1",
-    capability: "dice.roll",
-    input: {},
-  })
+  dispatchSandboxMessage(window, iframe, sandboxCapabilityMessage(current))
   await flushAsync()
 
   assert.equal(transportCalled, false)
@@ -190,7 +94,7 @@ void test("mountSurface refuses ungranted calls before transport", async () => {
 
 void test("mountSurface emits link, resize, and protocol violation events", () => {
   const { window, element } = createMountTarget()
-  const current = grantedSurface()
+  const current = testSurface([diceDescriptor], `<button>Roll</button>`)
   const events: SurfaceEvent[] = []
   mountSurface(asDomElement(element), current, {
     transport: async (): Promise<CapabilityResult> => ({ ok: true, value: {} }),
@@ -200,13 +104,13 @@ void test("mountSurface emits link, resize, and protocol violation events", () =
   const iframe = mountedIframe(element)
 
   dispatchSandboxMessage(window, iframe, {
-    channel: "genui/dom/0",
+    channel: protocolChannel,
     type: "resize",
     surfaceId: current.id,
     height: 999,
   })
   dispatchSandboxMessage(window, iframe, {
-    channel: "genui/dom/0",
+    channel: protocolChannel,
     type: "link",
     surfaceId: current.id,
     href: "https://example.com/",
@@ -228,8 +132,8 @@ void test("mountSurface emits link, resize, and protocol violation events", () =
 
 void test("mountSurface drops pending results after updating to a different surface", async () => {
   const { window, element } = createMountTarget()
-  const first = grantedSurface()
-  const second = grantedSurface()
+  const first = testSurface([diceDescriptor], `<button>Roll</button>`)
+  const second = testSurface([diceDescriptor], `<button>Roll</button>`)
   const result = deferred<CapabilityResult>()
   const events: SurfaceEvent[] = []
   const instance = mountSurface(asDomElement(element), first, {
@@ -238,14 +142,7 @@ void test("mountSurface drops pending results after updating to a different surf
   })
   const iframe = mountedIframe(element)
 
-  dispatchSandboxMessage(window, iframe, {
-    channel: "genui/dom/0",
-    type: "capability",
-    surfaceId: first.id,
-    callId: "call-1",
-    capability: "dice.roll",
-    input: {},
-  })
+  dispatchSandboxMessage(window, iframe, sandboxCapabilityMessage(first))
   instance.update(second)
   result.resolve({ ok: true, value: { total: 6 } })
   await flushAsync()
@@ -259,7 +156,7 @@ void test("mountSurface drops pending results after updating to a different surf
 
 void test("mountSurface drops pending results after dispose", async () => {
   const { window, element } = createMountTarget()
-  const current = grantedSurface()
+  const current = testSurface([diceDescriptor], `<button>Roll</button>`)
   const result = deferred<CapabilityResult>()
   const events: SurfaceEvent[] = []
   const instance = mountSurface(asDomElement(element), current, {
@@ -268,14 +165,7 @@ void test("mountSurface drops pending results after dispose", async () => {
   })
   const iframe = mountedIframe(element)
 
-  dispatchSandboxMessage(window, iframe, {
-    channel: "genui/dom/0",
-    type: "capability",
-    surfaceId: current.id,
-    callId: "call-1",
-    capability: "dice.roll",
-    input: {},
-  })
+  dispatchSandboxMessage(window, iframe, sandboxCapabilityMessage(current))
   instance.dispose()
   result.resolve({ ok: true, value: { total: 6 } })
   await flushAsync()

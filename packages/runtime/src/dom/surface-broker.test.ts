@@ -6,44 +6,13 @@ import {
   type SurfaceBrokerEffect,
   type SurfaceBrokerTask,
 } from "./surface-broker.js"
-import type { CapabilityCall, CapabilityResult, Surface } from "../types.js"
-
-const diceDescriptor = {
-  name: "dice.roll",
-  description: "Roll a die.",
-  effect: "read",
-  requiresApproval: false,
-} as const
-
-const approvedDescriptor = {
-  name: "notes.create",
-  description: "Create a note.",
-  effect: "write",
-  requiresApproval: true,
-} as const
-
-const surface = (capabilities: Surface["grant"]["capabilities"]): Surface => {
-  const id = globalThis.crypto.randomUUID()
-  return {
-    id,
-    html: "",
-    grant: { surfaceId: id, capabilities },
-    dialect: "genui/0",
-  }
-}
-
-const capabilityMessage = (
-  current: Surface,
-  capability = "dice.roll",
-): Readonly<Record<string, unknown>> => ({
-  channel: protocolChannel,
-  type: "capability",
-  surfaceId: current.id,
-  callId: "call-1",
-  capability,
-  input: { sides: 6 },
-  target: "rollResult",
-})
+import type { CapabilityCall, CapabilityResult } from "../types.js"
+import {
+  approvedDescriptor,
+  diceDescriptor,
+  sandboxCapabilityMessage,
+  testSurface,
+} from "./test-support.test-support.js"
 
 const pendingEffects = async (task: SurfaceBrokerTask): Promise<readonly SurfaceBrokerEffect[]> => {
   assert.notEqual(task.pending, undefined)
@@ -57,7 +26,7 @@ const resultPost = (effects: readonly SurfaceBrokerEffect[]): SurfaceBrokerEffec
   effects.find((effect) => effect.type === "post_result")
 
 void test("surface broker runs granted capability calls through transport", async () => {
-  const current = surface([diceDescriptor])
+  const current = testSurface([diceDescriptor])
   const calls: CapabilityCall[] = []
   const broker = createSurfaceBroker(current, {
     transport: async (call): Promise<CapabilityResult> => {
@@ -66,7 +35,7 @@ void test("surface broker runs granted capability calls through transport", asyn
     },
   })
 
-  const task = broker.handleSandboxMessage(capabilityMessage(current))
+  const task = broker.handleSandboxMessage(sandboxCapabilityMessage(current))
 
   assert.deepEqual(emittedEvents(task.effects), [
     {
@@ -98,7 +67,7 @@ void test("surface broker runs granted capability calls through transport", asyn
 })
 
 void test("surface broker refuses ungranted capability calls before transport", () => {
-  const current = surface([])
+  const current = testSurface([])
   let transportCalled = false
   const broker = createSurfaceBroker(current, {
     transport: async (): Promise<CapabilityResult> => {
@@ -107,7 +76,7 @@ void test("surface broker refuses ungranted capability calls before transport", 
     },
   })
 
-  const task = broker.handleSandboxMessage(capabilityMessage(current))
+  const task = broker.handleSandboxMessage(sandboxCapabilityMessage(current))
 
   assert.equal(task.pending, undefined)
   assert.equal(transportCalled, false)
@@ -127,13 +96,13 @@ void test("surface broker refuses ungranted capability calls before transport", 
 })
 
 void test("surface broker denies approval-gated calls without approval", async () => {
-  const current = surface([approvedDescriptor])
+  const current = testSurface([approvedDescriptor])
   const broker = createSurfaceBroker(current, {
     transport: async (): Promise<CapabilityResult> => ({ ok: true, value: {} }),
   })
 
   const effects = await pendingEffects(
-    broker.handleSandboxMessage(capabilityMessage(current, "notes.create")),
+    broker.handleSandboxMessage(sandboxCapabilityMessage(current, "notes.create")),
   )
   const post = resultPost(effects)
 
@@ -146,7 +115,7 @@ void test("surface broker denies approval-gated calls without approval", async (
 })
 
 void test("surface broker emits protocol, resize, link, and mismatch effects", () => {
-  const current = surface([diceDescriptor])
+  const current = testSurface([diceDescriptor])
   const broker = createSurfaceBroker(current, {
     maxHeight: 320,
     transport: async (): Promise<CapabilityResult> => ({ ok: true, value: {} }),
@@ -195,7 +164,7 @@ void test("surface broker emits protocol, resize, link, and mismatch effects", (
 })
 
 void test("surface broker refuses unsafe forged link messages", () => {
-  const current = surface([diceDescriptor])
+  const current = testSurface([diceDescriptor])
   const broker = createSurfaceBroker(current, {
     transport: async (): Promise<CapabilityResult> => ({ ok: true, value: {} }),
   })
@@ -220,23 +189,23 @@ void test("surface broker drops pending results after update or dispose", async 
   const result = new Promise<CapabilityResult>((resolve) => {
     resolveResult = resolve
   })
-  const current = surface([diceDescriptor])
-  const next = surface([diceDescriptor])
+  const current = testSurface([diceDescriptor])
+  const next = testSurface([diceDescriptor])
   const broker = createSurfaceBroker(current, {
     transport: async () => result,
   })
 
-  const task = broker.handleSandboxMessage(capabilityMessage(current))
+  const task = broker.handleSandboxMessage(sandboxCapabilityMessage(current))
   broker.update(next)
   resolveResult?.({ ok: true, value: { total: 6 } })
 
   assert.deepEqual(await pendingEffects(task), [])
 
-  const disposed = surface([diceDescriptor])
+  const disposed = testSurface([diceDescriptor])
   const disposedBroker = createSurfaceBroker(disposed, {
     transport: async (): Promise<CapabilityResult> => ({ ok: true, value: { total: 6 } }),
   })
-  const disposedTask = disposedBroker.handleSandboxMessage(capabilityMessage(disposed))
+  const disposedTask = disposedBroker.handleSandboxMessage(sandboxCapabilityMessage(disposed))
   disposedBroker.dispose()
 
   assert.deepEqual(await pendingEffects(disposedTask), [])

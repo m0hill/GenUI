@@ -1,46 +1,22 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { Window } from "happy-dom"
 import { protocolChannel } from "./protocol.js"
 import { sandboxBridgeScript } from "./sandbox-bridge.js"
+import {
+  capabilityPostMessage,
+  createSandboxWindow,
+  displayStyle,
+  isRecord,
+  jsonRoundTrip,
+} from "./test-support.test-support.js"
 
-interface BridgeHarness {
-  readonly window: Window
-  readonly messages: unknown[]
-}
-
-const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
-  typeof value === "object" && value !== null
+type BridgeHarness = ReturnType<typeof createSandboxWindow>
 
 const createHarness = (html: string, surfaceId = "surface-test"): BridgeHarness => {
-  const window = new Window()
-  const messages: unknown[] = []
-
-  window.document.body.innerHTML = html
-  window.parent.postMessage = (message: unknown): void => {
-    messages.push(message)
-  }
+  const { window, messages } = createSandboxWindow(html)
   window.eval(sandboxBridgeScript(surfaceId))
 
   return { window, messages }
-}
-
-const capabilityMessage = (messages: readonly unknown[]): Readonly<Record<string, unknown>> => {
-  const message = messages.find(
-    (candidate) => isRecord(candidate) && candidate.type === "capability",
-  )
-  assert.notEqual(message, undefined)
-  assert.ok(isRecord(message))
-  return message
-}
-
-const jsonRoundTrip = (value: unknown): unknown => JSON.parse(JSON.stringify(value))
-
-const displayStyle = (element: unknown): string => {
-  assert.notEqual(element, null)
-  // SAFETY: these fixtures select HTML elements created by happy-dom. Its Element type is not
-  // assignable to lib.dom's HTMLElement even though the runtime exposes the same style API here.
-  return (element as unknown as HTMLElement).style.display
 }
 
 void test("sandbox bridge posts capability calls from click actions", () => {
@@ -58,7 +34,7 @@ void test("sandbox bridge posts capability calls from click actions", () => {
     .querySelector("button")
     ?.dispatchEvent(new window.Event("click", { bubbles: true, cancelable: true }))
 
-  const message = capabilityMessage(messages)
+  const message = capabilityPostMessage(messages)
   assert.equal(message.channel, protocolChannel)
   assert.equal(message.surfaceId, "surface-test")
   assert.equal(message.capability, "dice.roll")
@@ -87,7 +63,7 @@ void test("sandbox bridge posts capability calls from prevented submit actions",
   )
 
   assert.equal(defaultAllowed, false)
-  const message = capabilityMessage(messages)
+  const message = capabilityPostMessage(messages)
   assert.equal(message.capability, "weather.lookup")
   assert.deepEqual(jsonRoundTrip(message.input), { city: "Tokyo" })
   assert.equal(message.target, undefined)
@@ -115,7 +91,7 @@ void test("sandbox bridge exposes result state to later capability inputs", () =
     .querySelector("button")
     ?.dispatchEvent(new window.Event("click", { bubbles: true, cancelable: true }))
 
-  const message = capabilityMessage(messages)
+  const message = capabilityPostMessage(messages)
   assert.equal(message.capability, "notes.create")
   assert.deepEqual(jsonRoundTrip(message.input), { total: 6 })
 })
@@ -135,7 +111,7 @@ void test("sandbox bridge renders pending and result state directives", () => {
     .querySelector("button")
     ?.dispatchEvent(new window.Event("click", { bubbles: true, cancelable: true }))
 
-  assert.equal(capabilityMessage(messages).target, "rollResult")
+  assert.equal(capabilityPostMessage(messages).target, "rollResult")
   assert.equal(displayStyle(pending), "")
   assert.equal(displayStyle(success), "none")
 

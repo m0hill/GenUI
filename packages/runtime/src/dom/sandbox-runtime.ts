@@ -92,7 +92,7 @@ export const installSandboxRuntime = (
   const directives: Directive[] = []
 
   const isRecord = (value: unknown): value is Record<string, unknown> =>
-    typeof value === "object" && value !== null
+    typeof value === "object" && value !== null && !Array.isArray(value)
 
   const hasOwn = (value: object, key: string): boolean =>
     Object.prototype.hasOwnProperty.call(value, key)

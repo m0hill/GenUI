@@ -3,6 +3,7 @@ import {
   findGrantedCapability,
   publicCapabilityDescriptors,
 } from "./capability-projections.js"
+import { capabilityError } from "./capability-result.js"
 import { genui0Instructions } from "./dialect/genui0.js"
 import { isGenui0CapabilityName } from "./dialect/genui0-language.js"
 import { parseWithSchema } from "./schema.js"
@@ -12,7 +13,6 @@ import {
   type CapabilityCall,
   type CapabilityDefinition,
   type CapabilityDescriptor,
-  type CapabilityErrorCode,
   type CapabilityResult,
   type CreateSurfaceInput,
   type ExecuteOptions,
@@ -23,11 +23,6 @@ import {
 export interface CreateRegistryOptions<Ctx> {
   readonly capabilities: readonly AnyCapabilityDefinition<Ctx>[]
 }
-
-const capabilityError = (code: CapabilityErrorCode, message: string): CapabilityResult => ({
-  ok: false,
-  error: { code, message },
-})
 
 /** Preserve a capability definition's input and output types at declaration sites. */
 export const defineCapability = <Ctx, Input, Output>(

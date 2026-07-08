@@ -13,7 +13,13 @@ const sourceFiles = async (directory: string): Promise<string[]> => {
       files.push(...(await sourceFiles(path)))
       continue
     }
-    if (entry.isFile() && path.endsWith(".ts") && !path.endsWith(".test.ts")) files.push(path)
+    if (
+      entry.isFile() &&
+      path.endsWith(".ts") &&
+      !path.endsWith(".test.ts") &&
+      !path.endsWith(".test-support.ts")
+    )
+      files.push(path)
   }
 
   return files

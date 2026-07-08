@@ -1,10 +1,12 @@
-import { genuiDialect, type CapabilityDescriptor, type Grant, type Surface } from "./types.js"
+import {
+  genuiDialect,
+  type CapabilityDescriptor,
+  type CreateSurfaceInput,
+  type Grant,
+  type Surface,
+} from "./types.js"
 
-export interface SurfaceSource {
-  readonly html: string
-  readonly requested: readonly string[]
-  readonly meta?: Readonly<Record<string, unknown>>
-}
+export type SurfaceSource = CreateSurfaceInput
 
 interface CreateSurfaceRecordInput {
   readonly html: string

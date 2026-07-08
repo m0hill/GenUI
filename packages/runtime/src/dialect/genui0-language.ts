@@ -355,16 +355,6 @@ const genui0Language = createGenui0Language()
 export const isGenui0CapabilityName = (value: string): boolean =>
   genui0Language.isCapabilityName(value)
 
-/** Return whether a string is a valid genui/0 signal/result target name. */
-export const isGenui0SignalName = (value: string): boolean => genui0Language.isSignalName(value)
-
-/** Return whether a string is a valid genui/0 signal read path. */
-export const isGenui0SignalPath = (value: string): boolean => genui0Language.isSignalPath(value)
-
-/** Return whether a scalar expression belongs to the genui/0 closed expression subset. */
-export const isSafeGenui0ScalarExpression = (value: string): boolean =>
-  genui0Language.isSafeScalarExpression(value)
-
 /** Return whether a flat object expression belongs to the genui/0 closed expression subset. */
 export const isSafeGenui0ObjectExpression = (value: string): boolean =>
   genui0Language.isSafeObjectExpression(value)
@@ -372,12 +362,6 @@ export const isSafeGenui0ObjectExpression = (value: string): boolean =>
 /** Return whether an ordinary local expression belongs to the genui/0 subset. */
 export const isSafeGenui0SimpleExpression = (value: string): boolean =>
   genui0Language.isSafeSimpleExpression(value)
-
-/** Evaluate a genui/0 local expression with the provided signal reader. */
-export const evaluateGenui0Expression = (
-  value: string,
-  readSignal: (expression: string) => unknown,
-): unknown => genui0Language.evaluateExpression(value, readSignal)
 
 /** Return whether a data-bind expression belongs to the genui/0 subset. */
 export const isSafeGenui0BindingExpression = (value: string): boolean =>

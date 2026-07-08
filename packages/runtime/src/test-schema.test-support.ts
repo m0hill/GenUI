@@ -1,11 +1,10 @@
+import type { SchemaParseResult } from "./schema.js"
 import type { StandardSchemaResult, StandardSchemaV1 } from "./types.js"
 
-export type TestSchemaResult<Value> =
-  | { readonly ok: true; readonly value: Value }
-  | { readonly ok: false; readonly message: string }
+export { isRecord } from "./test-support.test-support.js"
 
 export const testSchema = <Value>(
-  parse: (value: unknown) => TestSchemaResult<Value>,
+  parse: (value: unknown) => SchemaParseResult<Value>,
 ): StandardSchemaV1<unknown, Value> => ({
   "~standard": {
     version: 1,
@@ -17,6 +16,3 @@ export const testSchema = <Value>(
     },
   },
 })
-
-export const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
-  typeof value === "object" && value !== null && !Array.isArray(value)

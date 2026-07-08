@@ -1,10 +1,12 @@
 import type {
   CapabilityCall,
   CapabilityDescriptor,
-  CapabilityErrorCode,
   CapabilityResult,
+  ExecuteOptions,
   Surface,
 } from "../types.js"
+import { capabilityError } from "../capability-result.js"
+import { isRecord } from "../record.js"
 import { protocolChannel } from "./protocol.js"
 import {
   normalizeResultTarget,
@@ -40,10 +42,7 @@ export type SurfaceEvent =
 
 export interface SurfaceBrokerOptions {
   readonly transport: (call: CapabilityCall) => Promise<CapabilityResult>
-  readonly approve?: (
-    descriptor: CapabilityDescriptor,
-    call: CapabilityCall,
-  ) => boolean | Promise<boolean>
+  readonly approve?: NonNullable<ExecuteOptions["approve"]>
   readonly maxHeight?: number
 }
 
@@ -75,25 +74,22 @@ export interface SurfaceBroker {
   dispose(): void
 }
 
-interface BaseSandboxMessage {
+interface CapabilitySandboxMessage extends CapabilityCall {
   readonly channel: string
-  readonly surfaceId: string
-}
-
-interface CapabilitySandboxMessage extends BaseSandboxMessage {
   readonly type: "capability"
-  readonly callId: string
-  readonly capability: string
-  readonly input: unknown
   readonly target?: string
 }
 
-interface ResizeSandboxMessage extends BaseSandboxMessage {
+interface ResizeSandboxMessage {
+  readonly channel: string
+  readonly surfaceId: string
   readonly type: "resize"
   readonly height: number
 }
 
-interface LinkSandboxMessage extends BaseSandboxMessage {
+interface LinkSandboxMessage {
+  readonly channel: string
+  readonly surfaceId: string
   readonly type: "link"
   readonly href: string
 }
@@ -101,16 +97,10 @@ interface LinkSandboxMessage extends BaseSandboxMessage {
 type SandboxMessage = CapabilitySandboxMessage | ResizeSandboxMessage | LinkSandboxMessage
 
 interface BrokerCapabilityRequest {
-  readonly surfaceId: string
-  readonly callId: string
-  readonly capability: string
   readonly target: string
   readonly descriptor: CapabilityDescriptor
   readonly call: CapabilityCall
 }
-
-const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
-  typeof value === "object" && value !== null
 
 const parseSandboxMessage = (value: unknown): SandboxMessage | undefined => {
   if (!isRecord(value)) return undefined
@@ -150,11 +140,6 @@ const parseSandboxMessage = (value: unknown): SandboxMessage | undefined => {
 
   return undefined
 }
-
-const capabilityError = (code: CapabilityErrorCode, message: string): CapabilityResult => ({
-  ok: false,
-  error: { code, message },
-})
 
 const clampHeight = (height: number, maxHeight: number): number =>
   Math.max(0, Math.min(Math.ceil(height), maxHeight))
@@ -218,9 +203,9 @@ export const createSurfaceBroker = (
         const approved = await options.approve?.(request.descriptor, request.call)
         if (approved !== true) {
           return resultEffects(
-            request.surfaceId,
-            request.callId,
-            request.capability,
+            request.call.surfaceId,
+            request.call.callId,
+            request.call.capability,
             request.target,
             capabilityError("approval_denied", "Capability was denied."),
           )
@@ -228,17 +213,17 @@ export const createSurfaceBroker = (
       }
 
       return resultEffects(
-        request.surfaceId,
-        request.callId,
-        request.capability,
+        request.call.surfaceId,
+        request.call.callId,
+        request.call.capability,
         request.target,
         await options.transport(request.call),
       )
     } catch {
       return resultEffects(
-        request.surfaceId,
-        request.callId,
-        request.capability,
+        request.call.surfaceId,
+        request.call.callId,
+        request.call.capability,
         request.target,
         capabilityError("execution_failed", "Capability failed."),
       )
@@ -278,9 +263,6 @@ export const createSurfaceBroker = (
     return task(
       [emit({ type: "call", call, target })],
       executeCapability({
-        surfaceId,
-        callId: message.callId,
-        capability: message.capability,
         target,
         descriptor,
         call,

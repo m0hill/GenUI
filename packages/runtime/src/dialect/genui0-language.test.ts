@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { Window } from "happy-dom"
+import { jsonRoundTrip } from "../test-support.test-support.js"
 import {
   createGenui0Language,
   defaultGenui0ResultTarget,
@@ -46,9 +47,6 @@ const readSignal = (expression: string): unknown => {
   if (expression === "$sides") return 6
   return ""
 }
-
-const jsonRoundTrip = (value: unknown): unknown =>
-  value === undefined ? undefined : JSON.parse(JSON.stringify(value))
 
 void test("genui/0 language validates capability names", () => {
   assert.equal(isGenui0CapabilityName("dice.roll"), true)
