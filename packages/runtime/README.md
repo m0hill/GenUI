@@ -1,5 +1,7 @@
-# GenUI Runtime
+# @hono-ai/genui-runtime
 
-Placeholder package for the provider-independent generated UI runtime.
+Provider-independent generated UI runtime.
 
-The runtime extraction has not started yet. Current implementation code still lives in the chat example until the package API is designed.
+The v0 slice is intentionally small: app-defined capabilities go into a registry, the
+registry creates sanitized surfaces under explicit grants, and every capability call is
+enforced against that surface grant before application code runs.
