@@ -889,16 +889,12 @@ const createGenui0Language = (): Genui0Language => {
       }
       case "binary": {
         if (expression.operator === "&&") {
-          return (
-            isTruthy(evaluateValue(expression.left, readState)) &&
-            isTruthy(evaluateValue(expression.right, readState))
-          )
+          const left = evaluateValue(expression.left, readState)
+          return isTruthy(left) ? evaluateValue(expression.right, readState) : left
         }
         if (expression.operator === "||") {
-          return (
-            isTruthy(evaluateValue(expression.left, readState)) ||
-            isTruthy(evaluateValue(expression.right, readState))
-          )
+          const left = evaluateValue(expression.left, readState)
+          return isTruthy(left) ? left : evaluateValue(expression.right, readState)
         }
 
         const left = evaluateValue(expression.left, readState)

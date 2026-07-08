@@ -309,6 +309,11 @@ Supported event actions:
     - Done in code: display formatters are allowlisted as expression calls:
       `formatNumber(value)`, `formatCurrency(value, 'USD')`, `formatPercent(value)`,
       and `formatDate(value)`.
+    - Done in code: `&&` and `||` use operand-returning semantics, so fallback display
+      expressions like `$user.name || 'Guest'` render the fallback string instead of a
+      boolean.
+    - Done in code: model-facing instructions state that `formatPercent` takes a
+      fraction and that ordering comparisons require matching types.
     - Done in code: sanitizer validation, sandbox evaluation, generated sandbox asset,
       and model-facing `genui/0` instructions were updated together.
 

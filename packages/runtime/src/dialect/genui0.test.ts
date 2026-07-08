@@ -335,7 +335,10 @@ void test("genui/0 instructions describe dialect and capability descriptors", ()
   assert.match(instructions, /'pending', 'complete', or 'error'/)
   assert.match(instructions, /orders\.search writes to \$ordersSearch/)
   assert.match(instructions, /Expression v0\.5/)
+  assert.match(instructions, /\$user\.name \|\| 'Guest'/)
+  assert.match(instructions, /Ordering comparisons require matching types/)
   assert.match(instructions, /formatCurrency/)
+  assert.match(instructions, /formatPercent takes a fraction/)
 })
 
 void test("genui/0 instructions include every directive usage and directive line", () => {

@@ -99,6 +99,7 @@ void test("genui/0 language evaluates expression v0.5 operators and formatters",
     count: 3,
     closed: false,
     status: "ready",
+    userName: "",
     amount: 1234.5,
     ratio: 0.1234,
     createdAt: "2026-01-02T12:00:00Z",
@@ -112,6 +113,9 @@ void test("genui/0 language evaluates expression v0.5 operators and formatters",
     genui0Language.evaluateExpression("$status == 'error' || $count < 2", readState),
     false,
   )
+  assert.equal(genui0Language.evaluateExpression("$userName || 'Guest'", readState), "Guest")
+  assert.equal(genui0Language.evaluateExpression("$count && 'Ready'", readState), "Ready")
+  assert.equal(genui0Language.evaluateExpression("$closed && 'Hidden'", readState), false)
   assert.equal(genui0Language.evaluateExpression("!($status == 'error')", readState), true)
   assert.equal(genui0Language.evaluateExpression("formatNumber($amount)", readState), "1,234.5")
   assert.equal(

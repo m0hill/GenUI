@@ -511,7 +511,9 @@ export const genui0Instructions = (actions: readonly Action[]): string => {
     "Nested data-genui-each blocks can read outer and inner scope together, e.g. $order.id and $line.id.",
     "Use array length reads such as $orders.value.items.length for empty states.",
     "Expression v0.5 supports state reads, primitive literals, ==, !=, <, <=, >, >=, !, &&, ||, parentheses, and flat object literals.",
-    "Use formatNumber(value), formatCurrency(value, 'USD'), formatPercent(value), and formatDate(value) for display text.",
+    "The && and || operators return operands, so $user.name || 'Guest' is valid fallback text.",
+    "Ordering comparisons require matching types; keep numbers as numbers in action results when the UI will compare them.",
+    "Use formatNumber(value), formatCurrency(value, 'USD'), formatPercent(value), and formatDate(value) for display text; formatPercent takes a fraction, so 0.45 renders as 45%.",
     "Available actions:",
     actionList.length > 0 ? actionList : "- none",
   ].join("\n")

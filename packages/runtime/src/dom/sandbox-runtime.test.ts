@@ -230,6 +230,8 @@ void test("sandbox runtime renders expression v0.5 operators and formatters", ()
     <section data-genui-state="{ count: 3, closed: false, amount: 1234.5, ratio: 0.1234, createdAt: '2026-01-02T12:00:00Z' }">
       <p id="visible" data-genui-show="$count >= 3 && !$closed">Visible</p>
       <p id="hidden" data-genui-show="$count < 3 || $closed">Hidden</p>
+      <p id="fallback" data-genui-text="$user.name || 'Guest'"></p>
+      <p id="ready" data-genui-text="$count && 'Ready'"></p>
       <p id="number" data-genui-text="formatNumber($amount)"></p>
       <p id="currency" data-genui-text="formatCurrency($amount, 'USD')"></p>
       <p id="percent" data-genui-text="formatPercent($ratio)"></p>
@@ -239,6 +241,8 @@ void test("sandbox runtime renders expression v0.5 operators and formatters", ()
 
   assert.equal(displayStyle(window.document.querySelector("#visible")), "")
   assert.equal(displayStyle(window.document.querySelector("#hidden")), "none")
+  assert.equal(window.document.querySelector("#fallback")?.textContent, "Guest")
+  assert.equal(window.document.querySelector("#ready")?.textContent, "Ready")
   assert.equal(window.document.querySelector("#number")?.textContent, "1,234.5")
   assert.equal(window.document.querySelector("#currency")?.textContent, "$1,234.50")
   assert.equal(window.document.querySelector("#percent")?.textContent, "12.3%")
