@@ -6,3 +6,4 @@ auth.json
 .DS_Store
 .sessions/
 public/styles.css
+examples/*/public/styles.css

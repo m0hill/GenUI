@@ -1,28 +1,18 @@
 {
-  "name": "hono-ai",
+  "name": "hono-ai-workspace",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n css,server \"nub run css:watch\" \"nub watch src/index.tsx\"",
-    "test": "nub --test $(find src -name '*.test.ts' -print)",
-    "build": "nub run css:build",
-    "start": "nub src/index.tsx",
-    "check": "nub run lint && nub run format:check && nub run typecheck && nub run build",
-    "typecheck": "tsc --noEmit",
-    "css:build": "tailwindcss -i ./src/styles.css -o ./public/styles.css --minify",
-    "css:watch": "tailwindcss -i ./src/styles.css -o ./public/styles.css --watch",
-    "lint": "oxlint src --type-aware",
-    "lint:fix": "oxlint src --type-aware --fix",
-    "format": "oxfmt src package.json tsconfig.json .oxlintrc.json",
-    "format:check": "oxfmt --check src package.json tsconfig.json .oxlintrc.json"
-  },
-  "dependencies": {
-    "@earendil-works/pi-ai": "^0.79.0",
-    "@hono/node-server": "^1.19.6",
-    "datastar-kit": "^0.4.0",
-    "hono": "^4.12.19",
-    "marked": "^15.0.12",
-    "zod": "^4.4.3"
+    "dev": "pnpm --filter @hono-ai/example-chat dev",
+    "test": "pnpm --filter @hono-ai/example-chat test",
+    "build": "pnpm --filter @hono-ai/example-chat build",
+    "start": "pnpm --filter @hono-ai/example-chat start",
+    "check": "pnpm run format:check && pnpm --filter @hono-ai/example-chat check",
+    "typecheck": "pnpm --filter @hono-ai/example-chat typecheck",
+    "lint": "pnpm --filter @hono-ai/example-chat lint",
+    "lint:fix": "pnpm --filter @hono-ai/example-chat lint:fix",
+    "format": "oxfmt package.json tsconfig.json .oxlintrc.json .oxfmtrc.json examples/chat/package.json examples/chat/tsconfig.json packages/runtime/package.json",
+    "format:check": "oxfmt --check package.json tsconfig.json .oxlintrc.json .oxfmtrc.json examples/chat/package.json examples/chat/tsconfig.json packages/runtime/package.json"
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.0.0",
@@ -33,5 +23,6 @@
     "oxlint-tsgolint": "^0.23.0",
     "tailwindcss": "^4.0.0",
     "typescript": "7.0.1-rc"
-  }
+  },
+  "packageManager": "pnpm@11.7.0"
 }

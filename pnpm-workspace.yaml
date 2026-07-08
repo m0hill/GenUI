@@ -1,0 +1,7 @@
+packages:
+  - "packages/*"
+  - "examples/*"
+allowBuilds:
+  "@google/genai": false
+  "@parcel/watcher": false
+  protobufjs: false

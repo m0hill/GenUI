@@ -4,6 +4,13 @@ A simple server-driven AI chat built with Hono, Datastar, Datastar Kit, and `@ea
 
 The page sends the prompt as Datastar signals. The server first appends the user message and an empty assistant shell, then streams normal assistant text and optionally runs a `create_ui` tool that streams model-generated HTML into the same assistant message.
 
+## Workspace
+
+This is a pnpm workspace:
+
+- `packages/runtime` is the placeholder package for the provider-independent generated UI runtime.
+- `examples/chat` contains the current Hono chat tracer-bullet app.
+
 ## What it demonstrates
 
 - Hono routes returning native Datastar Kit `Response` helpers;
@@ -26,8 +33,8 @@ The page sends the prompt as Datastar signals. The server first appends the user
 Create `auth.json` with OpenAI Codex OAuth credentials, then run:
 
 ```sh
-bun install
-bun run dev
+pnpm install
+pnpm dev
 ```
 
 Open <http://127.0.0.1:3000>.

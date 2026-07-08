@@ -5,7 +5,7 @@ import { z } from "zod"
 
 export const openAICodexProviderId = "openai-codex"
 
-const authPath = fileURLToPath(new URL("../../auth.json", import.meta.url))
+const authPath = fileURLToPath(new URL("../../../../auth.json", import.meta.url))
 
 const OAuthCredentials = z
   .object({

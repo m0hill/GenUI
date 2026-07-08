@@ -6,7 +6,7 @@ import type { Message, TextContent } from "@earendil-works/pi-ai"
 import { z } from "zod"
 
 const SESSION_VERSION = 3
-const SESSION_DIR = fileURLToPath(new URL("../../.sessions/", import.meta.url))
+const SESSION_DIR = fileURLToPath(new URL("../../../../.sessions/", import.meta.url))
 
 const messageSchema = z.custom<Message>(
   (value) => typeof value === "object" && value !== null && "role" in value,
