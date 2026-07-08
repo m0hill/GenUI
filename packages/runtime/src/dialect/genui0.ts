@@ -13,6 +13,7 @@ export const genui0AttributeNames = {
   rowState: "data-genui-row-state",
   onClick: "data-genui-on-click",
   onSubmit: "data-genui-on-submit",
+  onChange: "data-genui-on-change",
   onLoad: "data-genui-on-load",
   show: "data-genui-show",
   text: "data-genui-text",
@@ -250,6 +251,14 @@ const genui0DirectiveDefinitions = [
     pattern: { type: "exact", name: genui0AttributeNames.onSubmit },
     usage: genui0AttributeNames.onSubmit,
     instruction: "Use data-genui-on-submit on forms; native submission is always prevented.",
+    valueKind: "action",
+  },
+  {
+    key: "on_change",
+    pattern: { type: "exact", name: genui0AttributeNames.onChange },
+    usage: genui0AttributeNames.onChange,
+    instruction:
+      "Use data-genui-on-change on form controls to run @action(...) or @set(...) when the native change event fires.",
     valueKind: "action",
   },
   {

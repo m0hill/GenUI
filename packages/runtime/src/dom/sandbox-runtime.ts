@@ -455,6 +455,13 @@ export const installSandboxRuntime = (
     if (expression !== null) runAuthoredAction(expression, scopeForElement(form))
   }
 
+  const handleAuthoredChange = (event: Event): void => {
+    const action = closestWithAttribute(event.target, genui0AttributeNames.onChange)
+    const expression = action?.getAttribute(genui0AttributeNames.onChange) ?? null
+    if (action !== null && expression !== null)
+      runAuthoredAction(expression, scopeForElement(action))
+  }
+
   const handleBoundInput = (event: Event): void => {
     const target = event.target
     if (!isBoundElement(target)) return
@@ -464,6 +471,11 @@ export const installSandboxRuntime = (
 
     writePath(binding.path, readElementValue(target), binding.scope)
     refresh({ skipBoundElement: target })
+  }
+
+  const handleChange = (event: Event): void => {
+    handleBoundInput(event)
+    handleAuthoredChange(event)
   }
 
   const handleResultMessage = (event: MessageEvent<unknown>): void => {
@@ -806,7 +818,7 @@ export const installSandboxRuntime = (
   global.document.addEventListener("click", handleClick)
   global.document.addEventListener("submit", handleSubmit)
   global.document.addEventListener("input", handleBoundInput)
-  global.document.addEventListener("change", handleBoundInput)
+  global.document.addEventListener("change", handleChange)
   global.addEventListener("message", handleResultMessage)
 
   if (global.ResizeObserver !== undefined && global.document.body !== null) {
@@ -823,7 +835,7 @@ export const installSandboxRuntime = (
       global.document.removeEventListener("click", handleClick)
       global.document.removeEventListener("submit", handleSubmit)
       global.document.removeEventListener("input", handleBoundInput)
-      global.document.removeEventListener("change", handleBoundInput)
+      global.document.removeEventListener("change", handleChange)
       global.removeEventListener("message", handleResultMessage)
     },
   }

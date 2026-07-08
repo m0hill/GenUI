@@ -85,6 +85,18 @@ void test("genui/0 allows only granted capability actions with v0 object inputs"
 
   assert.deepEqual(
     allowGenui0DataAttribute({
+      name: "data-genui-on-change",
+      value: "@action('dice.roll', { sides: 8 }, { target: 'rollResult' })",
+      grantedActions,
+    }),
+    {
+      name: "data-genui-on-change",
+      value: "@action('dice.roll', { sides: 8 }, { target: 'rollResult' })",
+    },
+  )
+
+  assert.deepEqual(
+    allowGenui0DataAttribute({
       name: "data-genui-on-click",
       value: "@capability('demo.secret', {})",
       grantedActions,
@@ -479,6 +491,7 @@ void test("genui/0 instructions describe dialect and capability descriptors", ()
 
   assert.match(instructions, /Generated UI dialect: genui\/0/)
   assert.match(instructions, /data-genui-on-submit/)
+  assert.match(instructions, /data-genui-on-change/)
   assert.match(instructions, /data-genui-on-load/)
   assert.match(instructions, /data-genui-each/)
   assert.match(instructions, /data-genui-as/)

@@ -121,10 +121,12 @@ void test("sanitizer preserves only granted capability calls", () => {
   const sanitized = sanitizeSurfaceHtml(
     [
       `<button data-genui-on-click="@capability('dice.roll', { sides: 6 }, { target: 'rollResult' })">Roll</button>`,
+      `<select data-genui-on-change="@action('dice.roll', { sides: 8 }, { target: 'rollResult' })"></select>`,
       `<section data-genui-on-load="@action('dice.roll', { sides: 6 }, { target: 'rollResult' })">Load</section>`,
       `<section data-genui-on-load="@set('ready', true)">Local load</section>`,
       `<section data-genui-on-load="@action('notes.create', { text: 'Loaded' })">Write load</section>`,
       `<button data-genui-on-click="@capability('demo.secret', {})">Secret</button>`,
+      `<select data-genui-on-change="@action('demo.secret', {})"></select>`,
       `<section data-genui-on-load="@action('demo.secret', {})">Secret load</section>`,
       `<table><tbody data-genui-each="$orders.value.items" data-genui-as="order"><tr><td data-genui-text="$order.id"></td><td><button data-genui-on-click="@capability('demo.secret', { id: $order.id })">Secret</button></td></tr></tbody></table>`,
     ].join(""),
@@ -135,6 +137,10 @@ void test("sanitizer preserves only granted capability calls", () => {
   assert.match(
     safe,
     /data-genui-on-click="@capability\('dice\.roll', \{ sides: 6 \}, \{ target: 'rollResult' \}\)"/,
+  )
+  assert.match(
+    safe,
+    /data-genui-on-change="@action\('dice\.roll', \{ sides: 8 \}, \{ target: 'rollResult' \}\)"/,
   )
   assert.match(
     safe,
@@ -161,6 +167,12 @@ void test("sanitizer preserves only granted capability calls", () => {
       node: "button",
       attribute: "data-genui-on-click",
       value: "@capability('demo.secret', {})",
+      reason: "ungranted_action",
+    },
+    {
+      node: "select",
+      attribute: "data-genui-on-change",
+      value: "@action('demo.secret', {})",
       reason: "ungranted_action",
     },
     {

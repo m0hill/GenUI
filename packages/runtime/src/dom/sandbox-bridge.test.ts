@@ -80,6 +80,28 @@ void test("sandbox bridge posts capability calls from submit actions", () => {
   assert.equal(message.target, undefined)
 })
 
+void test("sandbox bridge posts capability calls from change actions", () => {
+  const { window, messages } = createHarness(`
+    <section data-genui-state="{ sort: 'newest' }">
+      <select data-genui-bind="sort" data-genui-on-change="@action('orders.search', { sort: $sort }, { target: 'orders' })">
+        <option value="newest" selected>Newest</option>
+        <option value="oldest">Oldest</option>
+      </select>
+    </section>
+  `)
+
+  const select = window.document.querySelector("select")
+  assert.ok(select instanceof window.HTMLSelectElement)
+
+  select.value = "oldest"
+  select.dispatchEvent(new window.Event("change", { bubbles: true }))
+
+  const message = capabilityPostMessage(messages)
+  assert.equal(message.action, "orders.search")
+  assert.equal(message.target, "orders")
+  assert.deepEqual(jsonRoundTrip(message.input), { sort: "oldest" })
+})
+
 void test("sandbox bridge posts capability calls from load actions", () => {
   const { window, messages } = createHarness(`
     <section data-genui-state="{ status: 'open' }" data-genui-on-load="@action('orders.search', { status: $status }, { target: 'orders' })">

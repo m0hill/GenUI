@@ -123,6 +123,7 @@ Supported directive shapes:
 - `data-genui-row-state`
 - `data-genui-on-click`
 - `data-genui-on-submit`
+- `data-genui-on-change`
 - `data-genui-on-load`
 - `data-genui-show`
 - `data-genui-text`
@@ -389,6 +390,14 @@ Bindings are reactive in both directions for installed static controls:
     - Done in code: if duplicate or empty runtime keys force an unkeyed fallback refresh,
       row-local reads become empty and row-local writes become no-ops instead of leaking
       into global state.
+
+21. Change actions.
+    - Done in code: `data-genui-on-change` runs `@action(...)` and `@set(...)` from the
+      native `change` event.
+    - Done in code: bound form controls sync their new value before the change action
+      runs, so select/filter controls can call actions without a submit button.
+    - Done in code: `data-genui-on-change` uses the normal action sanitizer path, grant
+      checks, result targeting, and row-scope rules.
 
 ## Important Deferred Work
 
