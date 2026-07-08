@@ -282,9 +282,18 @@ Supported event actions:
     - Done in code: added focused scanner tests for quoted separators, empty-part
       handling, bracket-depth handling, and escape rejection.
 
+14. Prototype-pollution regression coverage.
+    - Done in code: object literal parsing rejects `__proto__` keys, including quoted
+      keys.
+    - Done in code: `constructor` and `prototype` object-literal keys are treated as
+      own data fields.
+    - Done in code: sandbox state reads/writes treat `constructor` and `prototype` as
+      own state paths and do not traverse inherited object prototypes.
+    - Done in code: invalid `@set('__proto__.path', value)` actions do not mutate
+      `Object.prototype`.
+
 ## Important Deferred Work
 
-- Prototype-pollution tests around state paths and object literal keys.
 - Model adapters.
 - React wrapper.
 - Streaming or partial-surface hydration.

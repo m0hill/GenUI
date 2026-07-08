@@ -274,6 +274,56 @@ void test("sandbox runtime runs local set actions without posting messages", () 
   )
 })
 
+void test("sandbox runtime keeps prototype-shaped state paths as own data", () => {
+  const pollutionKey = "genuiPolluted"
+  Reflect.deleteProperty(Object.prototype, pollutionKey)
+
+  try {
+    const { window, messages } = createHarness(`
+      <section>
+        <button id="bad" data-genui-on-click="@set('__proto__.${pollutionKey}', 'bad')">Bad</button>
+        <button id="constructor" data-genui-on-click="@set('constructor.prototype.${pollutionKey}', 'owned')">
+          Constructor
+        </button>
+        <button id="prototype" data-genui-on-click="@set('prototype.${pollutionKey}', 'owned')">
+          Prototype
+        </button>
+        <button id="send" data-genui-on-click="@action('state.inspect', { constructorValue: $constructor.prototype.${pollutionKey}, prototypeValue: $prototype.${pollutionKey}, missingConstructor: $missing.constructor }, { target: 'inspect' })">
+          Send
+        </button>
+      </section>
+    `)
+
+    window.document
+      .querySelector("#bad")
+      ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }))
+    assert.equal(Object.getOwnPropertyDescriptor(Object.prototype, pollutionKey), undefined)
+
+    window.document
+      .querySelector("#constructor")
+      ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }))
+    window.document
+      .querySelector("#prototype")
+      ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }))
+    assert.equal(Object.getOwnPropertyDescriptor(Object.prototype, pollutionKey), undefined)
+
+    window.document
+      .querySelector("#send")
+      ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }))
+
+    const message = capabilityPostMessage(messages)
+    assert.equal(message.action, "state.inspect")
+    assert.deepEqual(jsonRoundTrip(message.input), {
+      constructorValue: "owned",
+      prototypeValue: "owned",
+      missingConstructor: "",
+    })
+    assert.equal(Object.getOwnPropertyDescriptor(Object.prototype, pollutionKey), undefined)
+  } finally {
+    Reflect.deleteProperty(Object.prototype, pollutionKey)
+  }
+})
+
 void test("sandbox runtime does not install bindings from repeated templates", () => {
   const { window } = createHarness(`
     <input data-genui-bind="outside" value="kept">

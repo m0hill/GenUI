@@ -74,6 +74,33 @@ void test("genui/0 language validates safe expressions", () => {
   assert.equal(genui0Language.isSafeBindingExpression("count + 1"), false)
 })
 
+void test("genui/0 language treats prototype-shaped object keys as data only", () => {
+  const pollutionKey = "genuiPolluted"
+  Reflect.deleteProperty(Object.prototype, pollutionKey)
+
+  try {
+    assert.equal(genui0Language.isSafeObjectExpression("{ __proto__: 'polluted' }"), false)
+    assert.equal(genui0Language.isSafeObjectExpression("{ '__proto__': 'polluted' }"), false)
+
+    const parsed = genui0Language.parseObjectLiteral(
+      "{ constructor: 'owned', prototype: 'owned' }",
+      () => "",
+    )
+    assert.notEqual(parsed, genui0Language.invalid)
+    assert.equal(typeof parsed, "object")
+    assert.notEqual(parsed, null)
+
+    const record = parsed as Readonly<Record<string, unknown>>
+    assert.equal(Object.prototype.hasOwnProperty.call(record, "constructor"), true)
+    assert.equal(Object.prototype.hasOwnProperty.call(record, "prototype"), true)
+    assert.equal(record.constructor, "owned")
+    assert.equal(record.prototype, "owned")
+    assert.equal(Object.getOwnPropertyDescriptor(Object.prototype, pollutionKey), undefined)
+  } finally {
+    Reflect.deleteProperty(Object.prototype, pollutionKey)
+  }
+})
+
 void test("genui/0 language owns result target normalization", () => {
   assert.equal(genui0Language.defaultResultTarget("demo.weather.lookup"), "demoWeatherLookup")
   assert.equal(genui0Language.defaultResultTarget("dice.roll"), "diceRoll")
