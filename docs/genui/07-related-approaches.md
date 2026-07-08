@@ -117,8 +117,7 @@ The differentiator is:
 
 ```text
 AI can generate an entire interactive web surface,
-but outside-world authority remains leased, inspectable, and brokered.
+but outside-world authority remains granted, inspectable, and brokered.
 ```
 
 That is the hard product and technical problem.
-

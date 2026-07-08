@@ -129,7 +129,7 @@ This does not mean JavaScript never exists. It means JavaScript belongs to the t
 
 A generated surface should not inherit every tool the agent has.
 
-Each surface should receive a narrow lease: a small list of capabilities it may request. A weather card should not receive access to Notion writes. A Notion draft surface should not receive access to shell commands. A chart should not receive access to the user's inbox.
+Each surface should receive a narrow grant: a small list of capabilities it may request. A weather card should not receive access to Notion writes. A Notion draft surface should not receive access to shell commands. A chart should not receive access to the user's inbox.
 
 Per-surface authority is the foundation of the design.
 
@@ -138,7 +138,7 @@ Per-surface authority is the foundation of the design.
 The architecture should prefer clear boundaries over cleverness:
 
 - small named capabilities;
-- explicit leases;
+- explicit grants;
 - schema validation;
 - sandbox isolation;
 - host mediation;
@@ -154,10 +154,10 @@ The model can be creative. The runtime should be predictable.
 - JSON is the protocol language.
 - Datastar is the default interaction language.
 - The sandbox is the execution boundary.
-- The manifest is the lease.
+- The grant is the authority set.
+- The manifest is the sandbox-visible projection of that grant.
 - The host is the broker.
 - The server is the authority.
 - Capabilities are the only bridge to outside-world effects.
 - Existing tools should be adapted into UI-safe capabilities, not exposed raw.
 - Generated JavaScript is not the default path.
-

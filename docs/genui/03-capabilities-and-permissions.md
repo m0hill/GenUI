@@ -79,15 +79,15 @@ Each capability needs a policy.
 
 Useful policy states:
 
-- **allow**: the surface may call it after lease and schema checks.
+- **allow**: the surface may call it after grant and schema checks.
 - **require approval**: the surface may request it, but user approval is needed.
 - **block**: the capability exists but is not available to generated UI.
 
-The policy must be enforced both when creating the lease and when executing the request. A stale iframe or modified client should not bypass policy.
+The policy must be enforced both when creating the grant and when executing the request. A stale iframe or modified client should not bypass policy.
 
-## The Lease
+## The Grant
 
-The lease is the per-surface manifest.
+The grant is the per-surface authority set.
 
 It answers:
 
@@ -95,19 +95,19 @@ It answers:
 What is this generated surface allowed to ask for?
 ```
 
-The lease is created from the model's requested capability names, filtered through the trusted registry and product policy.
+The grant is created from the model's requested capability names, filtered through the trusted registry and product policy.
 
 Unknown capabilities are dropped. Blocked capabilities are dropped. Duplicates are removed. The generated surface receives only the projected descriptor list.
 
-The lease is not final permission. It is the first gate.
+The grant is not final permission. It is the first gate.
 
-## Why Lease Per Surface
+## Why Grant Per Surface
 
 The agent may have many tools, but each generated surface should have only the authority it needs.
 
 A weather card should not be able to create Notion pages. A color palette generator should not be able to send emails. A CRM dashboard should not be able to run code.
 
-Per-surface leases make authority inspectable:
+Per-surface grants make authority inspectable:
 
 - this card can read weather;
 - this table can search issues;
@@ -156,9 +156,9 @@ Generated UI should not decide where something runs. The descriptor and broker d
 
 ## Approval
 
-Approval is different from a lease.
+Approval is different from a grant.
 
-A lease says the surface may ask. Approval says the user allowed this specific effect.
+A grant says the surface may ask. Approval says the user allowed this specific effect.
 
 For a prototype, a browser confirmation can prove the loop. For a product, approval should be a first-class object:
 
@@ -195,7 +195,7 @@ The registry should be responsible for:
 - validating capability names;
 - rejecting duplicates;
 - hiding blocked capabilities;
-- creating per-surface leases;
+- creating per-surface grants;
 - validating inputs;
 - validating outputs when practical;
 - applying approval policy;
@@ -203,4 +203,3 @@ The registry should be responsible for:
 - ensuring unknown requests fail safely.
 
 The registry is one of the most important pieces of the system because it turns a free-form generated UI into controlled application behavior.
-

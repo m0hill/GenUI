@@ -53,8 +53,8 @@ Allowed Datastar subset in generated UI:
 - Events: data-on:click for local underscore-signal assignments, registered local actions, or safe @capability('name', input) calls from the capability list; data-on:submit__prevent for safe @capability('name', input) calls.
 - Use local underscore signals for UI-only state, e.g. data-signals="{ _ui_seat: '', _ui_tab: 'overview' }".
 - Forms/buttons that ask follow-up questions must call @capability('chat.follow_up', { prompt: '...' }). The host validates and submits the prompt; the generated UI cannot call app routes directly.
-- If you use any @capability call, include the exact capability names in create_ui.capabilities. This is the UI's permission lease; unlisted capability calls are stripped or rejected.
-- Local browser actions available without capability lease: @toast({ message: 'Saved' }) and @setSignal('_ui_name', value).
+- If you use any @capability call, include the exact capability names in create_ui.capabilities. This is the UI's permission grant request; ungranted capability calls are stripped or rejected.
+- Local browser actions available without a capability grant: @toast({ message: 'Saved' }) and @setSignal('_ui_name', value).
 - Local plugin attribute available: data-focus-when="expression".
 - You may show bridge state with $_capabilityStatus, $_capabilityError, and $_capabilityResult.
 

@@ -35,7 +35,7 @@ It owns:
 - the app shell;
 - generated surface records;
 - iframe registration;
-- capability lease checks;
+- capability grant checks;
 - client-side capabilities;
 - approval UI;
 - resizing;
@@ -110,13 +110,13 @@ The conceptual pipeline is:
 User asks for something
   -> agent decides a generated surface would help
   -> model produces HTML and requested capability names
-  -> host projects requested names into a lease
-  -> sanitizer normalizes the HTML using that lease
+  -> host projects requested names into a grant
+  -> sanitizer normalizes the HTML using that grant
   -> sandbox document is built
   -> sandbox renders the surface
   -> user interacts
   -> sandbox requests a capability
-  -> host validates source and lease
+  -> host validates source and grant
   -> host or server executes the capability
   -> result returns to sandbox state
 ```
@@ -188,7 +188,7 @@ It should remove:
 - unsafe URLs;
 - direct form actions;
 - unregistered runtime actions;
-- unleased capability calls;
+- ungranted capability calls;
 - unsafe expressions.
 
 Sanitization should also repair incomplete streamed HTML when possible.
@@ -204,4 +204,3 @@ The sandbox should report height to the host. The host clamps that height so a g
 Links should be intercepted. The sandbox asks the host to open a link, and the host decides whether the URL is safe.
 
 This keeps navigation authority outside the generated surface.
-

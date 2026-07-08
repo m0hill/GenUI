@@ -8,16 +8,18 @@ This folder is intentionally conceptual. It avoids implementation-shaped code so
 
 1. [Principles](01-principles.md) explains the core bet: HTML for generated surfaces, capabilities for authority, and JSON for protocol.
 2. [Trust And Runtime](02-trust-and-runtime.md) describes the actors, sandbox boundary, host broker, server authority, and rendering pipeline.
-3. [Capabilities And Permissions](03-capabilities-and-permissions.md) explains capability leases, effects, policies, approvals, and how to adapt existing agent tools.
+3. [Capabilities And Permissions](03-capabilities-and-permissions.md) explains capability grants, effects, policies, approvals, and how to adapt existing agent tools.
 4. [Interaction And State](04-interaction-and-state.md) explains Datastar's role, capability calls, result flow, shared state, persistence, and streaming.
 5. [Extensions And JavaScript](05-extensions-and-javascript.md) covers trusted actions, plugin attributes, MCP adapters, widgets, and the narrow case for custom JavaScript.
 6. [Product Hardening](06-product-hardening.md) covers threat modeling, testing, product quality, observability, and a practical roadmap.
 7. [Related Approaches](07-related-approaches.md) compares this architecture with React components-as-tools, JSON UI, A2UI-style approaches, and CopilotKit-style frameworks.
 8. [Reconstruction Guide](08-reconstruction-guide.md) gives a concise build order for recreating the system from scratch.
+9. [Surface Runtime Model](09-surface-runtime-model.md) defines surface identity, grants, manifests, and request lifecycle.
+10. [Expression Model](10-expression-model.md) captures the Datastar-vs-closed-DSL decision the framework must make.
 
 ## One-Sentence Version
 
-The model may invent the interface, but every meaningful outside-world action must pass through a named, leased, policy-checked capability.
+The model may invent the interface, but every meaningful outside-world action must pass through a named, granted, policy-checked capability.
 
 ## Core Vocabulary
 
@@ -25,7 +27,8 @@ The model may invent the interface, but every meaningful outside-world action mu
 - **Sandbox**: the isolated iframe or equivalent execution boundary that renders the generated surface.
 - **Host**: the trusted application page around the sandbox.
 - **Capability**: a named operation the generated surface can request.
-- **Lease**: the per-surface manifest saying which capabilities that surface is allowed to request.
+- **Grant**: the per-surface authority set saying which capabilities that surface is allowed to request.
+- **Manifest**: the visible projection of a grant sent to the sandbox and model.
 - **Broker**: trusted host or server logic that validates and executes capability requests.
 - **Effect**: the risk class of a capability, such as local, read, draft, write, or dangerous.
 - **Approval**: user authorization for a specific side effect, ideally bound to the exact request.
@@ -34,7 +37,7 @@ The model may invent the interface, but every meaningful outside-world action mu
 
 ```text
 Model creates UI
-  -> host leases capabilities
+  -> host grants capabilities
   -> sanitizer prepares the surface
   -> sandbox renders the UI
   -> user interacts
@@ -51,4 +54,3 @@ The important separation is simple:
 - JSON carries protocol data.
 - Capabilities carry authority.
 - The host and server enforce trust.
-

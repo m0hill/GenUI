@@ -10,7 +10,7 @@ Create a registry that can:
 
 - define capabilities;
 - list safe descriptors;
-- filter requested capability names into a lease;
+- filter requested capability names into a grant;
 - reject unknown or blocked names;
 - validate inputs;
 - enforce approval policy;
@@ -33,7 +33,7 @@ Give the agent a way to produce:
 - generated HTML;
 - requested capability names.
 
-Store both. The HTML is the surface. The requested names are projected into a lease.
+Store both. The HTML is the surface. The requested names are projected into a grant.
 
 Do not treat requested names as automatically granted.
 
@@ -48,7 +48,7 @@ Create a sanitizer that:
 - allows only a narrow declarative interaction subset;
 - allows only registered local actions;
 - allows only registered plugin attributes;
-- allows only leased capability calls;
+- allows only granted capability calls;
 - repairs incomplete generated HTML where practical.
 
 Keep the sanitizer conservative. The model can try again if something is removed.
@@ -90,9 +90,9 @@ In the host page, listen for sandbox messages.
 The broker should:
 
 - identify the source iframe;
-- read that iframe's lease;
+- read that iframe's grant;
 - reject unknown frames;
-- reject unleased capabilities;
+- reject ungranted capabilities;
 - look up the capability descriptor;
 - request approval if needed;
 - run host capabilities locally;
@@ -117,14 +117,14 @@ The server should:
 - audit side effects;
 - return structured success or failure.
 
-The server should not trust the client-side lease by itself.
+The server should not trust the client-side grant projection by itself.
 
 ## 8. Add Persistence
 
 Persist generated surfaces with:
 
 - raw generated HTML;
-- lease;
+- grant;
 - associated chat or task;
 - creation metadata;
 - safe state snapshot if needed;
@@ -166,12 +166,11 @@ The architecture is working when:
 - the model can create an HTML surface;
 - the surface can render in a sandbox;
 - the surface can use local declarative interactions;
-- the surface can request a leased capability;
-- unleased capabilities are blocked;
+- the surface can request a granted capability;
+- ungranted capabilities are blocked;
 - server capabilities validate input;
 - approval-gated capabilities pause for user decision;
 - results return to the surface;
 - the surface can be restored later under current policy.
 
 If those are true, the core idea exists.
-

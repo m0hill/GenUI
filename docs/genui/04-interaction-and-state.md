@@ -158,7 +158,7 @@ Generated surfaces should be restorable.
 Persist enough information to reconstruct the surface:
 
 - original generated HTML;
-- capability lease;
+- capability grant;
 - creation metadata;
 - associated chat or task;
 - safe state snapshot if needed;
@@ -183,7 +183,7 @@ This is the simplest and safest. It is a good default until the product needs pr
 
 ## Progressive Preview
 
-Stream sanitized visual HTML into a non-interactive preview. When the final lease is known, render the interactive sandbox.
+Stream sanitized visual HTML into a non-interactive preview. When the final grant is known, render the interactive sandbox.
 
 This gives faster visual feedback without enabling premature actions.
 
@@ -211,7 +211,6 @@ This prompt contract improves output quality, but it is not the security boundar
 
 A user asks for a weather lookup UI.
 
-The model creates a small form with a city input and a forecast button. It asks for the weather lookup capability. The host grants a lease containing only that capability. The sandbox renders the form. When the user clicks the button, the sandbox asks the host to run the weather capability with the city value. The host checks the lease and sends the request to the server. The server validates the input, calls the weather service, returns a normalized forecast, and the sandbox renders the result.
+The model creates a small form with a city input and a forecast button. It asks for the weather lookup capability. The host creates a grant containing only that capability. The sandbox renders the form. When the user clicks the button, the sandbox asks the host to run the weather capability with the city value. The host checks the grant and sends the request to the server. The server validates the input, calls the weather service, returns a normalized forecast, and the sandbox renders the result.
 
 At no point does the generated surface receive direct network access, credentials, or the ability to call arbitrary tools.
-

@@ -87,11 +87,26 @@ const submitFollowUpPrompt = async (input) => {
   return { ok: true, result: "Follow-up sent." }
 }
 
-const runServerCapability = async (capability, input, approved) => {
+const surfaceIdentity = (frame) => {
+  const surfaceId = frame.dataset.genuiSurfaceId
+  const surfaceToken = frame.dataset.genuiSurfaceToken
+  if (typeof surfaceId !== "string" || surfaceId.length === 0) return undefined
+  if (typeof surfaceToken !== "string" || surfaceToken.length === 0) return undefined
+  return { surfaceId, surfaceToken }
+}
+
+const runServerCapability = async (frame, capability, input, approved) => {
+  const identity = surfaceIdentity(frame)
+  if (identity === undefined) {
+    return { ok: false, error: "Generated surface identity is missing." }
+  }
+
   const response = await fetch("/genui/capability", {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({
+      surfaceId: identity.surfaceId,
+      surfaceToken: identity.surfaceToken,
       capability,
       input: input ?? {},
       chatId: currentChatId(),
@@ -131,7 +146,7 @@ const approveCapability = (descriptor, input) => {
 
 const handleCapability = async (frame, capability, input) => {
   if (!frameAllowsCapability(frame, capability)) {
-    return { ok: false, error: "Capability is not leased to this UI." }
+    return { ok: false, error: "Capability is not granted to this UI." }
   }
 
   const descriptor = CAPABILITIES.get(capability)
@@ -141,7 +156,7 @@ const handleCapability = async (frame, capability, input) => {
   if (!approved) return { ok: false, error: "Capability was not approved." }
 
   if (capability === "chat.follow_up") return submitFollowUpPrompt(input)
-  if (descriptor.execution === "server") return runServerCapability(capability, input, approved)
+  if (descriptor.execution === "server") return runServerCapability(frame, capability, input, approved)
 
   return { ok: false, error: "Capability has no host handler." }
 }

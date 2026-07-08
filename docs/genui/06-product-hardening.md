@@ -9,7 +9,7 @@ The system should assume:
 - user prompts may be adversarial;
 - old generated surfaces may be replayed after policy changes;
 - a client may be modified;
-- an iframe may request unleased capabilities;
+- an iframe may request ungranted capabilities;
 - a trusted runtime dependency may have bugs;
 - a user may approve a bad action;
 - a generated surface may try to mislead the user visually.
@@ -25,7 +25,7 @@ Core defenses:
 - keep the host page policy strong;
 - use a narrow message protocol;
 - verify message source;
-- check the per-surface lease;
+- check the per-surface grant;
 - check the global registry;
 - validate inputs server-side;
 - validate outputs when practical;
@@ -83,7 +83,7 @@ Each generated surface should be able to show or expose:
 - creation time;
 - source agent turn;
 - requested capabilities;
-- granted lease;
+- granted capabilities;
 - sanitized removals;
 - capability call history;
 - pending requests;
@@ -97,11 +97,11 @@ This is useful for development, support, security review, and user trust.
 
 Testing should cover each boundary.
 
-Sanitizer tests should verify that unsafe elements, attributes, URLs, forms, expressions, unregistered actions, and unleased capability calls are removed.
+Sanitizer tests should verify that unsafe elements, attributes, URLs, forms, expressions, unregistered actions, and ungranted capability calls are removed.
 
 Registry tests should verify that invalid names fail, duplicates fail, blocked capabilities disappear, unknown requests fail, schema-invalid inputs fail, and approval policy is enforced.
 
-Host broker tests should verify that unknown frames are ignored, resize is clamped, unsafe links are blocked, unleased capabilities fail, and approval denial is handled.
+Host broker tests should verify that unknown frames are ignored, resize is clamped, unsafe links are blocked, ungranted capabilities fail, and approval denial is handled.
 
 Browser tests should verify rendering, interaction, pending state, success state, error state, approval flow, restoration, and layout at multiple viewport sizes.
 
@@ -155,4 +155,3 @@ Before exposing a new capability to generated UI, ask:
 - Would this still be safe if the generated UI lies about what the button does?
 
 That last question is important. The runtime must protect the user even when the generated interface is misleading.
-

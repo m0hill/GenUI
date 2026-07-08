@@ -12,6 +12,7 @@ import {
 import type { CreateUiState } from "../../ai/index.js"
 import type { WebSearchState } from "../../ai/web-search-tool.js"
 import { createGenuiManifest } from "../../genui/default-primitives.js"
+import { registerGeneratedSurface } from "../../genui/surfaces.js"
 import { Icons } from "../../ui/icons.js"
 import type { AssistantTurn, UserChatMessage } from "../../session/chat-session.js"
 import { renderGeneratedUiSandboxDocument } from "./generated-ui-sandbox.js"
@@ -33,6 +34,7 @@ const EmptyState = () => (
 )
 
 export const MessagesList = (props: {
+  chatId: string
   messages: ReadonlyArray<UserChatMessage | AssistantTurn>
 }) => (
   <ol id="messages" class="flex flex-col gap-8">
@@ -43,7 +45,7 @@ export const MessagesList = (props: {
         message.role === "user" ? (
           <UserMessageItem message={message} />
         ) : (
-          <AssistantTurnItem turn={message} />
+          <AssistantTurnItem chatId={props.chatId} turn={message} />
         ),
       )
     )}
@@ -80,8 +82,21 @@ const pendingCreateUiState: CreateUiState = {
 
 const chatBusy = js<boolean>`(${chatForm.refs._sending} || ${chatForm.refs._generating})`
 
-const CreateUiToolView = (props: { toolCall: ToolCall; state: CreateUiState | undefined }) => {
+const CreateUiToolView = (props: {
+  chatId: string
+  toolCall: ToolCall
+  state: CreateUiState | undefined
+}) => {
   const state = props.state ?? pendingCreateUiState
+  const surface =
+    state.html.length > 0 && props.chatId.length > 0
+      ? registerGeneratedSurface({
+          chatId: props.chatId,
+          toolCallId: props.toolCall.id,
+          html: state.html,
+          manifest: state.manifest,
+        })
+      : undefined
 
   return (
     <div
@@ -104,6 +119,8 @@ const CreateUiToolView = (props: { toolCall: ToolCall; state: CreateUiState | un
             class="generated-ui-frame"
             data-generated-ui-frame
             data-genui-manifest={JSON.stringify(state.manifest)}
+            data-genui-surface-id={surface?.id}
+            data-genui-surface-token={surface?.token}
             title="Generated interactive UI"
             sandbox="allow-scripts"
             srcdoc={renderGeneratedUiSandboxDocument(state.html, state.manifest)}
@@ -157,7 +174,11 @@ const WebSearchToolView = (props: { toolCall: ToolCall; state: WebSearchState | 
   )
 }
 
-const AssistantContent = (props: { message: AssistantMessage; turn: AssistantTurn }) => (
+const AssistantContent = (props: {
+  chatId: string
+  message: AssistantMessage
+  turn: AssistantTurn
+}) => (
   <>
     {props.message.content.map((content): HtmlChild => {
       if (content.type === "text") return <AssistantText text={content.text} />
@@ -166,6 +187,7 @@ const AssistantContent = (props: { message: AssistantMessage; turn: AssistantTur
         const state = props.turn.tools.get(content.id)
         return (
           <CreateUiToolView
+            chatId={props.chatId}
             toolCall={content}
             state={state && "html" in state ? state : undefined}
           />
@@ -195,12 +217,12 @@ const turnStatusText = (turn: AssistantTurn): string => {
   return turn.messages.length === 0 ? "Thinking…" : "Writing…"
 }
 
-export const AssistantTurnItem = (props: { turn: AssistantTurn }) => (
+export const AssistantTurnItem = (props: { chatId: string; turn: AssistantTurn }) => (
   <li id={props.turn.id} class="message">
     <p class="manual-kicker mb-3">Assistant</p>
     <div class="flex flex-col gap-4">
       {props.turn.messages.map((message) => (
-        <AssistantContent message={message} turn={props.turn} />
+        <AssistantContent chatId={props.chatId} message={message} turn={props.turn} />
       ))}
       {props.turn.status === "streaming" ? (
         <small class="message-status">{turnStatusText(props.turn)}</small>

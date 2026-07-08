@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 import { renderGeneratedHtml } from "./generated-html.js"
 
-void test("generated HTML only keeps leased capability calls", () => {
+void test("generated HTML only keeps granted capability calls", () => {
   const allowed = renderGeneratedHtml(
     `<button data-on:click="@capability('demo.echo', { text: 'hello' })">Run</button>`,
     { allowedCapabilities: new Set(["demo.echo"]) },

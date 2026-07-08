@@ -5,6 +5,7 @@ import { z } from "zod"
 import { event, get, mod, read, reply, unsafeHtml } from "datastar-kit"
 import { streamAiTurn } from "../../ai/index.js"
 import { genuiCapabilities } from "../../genui/default-primitives.js"
+import { verifyGeneratedSurfaceGrant } from "../../genui/surfaces.js"
 import {
   appendAiMessage,
   createChat,
@@ -26,6 +27,8 @@ const ChatSignals = z.object({
 })
 
 const GenuiCapabilityRequest = z.object({
+  surfaceId: z.string().min(1),
+  surfaceToken: z.string().min(1),
   capability: z.string(),
   input: z.unknown().optional(),
   chatId: z.string().optional(),
@@ -62,7 +65,7 @@ const ChatApp = (props: { chat: ChatSession | undefined }) => (
         }
       />
 
-      <MessagesList messages={props.chat?.messages ?? []} />
+      <MessagesList chatId={props.chat?.id ?? ""} messages={props.chat?.messages ?? []} />
     </main>
 
     <ComposerBar />
@@ -73,7 +76,7 @@ const errorMessage = (error: unknown): string =>
   error instanceof Error && error.message.length > 0 ? error.message : "Something went wrong."
 
 const chatSyncEvents = (chat: ChatSession): string[] => [
-  event.patch(<MessagesList messages={chat.messages} />),
+  event.patch(<MessagesList chatId={chat.id} messages={chat.messages} />),
   event.signals(chatForm.patch({ _generating: isGenerating(chat) })),
 ]
 
@@ -130,7 +133,7 @@ async function* chatEvents(
   yield event.patch(
     <>
       <UserMessageItem message={userMessage} />
-      <AssistantTurnItem turn={turn} />
+      <AssistantTurnItem chatId={chat.id} turn={turn} />
     </>,
     { selector: "#messages", mode: "append" },
   )
@@ -150,7 +153,7 @@ async function* chatEvents(
         turn.tools.set(update.toolCall.id, update.state)
       }
 
-      yield event.patch(<AssistantTurnItem turn={turn} />)
+      yield event.patch(<AssistantTurnItem chatId={chat.id} turn={turn} />)
       chatInvalidations(chat.id).publish()
     }
 
@@ -161,7 +164,7 @@ async function* chatEvents(
     turn.error = errorMessage(error)
   }
 
-  yield event.patch(<AssistantTurnItem turn={turn} />)
+  yield event.patch(<AssistantTurnItem chatId={chat.id} turn={turn} />)
   yield event.signals(chatForm.patch({ _generating: false }))
   chatInvalidations(chat.id).publish()
 }
@@ -233,11 +236,21 @@ chat.post("/genui/capability", async (c) => {
     return c.json({ ok: false, error: "Capability request is invalid." }, 400)
   }
 
+  const grant = verifyGeneratedSurfaceGrant({
+    surfaceId: request.data.surfaceId,
+    surfaceToken: request.data.surfaceToken,
+    chatId: request.data.chatId,
+    capability: request.data.capability,
+  })
+  if (!grant.ok) {
+    return c.json({ ok: false, code: grant.code, error: grant.error }, 403)
+  }
+
   const result = await genuiCapabilities.execute({
     capability: request.data.capability,
     input: request.data.input ?? {},
     approved: request.data.approved,
-    chatId: request.data.chatId,
+    chatId: grant.surface.chatId,
     signal: c.req.raw.signal,
   })
 

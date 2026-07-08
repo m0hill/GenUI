@@ -129,7 +129,7 @@ const requestCapability = (capability, input) => {
     patchBridgeSignals([
       ["_capabilityName", capability],
       ["_capabilityStatus", "error"],
-      ["_capabilityError", "Capability is not leased to this UI."],
+      ["_capabilityError", "Capability is not granted to this UI."],
       ["_capabilityResult", ""],
     ])
     return

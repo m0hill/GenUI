@@ -3,7 +3,7 @@ import { test } from "node:test"
 import { z } from "zod"
 import { createCapabilityRegistry, defineCapability } from "./capabilities.js"
 
-void test("capability registry executes approved leased capabilities", async () => {
+void test("capability registry executes approved granted capabilities", async () => {
   const registry = createCapabilityRegistry([
     defineCapability({
       name: "demo.echo",
