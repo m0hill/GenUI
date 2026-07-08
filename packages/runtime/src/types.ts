@@ -5,7 +5,7 @@ export const genuiDialect = "genui/0"
 export type Dialect = string
 
 /** Coarse effect class used for policy, approval, and product UX. */
-export type Effect = "local" | "read" | "write" | "dangerous"
+export type Effect = "read" | "write" | "dangerous"
 
 /** Registry policy applied before app capability code can run. */
 export type Policy = "allow" | "require_approval" | "block"

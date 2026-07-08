@@ -85,6 +85,24 @@ changes before the API hardens:
   transport signature.
 - Rename `SurfaceInstance.update()` to `replace()` because it destroys iframe state.
 
+## Sandbox Asset Position
+
+The generated sandbox asset is checked in as TypeScript because it is a typed module that
+exports a JavaScript string. The authored runtime remains normal TypeScript modules; the
+generated file is the bridge between those modules and the inline script injected into the
+iframe document.
+
+Accepted rules:
+
+- Keep author-owned sandbox code in readable TypeScript modules.
+- Generate `sandbox-asset.generated.ts` from the sandbox entrypoint.
+- Minify the bundled JavaScript inside that generated asset because it is injected into
+  every mounted surface iframe.
+- Do not minify ordinary TypeScript source or public package source; downstream package
+  builds and app bundlers own that.
+- Do not generate source maps inside the iframe asset yet. They add CSP and network
+  behavior without enough debugging value at this stage.
+
 ## Current `genui/0` Dialect
 
 Supported directive shapes:
@@ -184,9 +202,21 @@ Supported event actions:
    - Done in code: `SurfaceInstance.update()` has been renamed to `replace()` because it
      recreates the sandbox document and destroys sandbox state.
 
+7. Public API hardening.
+   - Done in code: removed `Effect: "local"`. Capability effects now describe authority
+     outside the sandbox: `read`, `write`, or `dangerous`.
+   - Done in code: `MountSurfaceOptions` now states the public DOM contract directly
+     instead of extending the internal broker option shape.
+   - Done in code: `@hono-ai/genui-runtime/dom` no longer re-exports result-routing
+     helpers as public API.
+   - Done in docs: local-only UI behavior is represented by dialect actions such as
+     `@set`, not by capabilities.
+   - Done in docs: broker approval is host-side UX; registry approval is authoritative
+     application policy.
+
 ## Important Deferred Work
 
-- Clear approval lifecycle documentation and tests.
+- Approval lifecycle tests beyond the current broker/registry approval checks.
 - Internal `SurfaceDialect` interface so future dialect versions have one owner.
 - Prototype-pollution tests around state paths and object literal keys.
 - Model adapters.
@@ -214,8 +244,6 @@ Supported event actions:
 ## Open Questions
 
 - Should `@set('state.path', value)` be complemented by `@toggle('state.path')`?
-- Should `Effect` keep `"local"`, or should local behavior be represented only by
-  dialect actions that never leave the sandbox?
 - When is `<template data-genui-each>` worth adding over the current host-element
   template model?
 - What is the right explicit row-editing model if repeated rows eventually need local
