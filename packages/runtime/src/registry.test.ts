@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { createRegistry, defineCapability } from "./registry.js"
-import { createMemorySurfaceStore } from "./surface-records.js"
+import { createMemorySurfaceStore } from "./surface-runtime.js"
 import {
   genuiDialect,
   type CapabilityErrorCode,

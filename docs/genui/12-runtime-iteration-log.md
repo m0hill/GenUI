@@ -264,6 +264,15 @@ Supported event actions:
       messages sent back into the sandbox.
     - Done in code: result target naming remains separate in `result-routing`.
 
+12. Core lifecycle consolidation.
+    - Done in code: removed the separate `surface-records` module.
+    - Done in code: `surface-runtime` now owns surface record creation, copying,
+      reprojection, diagnostics, and the default memory store.
+    - Done in code: package-root `createMemorySurfaceStore` still exposes the same public
+      API, but its implementation now lives with the surface lifecycle.
+    - Done in code: removed the tiny `capability-result` module; the standard
+      capability error envelope constructor now lives next to `CapabilityResult`.
+
 ## Important Deferred Work
 
 - Prototype-pollution tests around state paths and object literal keys.

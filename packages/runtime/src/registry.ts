@@ -3,12 +3,12 @@ import {
   findGrantedCapability,
   publicCapabilityDescriptors,
 } from "./capability-projections.js"
-import { capabilityError } from "./capability-result.js"
 import { genui0Dialect } from "./dialect/genui0.js"
 import { genui0Language } from "./dialect/genui0-language.js"
 import { parseWithSchema } from "./schema.js"
 import { createSurfaceRuntime } from "./surface-runtime.js"
 import {
+  capabilityError,
   type AnyCapabilityDefinition,
   type CapabilityCall,
   type CapabilityDefinition,

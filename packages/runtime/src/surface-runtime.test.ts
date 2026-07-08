@@ -47,6 +47,7 @@ void test("surface runtime owns grant projection, sanitization, records, and dia
   assert.doesNotMatch(surface.html, /<script/i)
   assert.equal(record?.source.html, source.html)
   assert.deepEqual(record?.source.requested, source.requested)
+  assert.deepEqual(record?.source.meta, source.meta)
   assert.deepEqual(await runtime.diagnostics(surface.id), {
     requested: source.requested,
     granted: ["dice.roll"],

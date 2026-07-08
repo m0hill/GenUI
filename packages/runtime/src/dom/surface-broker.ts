@@ -1,11 +1,11 @@
-import type {
-  CapabilityCall,
-  CapabilityDescriptor,
-  CapabilityResult,
-  ExecuteOptions,
-  Surface,
+import {
+  capabilityError,
+  type CapabilityCall,
+  type CapabilityDescriptor,
+  type CapabilityResult,
+  type ExecuteOptions,
+  type Surface,
 } from "../types.js"
-import { capabilityError } from "../capability-result.js"
 import { protocolChannel } from "./protocol.js"
 import { normalizeResultTarget } from "./result-routing.js"
 import { resultStateFromCapabilityResult, type ResultState } from "./result-state.js"

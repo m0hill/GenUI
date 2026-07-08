@@ -1,5 +1,5 @@
 export { createRegistry, defineCapability } from "./registry.js"
-export { createMemorySurfaceStore } from "./surface-records.js"
+export { createMemorySurfaceStore } from "./surface-runtime.js"
 export { genuiDialect } from "./types.js"
 export type { CreateRegistryOptions } from "./registry.js"
 export type {

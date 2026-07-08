@@ -123,6 +123,12 @@ export type CapabilityResult =
       }
     }
 
+/** Build the standard capability failure envelope used across execution boundaries. */
+export const capabilityError = (code: CapabilityErrorCode, message: string): CapabilityResult => ({
+  ok: false,
+  error: { code, message },
+})
+
 /** Input accepted by a registry when creating a sanitized surface. */
 export interface CreateSurfaceInput {
   readonly html: string
