@@ -167,7 +167,7 @@ export const genuiRegistry = createRegistry<GenuiCapabilityContext>({
     defineCapability({
       name: "chat.follow_up",
       description: "Submit a follow-up prompt into the current chat composer.",
-      effect: "local",
+      effect: "write",
       input: z.object({ prompt: z.string().trim().min(1).max(1200) }),
       execute: () => undefined,
     }),
