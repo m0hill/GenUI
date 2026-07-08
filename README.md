@@ -36,5 +36,5 @@ Sessions are stored as JSONL files in `.sessions/`.
 
 ## Generated UI architecture
 
-The standalone framework notes for the generated UI capability runtime live in
+The standalone runtime notes for the generated UI capability architecture live in
 [`docs/genui/`](docs/genui/README.md).

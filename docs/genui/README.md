@@ -2,7 +2,7 @@
 
 These notes describe an HTML-first generative UI architecture where an AI model can create real interactive interfaces, while the application keeps authority, permissions, and side effects behind explicit capability boundaries.
 
-This folder is intentionally conceptual. It avoids implementation-shaped code so the architecture can be rethought, reimplemented, or adapted without being anchored to one repository, framework, schema library, or endpoint design.
+This folder is intentionally conceptual. It avoids implementation-shaped code so the architecture can be rethought, reimplemented, or adapted without being anchored to one repository, AI provider, agent framework, schema library, frontend framework, or endpoint design.
 
 ## Reading Order
 
@@ -16,7 +16,7 @@ This folder is intentionally conceptual. It avoids implementation-shaped code so
 8. [Reconstruction Guide](08-reconstruction-guide.md) gives a concise build order for recreating the system from scratch.
 9. [Surface Runtime Model](09-surface-runtime-model.md) defines surface identity, grants, manifests, and request lifecycle.
 10. [Expression Model](10-expression-model.md) captures the Datastar-vs-closed-DSL decision the framework must make.
-11. [Framework API And Packaging](11-framework-api-and-packaging.md) describes the public developer surface and runtime bundling model.
+11. [Runtime API And Packaging](11-runtime-api-and-packaging.md) describes the provider-independent public surface, adapter seams, and runtime bundling model.
 
 ## One-Sentence Version
 
@@ -25,6 +25,8 @@ The model may invent the interface, but every meaningful outside-world action mu
 ## Core Vocabulary
 
 - **Generated surface**: the UI fragment produced by the model.
+- **Surface**: the durable generated UI record: HTML, grant, descriptors, state, metadata, and identity.
+- **SurfaceInstance**: a live mounted sandbox for a surface.
 - **Sandbox**: the isolated iframe or equivalent execution boundary that renders the generated surface.
 - **Host**: the trusted application page around the sandbox.
 - **Capability**: a named operation the generated surface can request.
