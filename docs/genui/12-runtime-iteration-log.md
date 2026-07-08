@@ -209,6 +209,12 @@ Supported event actions:
      instead of extending the internal broker option shape.
    - Done in code: `@hono-ai/genui-runtime/dom` no longer re-exports result-routing
      helpers as public API.
+   - Done in code: `Registry` exposes `reprojectSurface(surfaceId)` so stored source can
+     be re-sanitized under current capability policy without changing the surface id.
+   - Done in code: `Registry` exposes `surfaceDiagnostics(surfaceId)` so app/model loops
+     can inspect requested, granted, and dropped capability names.
+   - Done in code: projection diagnostics are recomputed from preserved source instead
+     of cached, so policy changes are reflected before and after reprojection.
    - Done in docs: local-only UI behavior is represented by dialect actions such as
      `@set`, not by capabilities.
    - Done in docs: broker approval is host-side UX; registry approval is authoritative

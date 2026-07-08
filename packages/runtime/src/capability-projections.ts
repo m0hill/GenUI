@@ -1,6 +1,7 @@
 import {
   type AnyCapabilityDefinition,
   type CapabilityDescriptor,
+  type DroppedCapabilityRequest,
   type Grant,
   type Policy,
 } from "./types.js"
@@ -8,13 +9,6 @@ import {
 interface ProjectGrantedCapabilitiesInput<Ctx> {
   readonly requested: readonly string[]
   readonly byName: ReadonlyMap<string, AnyCapabilityDefinition<Ctx>>
-}
-
-export type DroppedCapabilityReason = "duplicate" | "unknown" | "blocked"
-
-export interface DroppedCapabilityRequest {
-  readonly name: string
-  readonly reason: DroppedCapabilityReason
 }
 
 /** Internal projection returned when requested capability names become a surface grant. */

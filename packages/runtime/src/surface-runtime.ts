@@ -1,7 +1,4 @@
-import {
-  projectGrantedCapabilities,
-  type DroppedCapabilityRequest,
-} from "./capability-projections.js"
+import { projectGrantedCapabilities } from "./capability-projections.js"
 import { sanitizeSurfaceHtml } from "./sanitizer.js"
 import {
   copySurface,
@@ -14,17 +11,13 @@ import {
   type AnyCapabilityDefinition,
   type CapabilityDescriptor,
   type CreateSurfaceInput,
+  type DroppedCapabilityRequest,
   type Surface,
+  type SurfaceProjectionDiagnostics,
   type SurfaceRecord,
   type SurfaceSource,
   type SurfaceStore,
 } from "./types.js"
-
-export interface SurfaceProjectionDiagnostics {
-  readonly requested: readonly string[]
-  readonly granted: readonly string[]
-  readonly dropped: readonly DroppedCapabilityRequest[]
-}
 
 interface ProjectedSurfaceSource {
   readonly html: string
@@ -65,8 +58,6 @@ export const createSurfaceRuntime = <Ctx>({
   byName,
   store = createMemorySurfaceStore(),
 }: CreateSurfaceRuntimeOptions<Ctx>): SurfaceRuntime => {
-  const diagnosticsBySurfaceId = new Map<string, SurfaceProjectionDiagnostics>()
-
   const project = (source: SurfaceSource): ProjectedSurfaceSource => {
     const grantProjection = projectGrantedCapabilities({ requested: source.requested, byName })
     return {
@@ -90,7 +81,6 @@ export const createSurfaceRuntime = <Ctx>({
     })
     await store.set(record)
     const surface = copySurface(record.surface)
-    diagnosticsBySurfaceId.set(surface.id, projected.diagnostics)
     return surface
   }
 
@@ -105,19 +95,14 @@ export const createSurfaceRuntime = <Ctx>({
       capabilities: projected.capabilities,
     })
     await store.set(nextRecord)
-    diagnosticsBySurfaceId.set(id, projected.diagnostics)
     return copySurface(nextRecord.surface)
   }
 
   const diagnostics = async (id: string): Promise<SurfaceProjectionDiagnostics | undefined> => {
-    const cached = diagnosticsBySurfaceId.get(id)
-    if (cached !== undefined) return cached
-
     const record = await storedRecord(id)
     if (record === undefined) return undefined
 
     const projected = project(record.source)
-    diagnosticsBySurfaceId.set(id, projected.diagnostics)
     return projected.diagnostics
   }
 

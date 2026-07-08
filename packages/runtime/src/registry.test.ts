@@ -117,6 +117,15 @@ void test("registry projects a grant and sanitizes HTML under that grant", async
   assert.doesNotMatch(surface.html, /demo\.blocked/)
   assert.doesNotMatch(surface.html, /<script/i)
   assert.deepEqual(JSON.parse(JSON.stringify(surface)), surface)
+  assert.deepEqual(await registry.surfaceDiagnostics(surface.id), {
+    requested: ["dice.roll", "missing.capability", "dice.roll", "demo.blocked"],
+    granted: ["dice.roll"],
+    dropped: [
+      { name: "missing.capability", reason: "unknown" },
+      { name: "dice.roll", reason: "duplicate" },
+      { name: "demo.blocked", reason: "blocked" },
+    ],
+  })
 })
 
 void test("surface dialect type permits future dialect identifiers", () => {
@@ -230,6 +239,52 @@ void test("registry returns a structured result when the surface store is unavai
       },
     },
   )
+})
+
+void test("registry reprojects stored surface source under current policy", async () => {
+  const store = createMemorySurfaceStore()
+  const html = `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`
+  const creator = createRegistry<TestCtx>({
+    surfaces: store,
+    capabilities: [
+      defineCapability({
+        name: "dice.roll",
+        description: "Roll a die.",
+        effect: "read",
+        input: rollInput,
+        output: rollOutput,
+        execute: (_ctx, input) => ({ total: input.sides }),
+      }),
+    ],
+  })
+
+  const created = await creator.createSurface({ html, requested: ["dice.roll"] })
+  const hardened = createRegistry<TestCtx>({
+    surfaces: store,
+    capabilities: [
+      defineCapability({
+        name: "dice.roll",
+        description: "Roll a die.",
+        effect: "dangerous",
+        policy: "block",
+        input: rollInput,
+        output: rollOutput,
+        execute: (_ctx, input) => ({ total: input.sides }),
+      }),
+    ],
+  })
+
+  assert.deepEqual(await hardened.surfaceDiagnostics(created.id), {
+    requested: ["dice.roll"],
+    granted: [],
+    dropped: [{ name: "dice.roll", reason: "blocked" }],
+  })
+
+  const reprojected = await hardened.reprojectSurface(created.id)
+
+  assert.equal(reprojected?.id, created.id)
+  assert.deepEqual(reprojected?.grant.capabilities, [])
+  assert.doesNotMatch(reprojected?.html ?? "", /data-genui-on-click/)
 })
 
 void test("returned surface mutations cannot change registry authority", async () => {

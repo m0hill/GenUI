@@ -130,6 +130,22 @@ export interface CreateSurfaceInput {
   readonly meta?: Readonly<Record<string, unknown>>
 }
 
+/** Reason a requested capability did not become part of a surface grant. */
+export type DroppedCapabilityReason = "duplicate" | "unknown" | "blocked"
+
+/** One requested capability name that was omitted while projecting a surface grant. */
+export interface DroppedCapabilityRequest {
+  readonly name: string
+  readonly reason: DroppedCapabilityReason
+}
+
+/** Grant projection details for a generated surface. */
+export interface SurfaceProjectionDiagnostics {
+  readonly requested: readonly string[]
+  readonly granted: readonly string[]
+  readonly dropped: readonly DroppedCapabilityRequest[]
+}
+
 /** Persisted source input used to reproject a surface under current runtime policy. */
 export type SurfaceSource = CreateSurfaceInput
 
@@ -153,6 +169,8 @@ export interface ExecuteOptions {
 /** Provider- and transport-independent generated UI registry. */
 export interface Registry<Ctx> {
   createSurface(input: CreateSurfaceInput): Promise<Surface>
+  reprojectSurface(id: string): Promise<Surface | undefined>
+  surfaceDiagnostics(id: string): Promise<SurfaceProjectionDiagnostics | undefined>
   execute(call: CapabilityCall, ctx: Ctx, options?: ExecuteOptions): Promise<CapabilityResult>
   descriptors(): CapabilityDescriptor[]
   instructions(): string

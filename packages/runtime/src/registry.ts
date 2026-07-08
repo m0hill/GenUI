@@ -50,6 +50,11 @@ export const createRegistry = <Ctx>(options: CreateRegistryOptions<Ctx>): Regist
   const createSurface = (input: CreateSurfaceInput): Promise<Surface> =>
     surfaceRuntime.createSurface(input)
 
+  const reprojectSurface = (id: string): Promise<Surface | undefined> =>
+    surfaceRuntime.reprojectSurface(id)
+
+  const surfaceDiagnostics = (id: string) => surfaceRuntime.diagnostics(id)
+
   const execute = async (
     call: CapabilityCall,
     ctx: Ctx,
@@ -103,5 +108,5 @@ export const createRegistry = <Ctx>(options: CreateRegistryOptions<Ctx>): Regist
     return genui0Dialect.instructions(descriptors())
   }
 
-  return { createSurface, execute, descriptors, instructions }
+  return { createSurface, reprojectSurface, surfaceDiagnostics, execute, descriptors, instructions }
 }
