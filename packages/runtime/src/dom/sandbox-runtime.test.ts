@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import type { Window } from "happy-dom"
-import { protocolChannel } from "./protocol.js"
+import { protocolChannel, type SurfaceSnapshot } from "./protocol.js"
 import {
   installSandboxRuntime,
   type SandboxRuntimeGlobal,
@@ -27,11 +27,15 @@ const asSandboxGlobal = (window: Window): SandboxRuntimeGlobal => {
   return window as unknown as SandboxRuntimeGlobal
 }
 
-const createHarness = (html: string, surfaceId = "surface-test"): RuntimeHarness => {
+const createHarness = (
+  html: string,
+  surfaceId = "surface-test",
+  snapshot?: SurfaceSnapshot,
+): RuntimeHarness => {
   const { window, messages } = createSandboxWindow(html)
 
   const instance = installSandboxRuntime(
-    { channel: protocolChannel, surfaceId },
+    { channel: protocolChannel, surfaceId, ...(snapshot === undefined ? {} : { snapshot }) },
     asSandboxGlobal(window),
   )
 
@@ -807,6 +811,100 @@ void test("sandbox runtime keeps row-local bindings scoped to keyed rows", () =>
   const restoredOrder2Note = window.document.querySelector("li input")
   assert.ok(restoredOrder2Note instanceof window.HTMLInputElement)
   assert.equal(restoredOrder2Note.value, "Fresh beta")
+})
+
+void test("sandbox runtime snapshots and restores global and row state", () => {
+  const html = `
+    <section data-genui-state="{ filter: 'open' }">
+      <select id="filter" data-genui-bind="filter">
+        <option value="open" selected>Open</option>
+        <option value="closed">Closed</option>
+      </select>
+      <ul data-genui-each="$orders.value.items" data-genui-as="order" data-genui-key="$order.id">
+        <li data-genui-row-state="{ note: $order.note }">
+          <span class="id" data-genui-text="$order.id"></span>
+          <input class="note" data-genui-bind="row.note" value="">
+        </li>
+      </ul>
+    </section>
+  `
+  const { window, messages } = createHarness(html)
+  const setOrders = (items: readonly Record<string, string>[]): void => {
+    window.dispatchEvent(
+      new window.MessageEvent("message", {
+        data: {
+          channel: protocolChannel,
+          surfaceId: "surface-test",
+          type: "result",
+          target: "orders",
+          state: { status: "complete", value: { items } },
+        },
+      }),
+    )
+  }
+
+  setOrders([
+    { id: "order-1", note: "Alpha" },
+    { id: "order-2", note: "Beta" },
+  ])
+
+  const filter = window.document.querySelector("#filter")
+  const order2Note = window.document.querySelectorAll(".note")[1]
+  assert.ok(filter instanceof window.HTMLSelectElement)
+  assert.ok(order2Note instanceof window.HTMLInputElement)
+
+  filter.value = "closed"
+  filter.dispatchEvent(new window.Event("change", { bubbles: true }))
+  order2Note.value = "Draft beta"
+  order2Note.dispatchEvent(new window.Event("input", { bubbles: true }))
+
+  window.dispatchEvent(
+    new window.MessageEvent("message", {
+      data: {
+        channel: protocolChannel,
+        surfaceId: "surface-test",
+        type: "snapshot_request",
+        requestId: "request-1",
+      },
+    }),
+  )
+
+  const snapshotMessage = messages.find(
+    (message) => isRecord(message) && message.type === "snapshot",
+  )
+  assert.ok(isRecord(snapshotMessage))
+  assert.ok(isRecord(snapshotMessage.snapshot))
+  const snapshot = snapshotMessage.snapshot as unknown as SurfaceSnapshot
+
+  assert.equal(snapshotMessage.requestId, "request-1")
+  assert.equal(snapshot.state.filter, "closed")
+  assert.equal(
+    isRecord(snapshot.state.orders) && isRecord(snapshot.state.orders.value)
+      ? Array.isArray(snapshot.state.orders.value.items)
+      : false,
+    true,
+  )
+  const rowSnapshots = Object.values(snapshot.rowStates).flatMap((rows) => Object.values(rows))
+  assert.equal(
+    rowSnapshots.some((row) => row.note === "Alpha"),
+    true,
+  )
+  assert.equal(
+    rowSnapshots.some((row) => row.note === "Draft beta"),
+    true,
+  )
+
+  const restored = createHarness(html, "surface-restored", snapshot)
+  const restoredFilter = restored.window.document.querySelector("#filter")
+  const restoredRows = Array.from(restored.window.document.querySelectorAll("li"))
+  const restoredOrder2Note = restoredRows[1]?.querySelector(".note")
+
+  assert.ok(restoredFilter instanceof restored.window.HTMLSelectElement)
+  assert.ok(restoredOrder2Note instanceof restored.window.HTMLInputElement)
+  assert.equal(restoredFilter.value, "closed")
+  assert.equal(restoredRows.length, 2)
+  assert.equal(restoredRows[1]?.querySelector(".id")?.textContent, "order-2")
+  assert.equal(restoredOrder2Note.value, "Draft beta")
 })
 
 void test("sandbox runtime reserves row outside row scope", () => {

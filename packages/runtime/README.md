@@ -29,3 +29,11 @@ directives.
 package currently ships the concrete `genui/0` sanitizer, instructions, and sandbox
 asset. A future dialect should ship as its own concrete module and sandbox asset selected
 by dialect id.
+
+Mounted surfaces can snapshot their sandbox state. `instance.snapshot()` returns JSON
+state from the iframe, and `await instance.replace(surface)` uses that same protocol for
+same-surface regeneration so drafts, selected filters, result data, and keyed row-local
+state survive conversational UI iteration. Cross-surface replacement does not auto-carry
+state; pass `replace(surface, { snapshot })` when the host intentionally wants that.
+Scroll is host-owned in the auto-height iframe model and is intentionally not part of the
+snapshot.

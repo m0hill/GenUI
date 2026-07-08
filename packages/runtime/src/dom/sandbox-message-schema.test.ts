@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { protocolChannel } from "./protocol.js"
-import { parseSandboxMessage } from "./sandbox-message-schema.js"
+import { parseSandboxMessage, parseSnapshotSandboxMessage } from "./sandbox-message-schema.js"
 
 void test("sandbox message schema parses protocol variants", () => {
   assert.deepEqual(
@@ -62,6 +62,41 @@ void test("sandbox message schema parses protocol variants", () => {
         href: "https://example.com/",
       },
     },
+  )
+})
+
+void test("sandbox message schema parses snapshot responses", () => {
+  assert.deepEqual(
+    parseSnapshotSandboxMessage({
+      channel: protocolChannel,
+      type: "snapshot",
+      surfaceId: "surface-1",
+      requestId: "snapshot-1",
+      snapshot: {
+        state: { query: "draft" },
+        rowStates: { list: { "row-1": { note: "draft" } } },
+      },
+    }),
+    {
+      channel: protocolChannel,
+      type: "snapshot",
+      surfaceId: "surface-1",
+      requestId: "snapshot-1",
+      snapshot: {
+        state: { query: "draft" },
+        rowStates: { list: { "row-1": { note: "draft" } } },
+      },
+    },
+  )
+
+  assert.equal(
+    parseSnapshotSandboxMessage({
+      channel: protocolChannel,
+      type: "snapshot",
+      surfaceId: "surface-1",
+      snapshot: {},
+    }),
+    undefined,
   )
 })
 

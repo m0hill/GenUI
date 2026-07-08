@@ -1,6 +1,6 @@
 import { isRecord } from "../record.js"
 import type { ActionCall } from "../types.js"
-import { protocolChannel } from "./protocol.js"
+import { protocolChannel, type SurfaceSnapshot } from "./protocol.js"
 
 export interface ActionSandboxMessage extends ActionCall {
   readonly channel: typeof protocolChannel
@@ -20,6 +20,14 @@ interface LinkSandboxMessage {
   readonly type: "link"
   readonly surfaceId: string
   readonly href: string
+}
+
+export interface SnapshotSandboxMessage {
+  readonly channel: typeof protocolChannel
+  readonly type: "snapshot"
+  readonly surfaceId: string
+  readonly requestId: string
+  readonly snapshot: SurfaceSnapshot
 }
 
 export type SandboxMessage = ActionSandboxMessage | ResizeSandboxMessage | LinkSandboxMessage
@@ -73,6 +81,47 @@ const parseCapabilityMessage = (
     action,
     input: value.input,
     ...(typeof value.target === "string" ? { target: value.target } : {}),
+  }
+}
+
+const parseSnapshot = (value: unknown): SurfaceSnapshot | undefined => {
+  if (!isRecord(value)) return undefined
+
+  const rowStates: Record<string, Record<string, Record<string, unknown>>> = {}
+  if (isRecord(value.rowStates)) {
+    for (const [blockId, rows] of Object.entries(value.rowStates)) {
+      if (!isRecord(rows)) continue
+
+      const keyedRows: Record<string, Record<string, unknown>> = {}
+      for (const [key, row] of Object.entries(rows)) {
+        if (isRecord(row)) keyedRows[key] = row
+      }
+      if (Object.keys(keyedRows).length > 0) rowStates[blockId] = keyedRows
+    }
+  }
+
+  return {
+    state: isRecord(value.state) ? value.state : {},
+    rowStates,
+  }
+}
+
+export const parseSnapshotSandboxMessage = (value: unknown): SnapshotSandboxMessage | undefined => {
+  if (!isRecord(value)) return undefined
+  if (value.channel !== protocolChannel) return undefined
+  if (value.type !== "snapshot") return undefined
+  if (typeof value.surfaceId !== "string") return undefined
+  if (typeof value.requestId !== "string") return undefined
+
+  const snapshot = parseSnapshot(value.snapshot)
+  if (snapshot === undefined) return undefined
+
+  return {
+    channel: protocolChannel,
+    type: "snapshot",
+    surfaceId: value.surfaceId,
+    requestId: value.requestId,
+    snapshot,
   }
 }
 

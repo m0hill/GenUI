@@ -19,6 +19,7 @@ export type SurfaceViolationReason =
   | "surface_mismatch"
   | "ungranted_call"
   | "unsafe_link"
+  | "snapshot_timeout"
 
 export type SurfaceEvent =
   | { readonly type: "call"; readonly call: ActionCall; readonly target: string }

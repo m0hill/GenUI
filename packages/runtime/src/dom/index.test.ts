@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { mount, type SurfaceEvent } from "./index.js"
+import { mount, type SurfaceEvent, type SurfaceSnapshot } from "./index.js"
 import type { ActionCall, ActionResult } from "../types.js"
 import { protocolChannel } from "./protocol.js"
 import {
@@ -15,7 +15,7 @@ import {
   testSurface,
 } from "./test-support.test-support.js"
 
-void test("mount renders a sandboxed iframe and replaces/disposes it", () => {
+void test("mount renders a sandboxed iframe and replaces/disposes it", async () => {
   const { element } = createMountTarget()
   const first = testSurface([diceDescriptor], `<button>Roll</button>`)
   const second = testSurface([diceDescriptor], `<button>Roll</button>`)
@@ -28,12 +28,132 @@ void test("mount renders a sandboxed iframe and replaces/disposes it", () => {
   assert.equal(iframe.getAttribute("sandbox"), "allow-scripts allow-forms")
   assert.match(iframe.srcdoc, /<button>Roll<\/button>/)
 
-  instance.replace(second)
+  await instance.replace(second)
   assert.equal(instance.surface, second)
   assert.match(iframe.srcdoc, new RegExp(second.id))
 
   instance.dispose()
   assert.equal(element.querySelector("iframe"), null)
+})
+
+void test("mount snapshots and seeds same-surface replacement documents", async () => {
+  const { window, element } = createMountTarget()
+  const first = testSurface([diceDescriptor], `<input data-genui-bind="query">`)
+  const second = { ...first, html: `<input data-genui-bind="query"><p>regenerated</p>` }
+  const snapshot: SurfaceSnapshot = {
+    state: { query: "draft" },
+    rowStates: {},
+  }
+  const instance = mount(asDomElement(element), first, {
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+  })
+  const iframe = mountedIframe(element)
+
+  const captured = instance.snapshot()
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "snapshot",
+    surfaceId: first.id,
+    requestId: "snapshot-1",
+    snapshot,
+  })
+  assert.deepEqual(await captured, snapshot)
+
+  const replacement = instance.replace(second)
+  await flushAsync()
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "snapshot",
+    surfaceId: first.id,
+    requestId: "snapshot-2",
+    snapshot,
+  })
+  await replacement
+
+  assert.match(iframe.srcdoc, /"snapshot":/)
+  assert.match(iframe.srcdoc, /"query":"draft"/)
+  instance.dispose()
+})
+
+void test("mount requires explicit snapshots across surface ids", async () => {
+  const { element } = createMountTarget()
+  const first = testSurface([diceDescriptor], `<input data-genui-bind="query">`)
+  const second = testSurface([diceDescriptor], `<input data-genui-bind="query">`)
+  const third = testSurface([diceDescriptor], `<input data-genui-bind="query">`)
+  const snapshot: SurfaceSnapshot = {
+    state: { query: "draft" },
+    rowStates: {},
+  }
+  const instance = mount(asDomElement(element), first, {
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+  })
+  const iframe = mountedIframe(element)
+
+  await instance.replace(second)
+  assert.doesNotMatch(iframe.srcdoc, /"query":"draft"/)
+
+  await instance.replace(third, { snapshot })
+  assert.match(iframe.srcdoc, /"query":"draft"/)
+  instance.dispose()
+})
+
+void test("mount emits snapshot timeout violations", async () => {
+  const { element } = createMountTarget()
+  const first = testSurface([diceDescriptor], `<input data-genui-bind="query">`)
+  const second = { ...first, html: `<input data-genui-bind="query"><p>regenerated</p>` }
+  const events: SurfaceEvent[] = []
+  const instance = mount(asDomElement(element), first, {
+    snapshotTimeoutMs: 1,
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+    onEvent: (event) => events.push(event),
+  })
+
+  await instance.replace(second)
+
+  assert.equal(
+    events.some((event) => event.type === "violation" && event.reason === "snapshot_timeout"),
+    true,
+  )
+  instance.dispose()
+})
+
+void test("mount serializes rapid same-surface replacements", async () => {
+  const { window, element } = createMountTarget()
+  const first = testSurface([diceDescriptor], `<p>first</p>`)
+  const second = { ...first, html: `<p>second</p>` }
+  const third = { ...first, html: `<p>third</p>` }
+  const instance = mount(asDomElement(element), first, {
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+  })
+  const iframe = mountedIframe(element)
+
+  const secondReplacement = instance.replace(second)
+  const thirdReplacement = instance.replace(third)
+
+  await flushAsync()
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "snapshot",
+    surfaceId: first.id,
+    requestId: "snapshot-1",
+    snapshot: { state: { step: "first" }, rowStates: {} },
+  })
+  await secondReplacement
+  assert.match(iframe.srcdoc, /<p>second<\/p>/)
+
+  await flushAsync()
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "snapshot",
+    surfaceId: first.id,
+    requestId: "snapshot-2",
+    snapshot: { state: { step: "second" }, rowStates: {} },
+  })
+  await thirdReplacement
+
+  assert.match(iframe.srcdoc, /<p>third<\/p>/)
+  assert.match(iframe.srcdoc, /"step":"second"/)
+  instance.dispose()
 })
 
 void test("mount refuses unsupported surface dialects", () => {
@@ -175,7 +295,7 @@ void test("mount aborts and drops pending results after replacing a surface", as
   dispatchSandboxMessage(window, iframe, sandboxCapabilityMessage(first))
   await flushAsync()
   assert.equal(signal?.aborted, false)
-  instance.replace(second)
+  await instance.replace(second)
   assert.equal(signal?.aborted, true)
   result.resolve({ ok: true, value: { total: 6 } })
   await flushAsync()

@@ -4,11 +4,13 @@ import {
   type Genui0RuntimeDirective,
 } from "../dialect/genui0.js"
 import { genui0Language } from "../dialect/genui0-language.js"
+import type { SurfaceSnapshot } from "./protocol.js"
 import { pendingResultState } from "./result-state.js"
 
 export interface SandboxRuntimeConfig {
   readonly channel: string
   readonly surfaceId: string
+  readonly snapshot?: SurfaceSnapshot
 }
 
 export interface SandboxRuntimeGlobal {
@@ -61,6 +63,7 @@ export const installSandboxRuntime = (
   }
 
   type EachRenderState = {
+    readonly id: string
     readonly template: readonly Node[]
     readonly instances: Map<string, EachInstance>
     readonly rowStates: Map<string, RowState>
@@ -72,9 +75,7 @@ export const installSandboxRuntime = (
     readonly itemName: string
     readonly keyExpression: string | undefined
     readonly scope: StateScope
-    readonly template: readonly Node[]
-    readonly instances: Map<string, EachInstance>
-    readonly rowStates: Map<string, RowState>
+    readonly renderState: EachRenderState
     directives: Directive[]
   }
 
@@ -91,6 +92,9 @@ export const installSandboxRuntime = (
   let nextCallId = 1
   let resizeObserver: ResizeObserver | undefined
   const state: Record<string, unknown> = {}
+  const seededStateKeys = new Set<string>()
+  const seededRowStates = new Map<string, Map<string, RowState>>()
+  const eachSignatureCounts = new Map<string, number>()
   const directives: Directive[] = []
   const eachBlocks: EachBlock[] = []
   const loadActions: LoadAction[] = []
@@ -108,6 +112,19 @@ export const installSandboxRuntime = (
 
   const hasOwn = (value: object, key: string): boolean =>
     Object.prototype.hasOwnProperty.call(value, key)
+
+  const jsonClone = (value: unknown): unknown => {
+    try {
+      return JSON.parse(JSON.stringify(value))
+    } catch {
+      return undefined
+    }
+  }
+
+  const jsonRecordClone = (value: unknown): Record<string, unknown> => {
+    const cloned = jsonClone(value)
+    return isRecord(cloned) ? cloned : {}
+  }
 
   const readOwnProperty = (value: unknown, key: string): OwnPropertyRead => {
     if (typeof value !== "object" || value === null) return { found: false }
@@ -229,6 +246,95 @@ export const installSandboxRuntime = (
       { channel: config.channel, surfaceId: config.surfaceId, ...message },
       "*",
     )
+  }
+
+  const installSnapshot = (): void => {
+    const snapshot = config.snapshot
+    if (snapshot === undefined) return
+
+    const snapshotState = jsonRecordClone(snapshot.state)
+    for (const [name, value] of Object.entries(snapshotState)) {
+      state[name] = value
+      seededStateKeys.add(name)
+    }
+
+    if (!isRecord(snapshot.rowStates)) return
+    for (const [blockId, rows] of Object.entries(snapshot.rowStates)) {
+      if (!isRecord(rows)) continue
+
+      const keyedRows = new Map<string, RowState>()
+      for (const [key, row] of Object.entries(rows)) {
+        const cloned = jsonRecordClone(row)
+        if (Object.keys(cloned).length > 0) keyedRows.set(key, cloned)
+      }
+      if (keyedRows.size > 0) seededRowStates.set(blockId, keyedRows)
+    }
+  }
+
+  const createEachRenderStateId = (
+    expression: string,
+    itemName: string,
+    keyExpression: string | undefined,
+  ): string => {
+    const signature = JSON.stringify([expression, itemName, keyExpression ?? ""])
+    const ordinal = eachSignatureCounts.get(signature) ?? 0
+    eachSignatureCounts.set(signature, ordinal + 1)
+    return JSON.stringify([expression, itemName, keyExpression ?? "", ordinal])
+  }
+
+  const createEachRenderState = (
+    expression: string,
+    itemName: string,
+    keyExpression: string | undefined,
+    template: readonly Node[],
+  ): EachRenderState => ({
+    id: createEachRenderStateId(expression, itemName, keyExpression),
+    template,
+    instances: new Map(),
+    rowStates: new Map(),
+  })
+
+  const consumeSeededRowState = (blockId: string, key: string): RowState | undefined => {
+    const rows = seededRowStates.get(blockId)
+    if (rows === undefined) return undefined
+
+    const row = rows.get(key)
+    if (row === undefined) return undefined
+
+    rows.delete(key)
+    if (rows.size === 0) seededRowStates.delete(blockId)
+    return row
+  }
+
+  const eachRenderStates = (): readonly EachRenderState[] => {
+    const states = new Map<string, EachRenderState>()
+    for (const block of eachBlocks) states.set(block.renderState.id, block.renderState)
+
+    for (const element of global.document.querySelectorAll(`[${genui0AttributeNames.each}]`)) {
+      const renderState = inlineEachStates.get(element)
+      if (renderState !== undefined) states.set(renderState.id, renderState)
+    }
+
+    return Array.from(states.values())
+  }
+
+  const currentSnapshot = (): SurfaceSnapshot => {
+    const rowStates: Record<string, Record<string, Record<string, unknown>>> = {}
+    for (const renderState of eachRenderStates()) {
+      if (renderState.rowStates.size === 0) continue
+
+      const rows: Record<string, Record<string, unknown>> = {}
+      for (const [key, row] of renderState.rowStates) {
+        const cloned = jsonRecordClone(row)
+        if (Object.keys(cloned).length > 0) rows[key] = cloned
+      }
+      if (Object.keys(rows).length > 0) rowStates[renderState.id] = rows
+    }
+
+    return {
+      state: jsonRecordClone(state),
+      rowStates,
+    }
   }
 
   const createCallId = (): string =>
@@ -478,10 +584,16 @@ export const installSandboxRuntime = (
     handleAuthoredChange(event)
   }
 
-  const handleResultMessage = (event: MessageEvent<unknown>): void => {
+  const handleParentMessage = (event: MessageEvent<unknown>): void => {
     const message = event.data
     if (!isRecord(message)) return
     if (message.channel !== config.channel || message.surfaceId !== config.surfaceId) return
+
+    if (message.type === "snapshot_request" && typeof message.requestId === "string") {
+      post({ type: "snapshot", requestId: message.requestId, snapshot: currentSnapshot() })
+      return
+    }
+
     if (message.type !== "result" || typeof message.target !== "string") return
 
     setResultState(message.target, message.state)
@@ -495,13 +607,26 @@ export const installSandboxRuntime = (
         readStateFromScope(emptyScope),
       )
       if (!isRecord(parsed)) continue
-      for (const [name, value] of Object.entries(parsed)) state[name] = value
+      for (const [name, value] of Object.entries(parsed)) {
+        if (!seededStateKeys.has(name)) state[name] = value
+      }
     }
   }
 
   const hasRowScope = (scope: StateScope): boolean => isRecord(scope.row)
 
   const isRowPath = (path: readonly string[]): boolean => path[0] === "row" && path.length > 1
+
+  const hasSeededPath = (path: readonly string[], scope: StateScope): boolean => {
+    const [name, next] = path
+    if (name === undefined) return false
+
+    if (name === "row") {
+      return next !== undefined && isRecord(scope.row) && hasOwn(scope.row, next)
+    }
+
+    return seededStateKeys.has(name)
+  }
 
   const installBinding = (element: Element, scope: StateScope, mode: RenderMode): void => {
     const binding = element.getAttribute(genui0AttributeNames.bind)
@@ -513,7 +638,10 @@ export const installSandboxRuntime = (
 
     boundElements.set(element, { path, scope })
 
-    if (hasAuthoredFormValue(element) || readPath(path, scope) === "") {
+    if (
+      !hasSeededPath(path, scope) &&
+      (hasAuthoredFormValue(element) || readPath(path, scope) === "")
+    ) {
       writePath(path, readElementValue(element), scope)
     } else {
       writeElementValue(element, readPath(path, scope))
@@ -532,7 +660,9 @@ export const installSandboxRuntime = (
     const parsed = genui0Language.parseObjectLiteral(expression, readStateFromScope(scope))
     if (!isRecord(parsed)) return
 
-    for (const [name, value] of Object.entries(parsed)) row[name] = value
+    for (const [name, value] of Object.entries(parsed)) {
+      if (!hasOwn(row, name)) row[name] = value
+    }
     initializedRowStateElements.add(element)
   }
 
@@ -613,9 +743,7 @@ export const installSandboxRuntime = (
       itemName,
       keyExpression,
       scope,
-      template,
-      instances: new Map(),
-      rowStates: new Map(),
+      renderState: createEachRenderState(expression, itemName, keyExpression, template),
       directives: [],
     })
   }
@@ -706,7 +834,8 @@ export const installSandboxRuntime = (
     for (const row of rows) {
       const existing = renderState.instances.get(row.key)
       const instance = existing ?? { nodes: cloneTemplate(renderState.template) }
-      const rowState = renderState.rowStates.get(row.key) ?? {}
+      const rowState =
+        renderState.rowStates.get(row.key) ?? consumeSeededRowState(renderState.id, row.key) ?? {}
       renderInstanceNodes(instance.nodes, { ...row.scope, row: rowState }, targetDirectives)
       nextInstances.set(row.key, instance)
       nextRowStates.set(row.key, rowState)
@@ -776,11 +905,12 @@ export const installSandboxRuntime = (
     const keyExpression = element.getAttribute(genui0AttributeNames.key) ?? undefined
     const renderState =
       inlineEachStates.get(element) ??
-      ({
-        template: Array.from(element.childNodes).map((node) => node.cloneNode(true)),
-        instances: new Map(),
-        rowStates: new Map(),
-      } satisfies EachRenderState)
+      createEachRenderState(
+        expression,
+        itemName,
+        keyExpression,
+        Array.from(element.childNodes).map((node) => node.cloneNode(true)),
+      )
     inlineEachStates.set(element, renderState)
     renderEachTemplate(
       element,
@@ -801,13 +931,14 @@ export const installSandboxRuntime = (
         block.expression,
         block.itemName,
         block.keyExpression,
-        { template: block.template, instances: block.instances, rowStates: block.rowStates },
+        block.renderState,
         block.scope,
         block.directives,
       )
     }
   }
 
+  installSnapshot()
   installInitialState()
   if (global.document.body !== null)
     renderElementTree(global.document.body, emptyScope, directives, "static")
@@ -819,7 +950,7 @@ export const installSandboxRuntime = (
   global.document.addEventListener("submit", handleSubmit)
   global.document.addEventListener("input", handleBoundInput)
   global.document.addEventListener("change", handleChange)
-  global.addEventListener("message", handleResultMessage)
+  global.addEventListener("message", handleParentMessage)
 
   if (global.ResizeObserver !== undefined && global.document.body !== null) {
     resizeObserver = new global.ResizeObserver(reportHeight)
@@ -836,7 +967,7 @@ export const installSandboxRuntime = (
       global.document.removeEventListener("submit", handleSubmit)
       global.document.removeEventListener("input", handleBoundInput)
       global.document.removeEventListener("change", handleChange)
-      global.removeEventListener("message", handleResultMessage)
+      global.removeEventListener("message", handleParentMessage)
     },
   }
 }

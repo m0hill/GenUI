@@ -235,7 +235,8 @@ Bindings are reactive in both directions for installed static controls:
    - Done in code: pending action results are aborted and dropped on replacement,
      including same-surface-id replacement.
    - Done in code: `Mounted.replace()` is the public replacement API because it
-     recreates the sandbox document and destroys sandbox state.
+     recreates the sandbox document; later snapshot work made this operation preserve
+     JSON-safe sandbox state across replacement.
 
 7. Public API hardening.
    - Done in code: `Effect` includes `local`, `read`, `write`, and `dangerous`.
@@ -399,6 +400,24 @@ Bindings are reactive in both directions for installed static controls:
     - Done in code: `data-genui-on-change` uses the normal action sanitizer path, grant
       checks, result targeting, and row-scope rules.
 
+22. State snapshot and restore.
+    - Done in code: mounted sandboxes support a snapshot request/response protocol that
+      returns JSON-safe global state plus keyed row-local state.
+    - Done in code: `mount(..., { snapshot })` can seed a sandbox before boot, and seeded
+      state takes precedence over authored form defaults while still allowing new surface
+      defaults to fill missing keys.
+    - Done in code: `Mounted.snapshot()` exposes the protocol for persistence and
+      `Mounted.replace(surface)` is awaitable; replacement snapshots the old iframe and
+      seeds the regenerated iframe before writing `srcdoc`.
+    - Done in code: row-local snapshots are keyed by repeated-block identity plus row key,
+      so keyed drafts can survive conversational surface regeneration.
+    - Done in code: automatic snapshot carryover is same-surface only. Cross-surface
+      replacement requires an explicit host-provided snapshot.
+    - Done in code: snapshot timeouts are configurable and emit a `snapshot_timeout`
+      violation event instead of silently losing state.
+    - Design note: scroll is host-owned under the auto-height iframe model and is not part
+      of sandbox snapshots.
+
 ## Important Deferred Work
 
 - Model adapters.
@@ -427,6 +446,5 @@ Bindings are reactive in both directions for installed static controls:
 - Should `@set('state.path', value)` be complemented by `@toggle('state.path')`?
 - When is `<template data-genui-each>` worth adding over the current host-element
   template model?
-- Should row-local state be included in the future snapshot/restore protocol?
 - What is the minimum persistence API that makes `Surface` restoration honest without
   overcommitting to storage semantics?
