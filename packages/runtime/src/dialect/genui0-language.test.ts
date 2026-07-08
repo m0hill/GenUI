@@ -127,6 +127,14 @@ void test("genui/0 language evaluates expression v0.5 operators and formatters",
     genui0Language.evaluateExpression("formatDate($createdAt)", readState),
     "Jan 2, 2026",
   )
+  assert.equal(genui0Language.evaluateExpression("formatNumber($missing)", readState), "")
+  assert.equal(genui0Language.evaluateExpression("formatCurrency($missing, 'USD')", readState), "")
+  assert.equal(
+    genui0Language.evaluateExpression("formatCurrency($amount, $missing)", readState),
+    "",
+  )
+  assert.equal(genui0Language.evaluateExpression("formatDate($missing)", readState), "")
+  assert.equal(genui0Language.evaluateExpression("$missing > 3", readState), false)
   assert.equal(
     genui0Language.evaluateExpression("formatCurrency($amount, $status)", readState),
     genui0Language.invalid,

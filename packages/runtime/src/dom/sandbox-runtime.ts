@@ -211,6 +211,16 @@ export const installSandboxRuntime = (
   const evaluate = (expression: string, scope: StateScope = emptyScope): unknown =>
     genui0Language.evaluateExpression(expression, readStateFromScope(scope))
 
+  const evaluateWithRuntimeReport = (
+    expression: string,
+    scope: StateScope,
+    source: string,
+  ): unknown => {
+    const value = evaluate(expression, scope)
+    if (value === genui0Language.invalid) reportRuntimeExpression(source, expression)
+    return value
+  }
+
   const isTruthy = (value: unknown): boolean =>
     value !== genui0Language.invalid &&
     value !== false &&
@@ -462,10 +472,11 @@ export const installSandboxRuntime = (
 
   const refreshDirectives = (): void => {
     for (const directive of currentDirectives()) {
-      const value = evaluate(directive.expression, directive.scope)
-      if (value === genui0Language.invalid) {
-        reportRuntimeExpression(`data-genui-${directive.type}`, directive.expression)
-      }
+      const value = evaluateWithRuntimeReport(
+        directive.expression,
+        directive.scope,
+        `data-genui-${directive.type}`,
+      )
       genui0Runtime.applyDirective(directive, value, {
         isTruthy,
         shouldRemoveDynamicValue,
@@ -832,7 +843,7 @@ export const installSandboxRuntime = (
     scope: StateScope,
     usedKeys: Set<string>,
   ): string | undefined => {
-    const key = textValue(evaluate(expression, scope))
+    const key = textValue(evaluateWithRuntimeReport(expression, scope, genui0AttributeNames.key))
     if (key.length === 0 || usedKeys.has(key)) return undefined
     usedKeys.add(key)
     return key
@@ -888,7 +899,7 @@ export const installSandboxRuntime = (
     parentScope: StateScope,
     targetDirectives: Directive[],
   ): void => {
-    const items = evaluate(expression, parentScope)
+    const items = evaluateWithRuntimeReport(expression, parentScope, genui0AttributeNames.each)
     if (!Array.isArray(items)) {
       renderState.instances.clear()
       element.replaceChildren()

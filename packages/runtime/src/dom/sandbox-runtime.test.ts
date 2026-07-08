@@ -42,6 +42,13 @@ const createHarness = (
   return { window, messages, instance }
 }
 
+const runtimeExpressionDetails = (messages: readonly unknown[]): readonly string[] =>
+  messages.flatMap((message) =>
+    isRecord(message) && message.type === "violation" && message.reason === "runtime_expression"
+      ? [typeof message.detail === "string" ? message.detail : ""]
+      : [],
+  )
+
 void test("sandbox runtime posts capability calls from click actions", () => {
   const { window, messages } = createHarness(`
     <div data-genui-state="{ label: 'Fallback' }">
@@ -332,25 +339,81 @@ void test("sandbox runtime reports invalid post-mount expression evaluations", (
 
   assert.equal(window.document.querySelector("#price")?.textContent, "")
   assert.equal(displayStyle(window.document.querySelector("#visible")), "none")
+  const details = runtimeExpressionDetails(messages)
   assert.equal(
-    messages.some(
-      (message) =>
-        isRecord(message) &&
-        message.type === "violation" &&
-        message.reason === "runtime_expression" &&
-        typeof message.detail === "string" &&
-        message.detail.includes("formatCurrency"),
-    ),
+    details.some((detail) => detail.includes("formatCurrency")),
     true,
   )
   assert.equal(
-    messages.some(
-      (message) =>
-        isRecord(message) &&
-        message.type === "violation" &&
-        message.reason === "runtime_expression" &&
-        typeof message.detail === "string" &&
-        message.detail.includes("$amount > $threshold"),
+    details.some((detail) => detail.includes("$amount > $threshold")),
+    true,
+  )
+})
+
+void test("sandbox runtime keeps loading-state expressions quiet until data arrives", () => {
+  const { window, messages } = createHarness(`
+    <section data-genui-on-load="@action('orders.summary', {}, { target: 'orders' })">
+      <p id="total" data-genui-text="formatCurrency($orders.value.total, 'USD')"></p>
+      <p id="large" data-genui-show="$orders.value.total > 100">Large order</p>
+      <ul data-genui-each="$orders.value.items" data-genui-as="order">
+        <li data-genui-text="$order.id"></li>
+      </ul>
+    </section>
+  `)
+
+  assert.equal(capabilityPostMessage(messages).action, "orders.summary")
+  assert.deepEqual(runtimeExpressionDetails(messages), [])
+  assert.equal(window.document.querySelector("#total")?.textContent, "")
+  assert.equal(displayStyle(window.document.querySelector("#large")), "none")
+  assert.equal(window.document.querySelector("li"), null)
+
+  window.dispatchEvent(
+    new window.MessageEvent("message", {
+      data: {
+        channel: protocolChannel,
+        surfaceId: "surface-test",
+        type: "result",
+        target: "orders",
+        state: { status: "complete", value: { total: 120, items: [{ id: "order-1" }] } },
+      },
+    }),
+  )
+
+  assert.equal(window.document.querySelector("#total")?.textContent, "$120.00")
+  assert.equal(displayStyle(window.document.querySelector("#large")), "")
+  assert.equal(window.document.querySelector("li")?.textContent, "order-1")
+  assert.deepEqual(runtimeExpressionDetails(messages), [])
+})
+
+void test("sandbox runtime reports invalid repeated-template expressions", () => {
+  const invalidEach = createHarness(`
+    <ul data-genui-each="formatNumber('bad')" data-genui-as="item">
+      <li data-genui-text="$item"></li>
+    </ul>
+  `)
+  assert.equal(
+    runtimeExpressionDetails(invalidEach.messages).some((detail) =>
+      detail.includes("data-genui-each"),
+    ),
+    true,
+  )
+
+  const invalidKey = createHarness(
+    `
+      <ul data-genui-each="$items" data-genui-as="item" data-genui-key="formatNumber($item.rank)">
+        <li data-genui-text="$item.id"></li>
+      </ul>
+    `,
+    "surface-test",
+    {
+      state: { items: [{ id: "order-1", rank: "bad" }] },
+      rowStates: {},
+    },
+  )
+  assert.equal(invalidKey.window.document.querySelector("li")?.textContent, "order-1")
+  assert.equal(
+    runtimeExpressionDetails(invalidKey.messages).some((detail) =>
+      detail.includes("data-genui-key"),
     ),
     true,
   )

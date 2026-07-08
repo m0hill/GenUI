@@ -424,6 +424,12 @@ Bindings are reactive in both directions for installed static controls:
       addition to sanitize-time drops.
     - Done in code: formatter input failures and mismatched ordering comparisons now
       evaluate to the dialect invalid sentinel instead of silently rendering empty or false.
+      Missing loading data remains quiet and renders empty or hidden; malformed present
+      values emit runtime diagnostics.
+    - Done in code: invalid `data-genui-each` and `data-genui-key` evaluations emit
+      runtime diagnostics, while non-array loading state remains a valid empty list.
+    - Done in code: sandbox protocol strings are capped at the parser boundary and
+      runtime diagnostic detail is truncated before it becomes a host event.
     - Done in code: sandbox image loading is blocked by default with `img-src 'none'`.
       Hosts can opt into `imagePolicy: "data"`, `"https"`, or `"https-and-data"` at
       mount time.

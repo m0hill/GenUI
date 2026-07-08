@@ -48,16 +48,31 @@ export type ParseSandboxMessageResult =
   | { readonly ok: true; readonly value: SandboxMessage }
   | { readonly ok: false; readonly reason: "unknown_channel" | "bad_message" }
 
+const maxProtocolIdentifierLength = 256
+const maxHrefLength = 2_048
+const maxViolationDetailLength = 240
+
+const boundedString = (value: unknown, maxLength: number): string | undefined =>
+  typeof value === "string" && value.length <= maxLength ? value : undefined
+
+const truncatedString = (value: unknown, maxLength: number): string | undefined =>
+  typeof value === "string"
+    ? value.length <= maxLength
+      ? value
+      : `${value.slice(0, maxLength - 3)}...`
+    : undefined
+
 const parseResizeMessage = (
   value: Readonly<Record<string, unknown>>,
 ): ResizeSandboxMessage | undefined => {
-  if (typeof value.surfaceId !== "string") return undefined
+  const surfaceId = boundedString(value.surfaceId, maxProtocolIdentifierLength)
+  if (surfaceId === undefined) return undefined
   if (typeof value.height !== "number" || !Number.isFinite(value.height)) return undefined
 
   return {
     channel: protocolChannel,
     type: "resize",
-    surfaceId: value.surfaceId,
+    surfaceId,
     height: value.height,
   }
 }
@@ -65,50 +80,61 @@ const parseResizeMessage = (
 const parseLinkMessage = (
   value: Readonly<Record<string, unknown>>,
 ): LinkSandboxMessage | undefined => {
-  if (typeof value.surfaceId !== "string") return undefined
-  if (typeof value.href !== "string") return undefined
+  const surfaceId = boundedString(value.surfaceId, maxProtocolIdentifierLength)
+  const href = boundedString(value.href, maxHrefLength)
+  if (surfaceId === undefined || href === undefined) return undefined
 
   return {
     channel: protocolChannel,
     type: "link",
-    surfaceId: value.surfaceId,
-    href: value.href,
+    surfaceId,
+    href,
   }
 }
 
 const parseCapabilityMessage = (
   value: Readonly<Record<string, unknown>>,
 ): ActionSandboxMessage | undefined => {
-  if (typeof value.surfaceId !== "string") return undefined
-  if (typeof value.callId !== "string") return undefined
+  const surfaceId = boundedString(value.surfaceId, maxProtocolIdentifierLength)
+  const callId = boundedString(value.callId, maxProtocolIdentifierLength)
   const action = typeof value.action === "string" ? value.action : value.capability
-  if (typeof action !== "string") return undefined
-  if (value.target !== undefined && typeof value.target !== "string") return undefined
+  const actionName = boundedString(action, maxProtocolIdentifierLength)
+  const target =
+    value.target === undefined
+      ? undefined
+      : boundedString(value.target, maxProtocolIdentifierLength)
+  if (surfaceId === undefined || callId === undefined || actionName === undefined) {
+    return undefined
+  }
+  if (value.target !== undefined && target === undefined) return undefined
 
   return {
     channel: protocolChannel,
     type: "capability",
-    surfaceId: value.surfaceId,
-    callId: value.callId,
-    action,
+    surfaceId,
+    callId,
+    action: actionName,
     input: value.input,
-    ...(typeof value.target === "string" ? { target: value.target } : {}),
+    ...(target === undefined ? {} : { target }),
   }
 }
 
 const parseViolationMessage = (
   value: Readonly<Record<string, unknown>>,
 ): ViolationSandboxMessage | undefined => {
-  if (typeof value.surfaceId !== "string") return undefined
+  const surfaceId = boundedString(value.surfaceId, maxProtocolIdentifierLength)
+  if (surfaceId === undefined) return undefined
   if (value.reason !== "runtime_expression") return undefined
-  if (value.detail !== undefined && typeof value.detail !== "string") return undefined
+  const detail =
+    value.detail === undefined ? undefined : truncatedString(value.detail, maxViolationDetailLength)
+  if (value.detail !== undefined && detail === undefined) return undefined
 
   return {
     channel: protocolChannel,
     type: "violation",
-    surfaceId: value.surfaceId,
+    surfaceId,
     reason: value.reason,
-    ...(typeof value.detail === "string" ? { detail: value.detail } : {}),
+    ...(detail === undefined ? {} : { detail }),
   }
 }
 
@@ -138,8 +164,9 @@ export const parseSnapshotSandboxMessage = (value: unknown): SnapshotSandboxMess
   if (!isRecord(value)) return undefined
   if (value.channel !== protocolChannel) return undefined
   if (value.type !== "snapshot") return undefined
-  if (typeof value.surfaceId !== "string") return undefined
-  if (typeof value.requestId !== "string") return undefined
+  const surfaceId = boundedString(value.surfaceId, maxProtocolIdentifierLength)
+  const requestId = boundedString(value.requestId, maxProtocolIdentifierLength)
+  if (surfaceId === undefined || requestId === undefined) return undefined
 
   const snapshot = parseSnapshot(value.snapshot)
   if (snapshot === undefined) return undefined
@@ -147,8 +174,8 @@ export const parseSnapshotSandboxMessage = (value: unknown): SnapshotSandboxMess
   return {
     channel: protocolChannel,
     type: "snapshot",
-    surfaceId: value.surfaceId,
-    requestId: value.requestId,
+    surfaceId,
+    requestId,
     snapshot,
   }
 }

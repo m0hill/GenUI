@@ -4,6 +4,7 @@ import { protocolChannel } from "./protocol.js"
 import { parseSandboxMessage, parseSnapshotSandboxMessage } from "./sandbox-message-schema.js"
 
 void test("sandbox message schema parses protocol variants", () => {
+  const longDetail = "x".repeat(300)
   assert.deepEqual(
     parseSandboxMessage({
       channel: protocolChannel,
@@ -64,6 +65,23 @@ void test("sandbox message schema parses protocol variants", () => {
     },
   )
 
+  const violation = parseSandboxMessage({
+    channel: protocolChannel,
+    type: "violation",
+    surfaceId: "surface-1",
+    reason: "runtime_expression",
+    detail: longDetail,
+  })
+  assert.deepEqual(violation, {
+    ok: true,
+    value: {
+      channel: protocolChannel,
+      type: "violation",
+      surfaceId: "surface-1",
+      reason: "runtime_expression",
+      detail: `${"x".repeat(237)}...`,
+    },
+  })
   assert.deepEqual(
     parseSandboxMessage({
       channel: protocolChannel,
@@ -127,9 +145,13 @@ void test("sandbox message schema classifies malformed boundary data", () => {
     reason: "unknown_channel",
   })
 
+  const longIdentifier = "x".repeat(257)
+  const longHref = `https://example.com/${"x".repeat(2_100)}`
   for (const message of [
     { channel: protocolChannel, type: "resize", surfaceId: "surface-1", height: Number.NaN },
+    { channel: protocolChannel, type: "resize", surfaceId: longIdentifier, height: 100 },
     { channel: protocolChannel, type: "link", surfaceId: "surface-1", href: 42 },
+    { channel: protocolChannel, type: "link", surfaceId: "surface-1", href: longHref },
     {
       channel: protocolChannel,
       type: "capability",
@@ -146,6 +168,31 @@ void test("sandbox message schema classifies malformed boundary data", () => {
       action: "dice.roll",
       input: {},
       target: 42,
+    },
+    {
+      channel: protocolChannel,
+      type: "capability",
+      surfaceId: "surface-1",
+      callId: longIdentifier,
+      action: "dice.roll",
+      input: {},
+    },
+    {
+      channel: protocolChannel,
+      type: "capability",
+      surfaceId: "surface-1",
+      callId: "call-1",
+      action: longIdentifier,
+      input: {},
+    },
+    {
+      channel: protocolChannel,
+      type: "capability",
+      surfaceId: "surface-1",
+      callId: "call-1",
+      action: "dice.roll",
+      input: {},
+      target: longIdentifier,
     },
     {
       channel: protocolChannel,

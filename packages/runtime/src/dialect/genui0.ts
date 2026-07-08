@@ -683,6 +683,7 @@ export const genui0Instructions = (actions: readonly Action[]): string => {
     "Expression v0.5 supports state reads, primitive literals, ==, !=, <, <=, >, >=, !, &&, ||, parentheses, and flat object literals.",
     "The && and || operators return operands, so $user.name || 'Guest' is valid fallback text.",
     "Ordering comparisons require matching types; keep numbers as numbers in action results when the UI will compare them.",
+    "Missing values render empty or hidden without errors; malformed present values in formatters or ordering comparisons are runtime expression failures.",
     "Use formatNumber(value), formatCurrency(value, 'USD'), formatPercent(value), and formatDate(value) for display text; formatPercent takes a fraction, so 0.45 renders as 45%.",
     "Available actions:",
     actionList.length > 0 ? actionList : "- none",

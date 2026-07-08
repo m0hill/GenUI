@@ -806,7 +806,12 @@ const createGenui0Language = (): Genui0Language => {
     return Number.isFinite(date.getTime()) ? date : undefined
   }
 
+  const isAbsentRuntimeValue = (value: unknown): boolean =>
+    value === "" || value === null || value === undefined
+
   const formatNumber = (value: unknown): string | typeof invalid => {
+    if (isAbsentRuntimeValue(value)) return ""
+
     const number = finiteNumber(value)
     return number === undefined
       ? invalid
@@ -814,6 +819,8 @@ const createGenui0Language = (): Genui0Language => {
   }
 
   const formatCurrency = (value: unknown, currency: unknown): string | typeof invalid => {
+    if (isAbsentRuntimeValue(value) || isAbsentRuntimeValue(currency)) return ""
+
     const number = finiteNumber(value)
     const code = currencyCode(currency)
     return number === undefined || code === undefined
@@ -825,6 +832,8 @@ const createGenui0Language = (): Genui0Language => {
   }
 
   const formatPercent = (value: unknown): string | typeof invalid => {
+    if (isAbsentRuntimeValue(value)) return ""
+
     const number = finiteNumber(value)
     return number === undefined
       ? invalid
@@ -835,6 +844,8 @@ const createGenui0Language = (): Genui0Language => {
   }
 
   const formatDate = (value: unknown): string | typeof invalid => {
+    if (isAbsentRuntimeValue(value)) return ""
+
     const date = dateValue(value)
     return date === undefined
       ? invalid
@@ -851,6 +862,8 @@ const createGenui0Language = (): Genui0Language => {
     left: unknown,
     right: unknown,
   ): boolean | typeof invalid => {
+    if (isAbsentRuntimeValue(left) || isAbsentRuntimeValue(right)) return false
+
     if (typeof left === "number" && typeof right === "number") {
       if (!Number.isFinite(left) || !Number.isFinite(right)) return invalid
       if (operator === "<") return left < right
