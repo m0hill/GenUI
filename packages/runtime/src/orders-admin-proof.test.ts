@@ -227,11 +227,11 @@ void test("orders-admin proof exercises grants, approval, nested data, and refre
     ],
   })
   const ctx: OrdersContext = { userId: "user-1", store: new OrdersStore() }
-  const surface = registry.createSurface({
+  const surface = await registry.createSurface({
     html: ordersSurfaceHtml,
     requested: ["orders.search", "orders.refund", "orders.add_note"],
   })
-  const limitedSurface = registry.createSurface({
+  const limitedSurface = await registry.createSurface({
     html: ordersSurfaceHtml,
     requested: ["orders.search"],
   })

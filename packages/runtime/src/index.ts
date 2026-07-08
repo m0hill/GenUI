@@ -1,4 +1,5 @@
 export { createRegistry, defineCapability } from "./registry.js"
+export { createMemorySurfaceStore } from "./surface-records.js"
 export { genuiDialect } from "./types.js"
 export type { CreateRegistryOptions } from "./registry.js"
 export type {
@@ -15,4 +16,7 @@ export type {
   Policy,
   Registry,
   Surface,
+  SurfaceRecord,
+  SurfaceSource,
+  SurfaceStore,
 } from "./types.js"

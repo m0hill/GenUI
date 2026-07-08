@@ -3,12 +3,21 @@ import {
   type DroppedCapabilityRequest,
 } from "./capability-projections.js"
 import { sanitizeSurfaceHtml } from "./sanitizer.js"
-import { createSurfaceRecords, type SurfaceRecord, type SurfaceSource } from "./surface-records.js"
+import {
+  copySurface,
+  copySurfaceRecord,
+  createMemorySurfaceStore,
+  createSurfaceRecord,
+  replaceSurfaceRecord,
+} from "./surface-records.js"
 import {
   type AnyCapabilityDefinition,
   type CapabilityDescriptor,
   type CreateSurfaceInput,
   type Surface,
+  type SurfaceRecord,
+  type SurfaceSource,
+  type SurfaceStore,
 } from "./types.js"
 
 export interface SurfaceProjectionDiagnostics {
@@ -25,13 +34,14 @@ interface ProjectedSurfaceSource {
 
 interface CreateSurfaceRuntimeOptions<Ctx> {
   readonly byName: ReadonlyMap<string, AnyCapabilityDefinition<Ctx>>
+  readonly store?: SurfaceStore
 }
 
 export interface SurfaceRuntime {
-  createSurface(input: CreateSurfaceInput): Surface
-  reprojectSurface(id: string): Surface | undefined
-  getRecord(id: string): SurfaceRecord | undefined
-  diagnostics(id: string): SurfaceProjectionDiagnostics | undefined
+  createSurface(input: CreateSurfaceInput): Promise<Surface>
+  reprojectSurface(id: string): Promise<Surface | undefined>
+  getRecord(id: string): Promise<SurfaceRecord | undefined>
+  diagnostics(id: string): Promise<SurfaceProjectionDiagnostics | undefined>
 }
 
 const copyDropped = (
@@ -53,8 +63,8 @@ const diagnosticsFor = (
 /** Owns source projection, sanitization, diagnostics, and surface record lifecycle. */
 export const createSurfaceRuntime = <Ctx>({
   byName,
+  store = createMemorySurfaceStore(),
 }: CreateSurfaceRuntimeOptions<Ctx>): SurfaceRuntime => {
-  const records = createSurfaceRecords()
   const diagnosticsBySurfaceId = new Map<string, SurfaceProjectionDiagnostics>()
 
   const project = (source: SurfaceSource): ProjectedSurfaceSource => {
@@ -66,35 +76,55 @@ export const createSurfaceRuntime = <Ctx>({
     }
   }
 
-  const createSurface = (input: CreateSurfaceInput): Surface => {
+  const storedRecord = async (id: string): Promise<SurfaceRecord | undefined> => {
+    const record = await store.get(id)
+    return record === undefined ? undefined : copySurfaceRecord(record)
+  }
+
+  const createSurface = async (input: CreateSurfaceInput): Promise<Surface> => {
     const projected = project(input)
-    const surface = records.create({
+    const record = createSurfaceRecord({
       html: projected.html,
       capabilities: projected.capabilities,
       source: input,
     })
+    await store.set(record)
+    const surface = copySurface(record.surface)
     diagnosticsBySurfaceId.set(surface.id, projected.diagnostics)
     return surface
   }
 
-  const reprojectSurface = (id: string): Surface | undefined => {
-    const record = records.get(id)
+  const reprojectSurface = async (id: string): Promise<Surface | undefined> => {
+    const record = await storedRecord(id)
     if (record === undefined) return undefined
 
     const projected = project(record.source)
-    const surface = records.replace({
-      id,
+    const nextRecord = replaceSurfaceRecord({
+      record,
       html: projected.html,
       capabilities: projected.capabilities,
     })
-    if (surface !== undefined) diagnosticsBySurfaceId.set(id, projected.diagnostics)
-    return surface
+    await store.set(nextRecord)
+    diagnosticsBySurfaceId.set(id, projected.diagnostics)
+    return copySurface(nextRecord.surface)
+  }
+
+  const diagnostics = async (id: string): Promise<SurfaceProjectionDiagnostics | undefined> => {
+    const cached = diagnosticsBySurfaceId.get(id)
+    if (cached !== undefined) return cached
+
+    const record = await storedRecord(id)
+    if (record === undefined) return undefined
+
+    const projected = project(record.source)
+    diagnosticsBySurfaceId.set(id, projected.diagnostics)
+    return projected.diagnostics
   }
 
   return {
     createSurface,
     reprojectSurface,
-    getRecord: (id) => records.get(id),
-    diagnostics: (id) => diagnosticsBySurfaceId.get(id),
+    getRecord: storedRecord,
+    diagnostics,
   }
 }

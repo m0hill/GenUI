@@ -17,7 +17,7 @@ const capability = (name: string, policy?: Policy): AnyCapabilityDefinition<unkn
   execute: () => ({}),
 })
 
-void test("surface runtime owns grant projection, sanitization, records, and diagnostics", () => {
+void test("surface runtime owns grant projection, sanitization, records, and diagnostics", async () => {
   const runtime = createSurfaceRuntime({
     byName: new Map([
       ["dice.roll", capability("dice.roll")],
@@ -34,8 +34,8 @@ void test("surface runtime owns grant projection, sanitization, records, and dia
     requested: ["dice.roll", "missing.capability", "dice.roll", "demo.blocked"],
     meta: { origin: "test" },
   }
-  const surface = runtime.createSurface(source)
-  const record = runtime.getRecord(surface.id)
+  const surface = await runtime.createSurface(source)
+  const record = await runtime.getRecord(surface.id)
 
   assert.equal("source" in surface, false)
   assert.deepEqual(
@@ -47,7 +47,7 @@ void test("surface runtime owns grant projection, sanitization, records, and dia
   assert.doesNotMatch(surface.html, /<script/i)
   assert.equal(record?.source.html, source.html)
   assert.deepEqual(record?.source.requested, source.requested)
-  assert.deepEqual(runtime.diagnostics(surface.id), {
+  assert.deepEqual(await runtime.diagnostics(surface.id), {
     requested: source.requested,
     granted: ["dice.roll"],
     dropped: [
@@ -58,7 +58,7 @@ void test("surface runtime owns grant projection, sanitization, records, and dia
   })
 })
 
-void test("surface runtime reprojects from preserved source under current policy", () => {
+void test("surface runtime reprojects from preserved source under current policy", async () => {
   const byName = new Map<string, AnyCapabilityDefinition<unknown>>([
     ["dice.roll", capability("dice.roll")],
   ])
@@ -67,10 +67,10 @@ void test("surface runtime reprojects from preserved source under current policy
     html: `<button data-genui-on-click="@capability('dice.roll', {})">Roll</button>`,
     requested: ["dice.roll"],
   }
-  const created = runtime.createSurface(source)
+  const created = await runtime.createSurface(source)
 
   byName.set("dice.roll", capability("dice.roll", "block"))
-  const reprojected = runtime.reprojectSurface(created.id)
+  const reprojected = await runtime.reprojectSurface(created.id)
 
   assert.equal(reprojected?.id, created.id)
   assert.deepEqual(
@@ -78,8 +78,8 @@ void test("surface runtime reprojects from preserved source under current policy
     [],
   )
   assert.doesNotMatch(reprojected?.html ?? "", /data-genui-on-click/)
-  assert.deepEqual(runtime.getRecord(created.id)?.source, source)
-  assert.deepEqual(runtime.diagnostics(created.id), {
+  assert.deepEqual((await runtime.getRecord(created.id))?.source, source)
+  assert.deepEqual(await runtime.diagnostics(created.id), {
     requested: ["dice.roll"],
     granted: [],
     dropped: [{ name: "dice.roll", reason: "blocked" }],

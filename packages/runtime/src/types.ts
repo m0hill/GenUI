@@ -129,6 +129,21 @@ export interface CreateSurfaceInput {
   readonly meta?: Readonly<Record<string, unknown>>
 }
 
+/** Persisted source input used to reproject a surface under current runtime policy. */
+export type SurfaceSource = CreateSurfaceInput
+
+/** Persistable authoritative surface record owned by the host application. */
+export interface SurfaceRecord {
+  readonly surface: Surface
+  readonly source: SurfaceSource
+}
+
+/** Storage boundary for generated surface authority records. */
+export interface SurfaceStore {
+  get(id: string): SurfaceRecord | Promise<SurfaceRecord | undefined> | undefined
+  set(record: SurfaceRecord): void | Promise<void>
+}
+
 /** Optional execution hooks supplied by the host application. */
 export interface ExecuteOptions {
   approve?(descriptor: CapabilityDescriptor, call: CapabilityCall): boolean | Promise<boolean>
@@ -136,7 +151,7 @@ export interface ExecuteOptions {
 
 /** Provider- and transport-independent generated UI registry. */
 export interface Registry<Ctx> {
-  createSurface(input: CreateSurfaceInput): Surface
+  createSurface(input: CreateSurfaceInput): Promise<Surface>
   execute(call: CapabilityCall, ctx: Ctx, options?: ExecuteOptions): Promise<CapabilityResult>
   descriptors(): CapabilityDescriptor[]
   instructions(): string

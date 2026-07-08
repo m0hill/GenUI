@@ -18,10 +18,12 @@ import {
   type ExecuteOptions,
   type Registry,
   type Surface,
+  type SurfaceStore,
 } from "./types.js"
 
 export interface CreateRegistryOptions<Ctx> {
   readonly capabilities: readonly AnyCapabilityDefinition<Ctx>[]
+  readonly surfaces?: SurfaceStore
 }
 
 /** Preserve a capability definition's input and output types at declaration sites. */
@@ -43,16 +45,17 @@ export const createRegistry = <Ctx>(options: CreateRegistryOptions<Ctx>): Regist
     byName.set(capability.name, capability)
   }
 
-  const surfaceRuntime = createSurfaceRuntime({ byName })
+  const surfaceRuntime = createSurfaceRuntime({ byName, store: options.surfaces })
 
-  const createSurface = (input: CreateSurfaceInput): Surface => surfaceRuntime.createSurface(input)
+  const createSurface = (input: CreateSurfaceInput): Promise<Surface> =>
+    surfaceRuntime.createSurface(input)
 
   const execute = async (
     call: CapabilityCall,
     ctx: Ctx,
     options?: ExecuteOptions,
   ): Promise<CapabilityResult> => {
-    const record = surfaceRuntime.getRecord(call.surfaceId)
+    const record = await surfaceRuntime.getRecord(call.surfaceId)
     if (record === undefined) {
       return capabilityError("unknown_surface", "Surface is not available.")
     }

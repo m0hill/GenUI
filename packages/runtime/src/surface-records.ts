@@ -1,12 +1,12 @@
 import {
   genuiDialect,
   type CapabilityDescriptor,
-  type CreateSurfaceInput,
   type Grant,
   type Surface,
+  type SurfaceRecord,
+  type SurfaceSource,
+  type SurfaceStore,
 } from "./types.js"
-
-export type SurfaceSource = CreateSurfaceInput
 
 interface CreateSurfaceRecordInput {
   readonly html: string
@@ -14,19 +14,8 @@ interface CreateSurfaceRecordInput {
   readonly source: SurfaceSource
 }
 
-export interface SurfaceRecord {
-  readonly surface: Surface
-  readonly source: SurfaceSource
-}
-
-interface SurfaceRecords {
-  create(input: CreateSurfaceRecordInput): Surface
-  replace(input: ReplaceSurfaceRecordInput): Surface | undefined
-  get(id: string): SurfaceRecord | undefined
-}
-
 interface ReplaceSurfaceRecordInput {
-  readonly id: string
+  readonly record: SurfaceRecord
   readonly html: string
   readonly capabilities: readonly CapabilityDescriptor[]
 }
@@ -48,7 +37,7 @@ const copyMeta = (
 ): Readonly<Record<string, unknown>> | undefined =>
   meta === undefined ? undefined : Object.freeze({ ...meta })
 
-const copySource = (source: SurfaceSource): SurfaceSource => {
+export const copySource = (source: SurfaceSource): SurfaceSource => {
   const meta = copyMeta(source.meta)
   return Object.freeze(
     meta === undefined
@@ -73,7 +62,7 @@ const createSurfaceValue = (input: CreateSurfaceValueInput): Surface => {
 
 const createSurfaceId = (): string => globalThis.crypto.randomUUID()
 
-const copySurface = (surface: Surface): Surface =>
+export const copySurface = (surface: Surface): Surface =>
   createSurfaceValue({
     id: surface.id,
     html: surface.html,
@@ -81,39 +70,46 @@ const copySurface = (surface: Surface): Surface =>
     meta: surface.meta,
   })
 
-/** Owns generated surface identity, immutable public values, and in-memory record lookup. */
-export const createSurfaceRecords = (): SurfaceRecords => {
+export const copySurfaceRecord = (record: SurfaceRecord): SurfaceRecord =>
+  Object.freeze({
+    surface: copySurface(record.surface),
+    source: copySource(record.source),
+  })
+
+export const createSurfaceRecord = (input: CreateSurfaceRecordInput): SurfaceRecord => {
+  const source = copySource(input.source)
+  const surface = createSurfaceValue({
+    id: createSurfaceId(),
+    html: input.html,
+    capabilities: input.capabilities,
+    meta: source.meta,
+  })
+
+  return Object.freeze({ surface, source })
+}
+
+export const replaceSurfaceRecord = (input: ReplaceSurfaceRecordInput): SurfaceRecord =>
+  Object.freeze({
+    surface: createSurfaceValue({
+      id: input.record.surface.id,
+      html: input.html,
+      capabilities: input.capabilities,
+      meta: input.record.source.meta,
+    }),
+    source: input.record.source,
+  })
+
+/** Create the default in-memory generated surface store. */
+export const createMemorySurfaceStore = (): SurfaceStore => {
   const records = new Map<string, SurfaceRecord>()
 
-  const create = (input: CreateSurfaceRecordInput): Surface => {
-    const source = copySource(input.source)
-    const surface = createSurfaceValue({
-      id: createSurfaceId(),
-      html: input.html,
-      capabilities: input.capabilities,
-      meta: source.meta,
-    })
-    records.set(surface.id, Object.freeze({ surface, source }))
-    return copySurface(surface)
-  }
-
-  const replace = (input: ReplaceSurfaceRecordInput): Surface | undefined => {
-    const record = records.get(input.id)
-    if (record === undefined) return undefined
-
-    const surface = createSurfaceValue({
-      id: input.id,
-      html: input.html,
-      capabilities: input.capabilities,
-      meta: record.source.meta,
-    })
-    records.set(input.id, Object.freeze({ surface, source: record.source }))
-    return copySurface(surface)
-  }
-
   return {
-    create,
-    replace,
-    get: (id) => records.get(id),
+    get: (id) => {
+      const record = records.get(id)
+      return record === undefined ? undefined : copySurfaceRecord(record)
+    },
+    set: (record) => {
+      records.set(record.surface.id, copySurfaceRecord(record))
+    },
   }
 }

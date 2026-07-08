@@ -100,6 +100,13 @@ The runtime should:
 
 This should work without a model adapter.
 
+Surface creation should be async. A serious runtime cannot assume the authoritative
+surface record is always in the same process as the caller. The registry should accept a
+pluggable `SurfaceStore`, default to an in-memory implementation for tests and local
+apps, and use the same store during capability execution. This keeps the public
+`Surface` value serializable while the server-side authority record remains available
+after process boundaries, serverless hops, or remounts.
+
 ## Streaming Surface Creation
 
 Streaming ingest should be a core concept, but provider-neutral.

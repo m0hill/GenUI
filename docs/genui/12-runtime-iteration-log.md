@@ -162,9 +162,17 @@ Supported event actions:
    - Follow-up: add a visual example route or standalone example app once the public
      mount API settles further.
 
+5. Surface storage.
+   - Done in code: `createRegistry` accepts a pluggable `SurfaceStore`.
+   - Done in code: `createSurface` is async so real persistence can be used without
+     pretending storage is always in-process memory.
+   - Done in code: the package exports `createMemorySurfaceStore` as the default local
+     implementation.
+   - Done in code: execution can run from another registry instance using the same store,
+     which makes `Surface` serialization honest across process boundaries.
+
 ## Important Deferred Work
 
-- Pluggable `SurfaceStore` for multi-instance hosts.
 - `AbortSignal` in `mountSurface` transport.
 - `SurfaceInstance.update()` rename to `replace()`.
 - Clear approval lifecycle documentation and tests.
