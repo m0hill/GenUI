@@ -22,7 +22,8 @@ when the transport reaches the server or trusted app boundary.
 Surface source is preserved in the app's `SurfaceStore`. Use `genui.reproject(surfaceId)`
 to re-sanitize a stored surface under the current action policy while preserving its id,
 and `genui.diagnostics(surfaceId)` to inspect requested, granted, and dropped action
-names.
+names plus sanitized HTML drops such as stripped elements, attributes, and invalid
+directives.
 
 `Surface.dialect` is a versioned protocol identifier, not a plugin interface. This
 package currently ships the concrete `genui/0` sanitizer, instructions, and sandbox

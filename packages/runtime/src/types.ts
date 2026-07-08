@@ -148,17 +148,54 @@ export interface DroppedAction {
   readonly reason: DroppedActionReason
 }
 
+/** Reason the HTML sanitizer removed or rewrote an authored node or attribute. */
+export type SanitizationDropReason =
+  | "unsupported_node"
+  | "forbidden_element"
+  | "event_handler"
+  | "unsafe_style"
+  | "unsafe_style_declaration"
+  | "forbidden_repeated_template_attribute"
+  | "form_submission_attribute"
+  | "unknown_genui_attribute"
+  | "invalid_genui_attribute"
+  | "invalid_genui_expression"
+  | "ungranted_action"
+  | "unsafe_url"
+  | "url_attribute"
+
+/** One node or attribute affected while sanitizing generated HTML. */
+export interface SanitizationDrop {
+  readonly node: string
+  readonly attribute?: string
+  readonly value?: string
+  readonly reason: SanitizationDropReason
+}
+
+/** HTML sanitizer output and diagnostics. */
+export interface SanitizationResult {
+  readonly html: string
+  readonly dropped: readonly SanitizationDrop[]
+}
+
+/** Sanitized HTML details for a generated surface. */
+export interface SurfaceHtmlDiagnostics {
+  readonly dropped: readonly SanitizationDrop[]
+}
+
 /** Grant projection details for a generated surface. */
 export interface SurfaceProjectionDiagnostics {
   readonly actions: readonly string[]
   readonly granted: readonly string[]
   readonly dropped: readonly DroppedAction[]
+  readonly html: SurfaceHtmlDiagnostics
 }
 
 /** Persistable authoritative surface record owned by the host application. */
 export interface SurfaceRecord {
   readonly surface: Surface
   readonly source: SurfaceInput
+  readonly diagnostics: SurfaceProjectionDiagnostics
 }
 
 /** Storage boundary for generated surface authority records. */

@@ -292,6 +292,17 @@ Supported event actions:
     - Done in code: invalid `@set('__proto__.path', value)` actions do not mutate
       `Object.prototype`.
 
+15. Sanitizer diagnostics.
+    - Done in code: `sanitizeSurfaceHtml(...)` now returns `{ html, dropped }` instead
+      of only the sanitized string.
+    - Done in code: HTML drops record the affected `node`, optional `attribute`, a
+      truncated offending `value`, and a stable reason such as `forbidden_element`,
+      `unsafe_url`, `ungranted_action`, `invalid_genui_expression`, or
+      `unknown_genui_attribute`.
+    - Done in code: `SurfaceRecord` stores projection diagnostics, and
+      `Genui.diagnostics(surfaceId)` exposes both action grant diagnostics and
+      `html.dropped` details for model repair loops.
+
 ## Important Deferred Work
 
 - Model adapters.

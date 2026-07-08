@@ -58,30 +58,30 @@ void test("genui/0 allows only granted capability actions with v0 object inputs"
     },
   )
 
-  assert.equal(
+  assert.deepEqual(
     allowGenui0DataAttribute({
       name: "data-genui-on-click",
       value: "@capability('demo.secret', {})",
       grantedActions,
     }),
-    undefined,
+    { reason: "ungranted_action" },
   )
-  assert.equal(
+  assert.deepEqual(
     allowGenui0DataAttribute({
       name: "data-genui-on-click",
       value:
         "@capability('dice.roll', { sides: this['constructor']['constructor']('return 6')() })",
       grantedActions,
     }),
-    undefined,
+    { reason: "invalid_genui_expression" },
   )
-  assert.equal(
+  assert.deepEqual(
     allowGenui0DataAttribute({
       name: "data-genui-on-click",
       value: "@capability('dice.roll', { sides: 6 }, { target: window.location })",
       grantedActions,
     }),
-    undefined,
+    { reason: "invalid_genui_expression" },
   )
 })
 
@@ -161,74 +161,82 @@ void test("genui/0 allows simple local state expressions", () => {
 })
 
 void test("genui/0 rejects general JavaScript expressions", () => {
-  assert.equal(
+  assert.deepEqual(
     allowGenui0DataAttribute({
       name: "data-genui-text",
       value: "window.location",
       grantedActions,
     }),
-    undefined,
+    { reason: "invalid_genui_expression" },
   )
-  assert.equal(
+  assert.deepEqual(
     allowGenui0DataAttribute({
       name: "data-genui-show",
       value: "$count > 2",
       grantedActions,
     }),
-    undefined,
+    { reason: "invalid_genui_expression" },
   )
-  assert.equal(
+  assert.deepEqual(
     allowGenui0DataAttribute({
       name: "data-genui-on-click",
       value: "@set('tab', window.location)",
       grantedActions,
     }),
-    undefined,
+    { reason: "invalid_genui_expression" },
   )
-  assert.equal(
+  assert.deepEqual(
     allowGenui0DataAttribute({
       name: "data-genui-as",
       value: "bad-target",
       grantedActions,
     }),
-    undefined,
+    { reason: "invalid_genui_expression" },
   )
-  assert.equal(
+  assert.deepEqual(
     allowGenui0DataAttribute({
       name: "data-genui-style-behavior",
       value: "$value",
       grantedActions,
     }),
-    undefined,
+    { reason: "invalid_genui_attribute" },
   )
-  assert.equal(
+  assert.deepEqual(
     allowGenui0DataAttribute({
       name: "data-genui-attr-onclick",
       value: "$value",
       grantedActions,
     }),
-    undefined,
+    { reason: "invalid_genui_attribute" },
+  )
+  assert.deepEqual(
+    allowGenui0DataAttribute({
+      name: "data-genui-unknown",
+      value: "$value",
+      grantedActions,
+    }),
+    { reason: "unknown_genui_attribute" },
   )
 })
 
 void test("genui/0 owns repeated-template structural directive constraints", () => {
-  assert.equal(
+  assert.deepEqual(
     allowGenui0DataAttribute({
       name: "data-genui-bind",
       value: "orderName",
       grantedActions,
       insideRepeatedTemplate: true,
     }),
-    undefined,
+    { reason: "forbidden_repeated_template_attribute" },
   )
-  assert.equal(
+  assert.deepEqual(
     allowGenui0DataAttribute({
       name: "data-genui-bind",
       value: "items",
       grantedActions,
       elementStartsRepeatedTemplate: true,
     }),
-    undefined,
+    { reason: "forbidden_repeated_template_attribute" },
   )
   assert.deepEqual(
     allowGenui0DataAttribute({

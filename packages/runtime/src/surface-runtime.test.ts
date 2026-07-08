@@ -48,7 +48,7 @@ void test("surface runtime owns grant projection, sanitization, records, and dia
   assert.equal(record?.source.html, source.html)
   assert.deepEqual(record?.source.actions, source.actions)
   assert.deepEqual(record?.source.meta, source.meta)
-  assert.deepEqual(await runtime.diagnostics(surface.id), {
+  const expectedDiagnostics = {
     actions: source.actions,
     granted: ["dice.roll"],
     dropped: [
@@ -56,7 +56,20 @@ void test("surface runtime owns grant projection, sanitization, records, and dia
       { name: "dice.roll", reason: "duplicate" },
       { name: "demo.blocked", reason: "blocked" },
     ],
-  })
+    html: {
+      dropped: [
+        {
+          node: "button",
+          attribute: "data-genui-on-click",
+          value: "@capability('demo.blocked', {})",
+          reason: "ungranted_action",
+        },
+        { node: "script", reason: "forbidden_element" },
+      ],
+    },
+  }
+  assert.deepEqual(record?.diagnostics, expectedDiagnostics)
+  assert.deepEqual(await runtime.diagnostics(surface.id), expectedDiagnostics)
 })
 
 void test("surface runtime reprojects from preserved source under current policy", async () => {
@@ -84,5 +97,15 @@ void test("surface runtime reprojects from preserved source under current policy
     actions: ["dice.roll"],
     granted: [],
     dropped: [{ name: "dice.roll", reason: "blocked" }],
+    html: {
+      dropped: [
+        {
+          node: "button",
+          attribute: "data-genui-on-click",
+          value: "@capability('dice.roll', {})",
+          reason: "ungranted_action",
+        },
+      ],
+    },
   })
 })

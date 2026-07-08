@@ -4,7 +4,7 @@ import {
   isSafeStyleValue,
   normalizeGenuiStylePropertyName,
 } from "../css-style.js"
-import { genuiDialect, type Action } from "../types.js"
+import { genuiDialect, type Action, type SanitizationDropReason } from "../types.js"
 
 export const genui0AttributeNames = {
   state: "data-genui-state",
@@ -34,6 +34,12 @@ interface AllowedGenui0DataAttribute {
   readonly name: string
   readonly value: string
 }
+
+interface RejectedGenui0DataAttribute {
+  readonly reason: SanitizationDropReason
+}
+
+type Genui0DataAttributeResult = AllowedGenui0DataAttribute | RejectedGenui0DataAttribute
 
 type Genui0AttributePattern =
   | {
@@ -323,23 +329,34 @@ const findDirective = (
   return undefined
 }
 
-const isAllowedActionExpression = (value: string, grantedActions: ReadonlySet<string>): boolean => {
-  if (genui0Language.parseSetAction(value) !== undefined) return true
+const actionExpressionRejectionReason = (
+  value: string,
+  grantedActions: ReadonlySet<string>,
+): SanitizationDropReason | undefined => {
+  if (genui0Language.parseSetAction(value) !== undefined) return undefined
 
   const action = genui0Language.parseCapabilityAction(value)
-  return action !== undefined && grantedActions.has(action.capability)
+  if (action === undefined) return "invalid_genui_expression"
+
+  return grantedActions.has(action.capability) ? undefined : "ungranted_action"
 }
 
-const isAllowedValue = (
+const valueRejectionReason = (
   valueKind: Genui0DirectiveValueKind,
   value: string,
   grantedActions: ReadonlySet<string>,
-): boolean => {
-  if (valueKind === "action") return isAllowedActionExpression(value, grantedActions)
-  if (valueKind === "object") return genui0Language.isSafeObjectExpression(value)
-  if (valueKind === "binding") return genui0Language.isSafeBindingExpression(value)
-  if (valueKind === "state_name") return genui0Language.isStateName(value)
-  return genui0Language.isSafeSimpleExpression(value)
+): SanitizationDropReason | undefined => {
+  if (valueKind === "action") return actionExpressionRejectionReason(value, grantedActions)
+  if (valueKind === "object") {
+    return genui0Language.isSafeObjectExpression(value) ? undefined : "invalid_genui_expression"
+  }
+  if (valueKind === "binding") {
+    return genui0Language.isSafeBindingExpression(value) ? undefined : "invalid_genui_expression"
+  }
+  if (valueKind === "state_name") {
+    return genui0Language.isStateName(value) ? undefined : "invalid_genui_expression"
+  }
+  return genui0Language.isSafeSimpleExpression(value) ? undefined : "invalid_genui_expression"
 }
 
 /** Return a data-* attribute only when it belongs to the genui/0 dialect subset. */
@@ -349,20 +366,24 @@ export const allowGenui0DataAttribute = ({
   grantedActions,
   insideRepeatedTemplate = false,
   elementStartsRepeatedTemplate = false,
-}: Genui0DataAttribute): AllowedGenui0DataAttribute | undefined => {
-  if (value === undefined) return undefined
+}: Genui0DataAttribute): Genui0DataAttributeResult => {
+  if (value === undefined) return { reason: "invalid_genui_expression" }
 
   const directive = findDirective(name)
-  if (directive === undefined) return undefined
+  if (directive === undefined) return { reason: "unknown_genui_attribute" }
 
   if (
     directive.definition.forbiddenInRepeatedTemplate === true &&
     (insideRepeatedTemplate || elementStartsRepeatedTemplate)
   ) {
-    return undefined
+    return { reason: "forbidden_repeated_template_attribute" }
   }
-  if (directive.definition.validateName?.(directive.match) === false) return undefined
-  if (!isAllowedValue(directive.definition.valueKind, value, grantedActions)) return undefined
+  if (directive.definition.validateName?.(directive.match) === false) {
+    return { reason: "invalid_genui_attribute" }
+  }
+
+  const valueReason = valueRejectionReason(directive.definition.valueKind, value, grantedActions)
+  if (valueReason !== undefined) return { reason: valueReason }
 
   return { name, value }
 }

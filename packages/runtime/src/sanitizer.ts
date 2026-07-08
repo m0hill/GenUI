@@ -1,15 +1,34 @@
 import { parseFragment, serialize, type DefaultTreeAdapterMap } from "parse5"
-import { sanitizeInlineStyle } from "./css-style.js"
+import { sanitizeInlineStyleWithDiagnostics } from "./css-style.js"
 import {
   allowGenui0DataAttribute,
   genui0AttributeForbiddenInRepeatedTemplate,
   genui0AttributeStartsRepeatedTemplate,
 } from "./dialect/genui0.js"
+import type { SanitizationDrop, SanitizationDropReason, SanitizationResult } from "./types.js"
 
 type ParentNode = DefaultTreeAdapterMap["parentNode"]
 type ChildNode = DefaultTreeAdapterMap["childNode"]
 type ElementNode = DefaultTreeAdapterMap["element"]
 type Attribute = ElementNode["attrs"][number]
+
+interface SanitizationContext {
+  readonly grantedActions: ReadonlySet<string>
+  readonly dropped: SanitizationDrop[]
+}
+
+type SanitizedAttribute =
+  | {
+      readonly keep: true
+      readonly attribute: Attribute
+      readonly reason?: SanitizationDropReason
+      readonly value?: string
+    }
+  | {
+      readonly keep: false
+      readonly reason: SanitizationDropReason
+      readonly value?: string
+    }
 
 const removedElementTags = new Set([
   "base",
@@ -61,13 +80,49 @@ const isElementNode = (node: ChildNode): node is ElementNode => "tagName" in nod
 
 const isSafeHttpsUrl = (value: string): boolean => /^https:\/\//i.test(value.trim())
 
+const sanitizationDropValue = (value: string): string =>
+  value.length <= 200 ? value : `${value.slice(0, 197)}...`
+
+const recordDrop = (
+  dropped: SanitizationDrop[],
+  node: string,
+  reason: SanitizationDropReason,
+  attribute?: string,
+  value?: string,
+): void => {
+  const safeValue = value === undefined ? undefined : sanitizationDropValue(value)
+  dropped.push(
+    Object.freeze({
+      node,
+      reason,
+      ...(attribute === undefined ? {} : { attribute }),
+      ...(safeValue === undefined ? {} : { value: safeValue }),
+    }),
+  )
+}
+
+const keepAttribute = (
+  attribute: Attribute,
+  reason?: SanitizationDropReason,
+  value?: string,
+): SanitizedAttribute =>
+  reason === undefined
+    ? { keep: true, attribute }
+    : { keep: true, attribute, reason, ...(value === undefined ? {} : { value }) }
+
+const dropAttribute = (reason: SanitizationDropReason, value?: string): SanitizedAttribute => ({
+  keep: false,
+  reason,
+  ...(value === undefined ? {} : { value }),
+})
+
 const sanitizeDataAttribute = (
   attribute: Attribute,
   grantedActions: ReadonlySet<string>,
   insideRepeatedTemplate: boolean,
   elementStartsRepeatedTemplate: boolean,
-): Attribute | undefined => {
-  const allowed = allowGenui0DataAttribute({
+): SanitizedAttribute => {
+  const result = allowGenui0DataAttribute({
     name: attribute.name,
     value: attribute.value,
     grantedActions,
@@ -75,87 +130,143 @@ const sanitizeDataAttribute = (
     elementStartsRepeatedTemplate,
   })
 
-  return allowed === undefined ? undefined : { name: allowed.name, value: allowed.value }
+  return "reason" in result
+    ? dropAttribute(result.reason, attribute.value)
+    : keepAttribute({ name: result.name, value: result.value })
 }
 
 const sanitizeAttribute = (
   attribute: Attribute,
   grantedActions: ReadonlySet<string>,
   insideRepeatedTemplate: boolean,
-): Attribute | undefined => {
+): SanitizedAttribute => {
   const name = attributeName(attribute).toLowerCase()
 
-  if (name.startsWith("on")) return undefined
+  if (name.startsWith("on")) return dropAttribute("event_handler", attribute.value)
   if (name === "style") {
-    const style = sanitizeInlineStyle(attribute.value)
-    return style === undefined ? undefined : { ...attribute, value: style }
+    const style = sanitizeInlineStyleWithDiagnostics(attribute.value)
+    if (style.value === undefined) return dropAttribute("unsafe_style", attribute.value)
+    return keepAttribute(
+      { ...attribute, value: style.value },
+      style.dropped ? "unsafe_style_declaration" : undefined,
+      style.dropped ? attribute.value : undefined,
+    )
   }
-  if (insideRepeatedTemplate && genui0AttributeForbiddenInRepeatedTemplate(name)) return undefined
-  if (directSubmissionAttributeNames.has(name)) return undefined
+  if (insideRepeatedTemplate && genui0AttributeForbiddenInRepeatedTemplate(name)) {
+    return dropAttribute("forbidden_repeated_template_attribute", attribute.value)
+  }
+  if (directSubmissionAttributeNames.has(name)) {
+    return dropAttribute("form_submission_attribute", attribute.value)
+  }
   if (name.startsWith("data-")) {
     return sanitizeDataAttribute(attribute, grantedActions, insideRepeatedTemplate, false)
   }
 
   if (allowedUrlAttributeNames.has(name)) {
     return isSafeHttpsUrl(attribute.value)
-      ? { ...attribute, value: attribute.value.trim() }
-      : undefined
+      ? keepAttribute({ ...attribute, value: attribute.value.trim() })
+      : dropAttribute("unsafe_url", attribute.value)
   }
 
-  if (removedUrlAttributeNames.has(name) || name.endsWith(":href")) return undefined
+  if (removedUrlAttributeNames.has(name) || name.endsWith(":href")) {
+    return dropAttribute("url_attribute", attribute.value)
+  }
 
-  return attribute
+  return keepAttribute(attribute)
 }
 
 const sanitizeAttributes = (
   element: ElementNode,
-  grantedActions: ReadonlySet<string>,
+  context: SanitizationContext,
   insideRepeatedTemplate: boolean,
 ): void => {
   element.attrs = element.attrs.flatMap((attribute) => {
-    const safe = sanitizeAttribute(attribute, grantedActions, insideRepeatedTemplate)
-    return safe === undefined ? [] : [safe]
+    const safe = sanitizeAttribute(attribute, context.grantedActions, insideRepeatedTemplate)
+    if (!safe.keep) {
+      recordDrop(
+        context.dropped,
+        element.tagName,
+        safe.reason,
+        attributeName(attribute),
+        safe.value,
+      )
+      return []
+    }
+
+    if (safe.reason !== undefined) {
+      recordDrop(
+        context.dropped,
+        element.tagName,
+        safe.reason,
+        attributeName(attribute),
+        safe.value,
+      )
+    }
+    return [safe.attribute]
   })
 
   const startsRepeatedTemplate = element.attrs.some((attribute) =>
     genui0AttributeStartsRepeatedTemplate(attributeName(attribute)),
   )
   if (startsRepeatedTemplate) {
-    element.attrs = element.attrs.filter(
-      (attribute) => !genui0AttributeForbiddenInRepeatedTemplate(attributeName(attribute)),
-    )
+    element.attrs = element.attrs.filter((attribute) => {
+      const forbidden = genui0AttributeForbiddenInRepeatedTemplate(attributeName(attribute))
+      if (forbidden) {
+        recordDrop(
+          context.dropped,
+          element.tagName,
+          "forbidden_repeated_template_attribute",
+          attributeName(attribute),
+          attribute.value,
+        )
+      }
+      return !forbidden
+    })
   }
 }
 
 const sanitizeChildren = (
   parent: ParentNode,
-  grantedActions: ReadonlySet<string>,
+  context: SanitizationContext,
   insideRepeatedTemplate = false,
 ): void => {
   const safeChildren: ChildNode[] = []
 
   for (const child of parent.childNodes) {
-    if (child.nodeName === "#comment" || child.nodeName === "#documentType") continue
+    if (child.nodeName === "#comment" || child.nodeName === "#documentType") {
+      recordDrop(context.dropped, child.nodeName, "unsupported_node")
+      continue
+    }
     if (!isElementNode(child)) {
       safeChildren.push(child)
       continue
     }
 
-    if (removedElementTags.has(child.tagName.toLowerCase())) continue
+    if (removedElementTags.has(child.tagName.toLowerCase())) {
+      recordDrop(context.dropped, child.tagName, "forbidden_element")
+      continue
+    }
 
-    sanitizeAttributes(child, grantedActions, insideRepeatedTemplate)
+    sanitizeAttributes(child, context, insideRepeatedTemplate)
     const childStartsRepeatedTemplate = child.attrs.some((attribute) =>
       genui0AttributeStartsRepeatedTemplate(attributeName(attribute)),
     )
-    sanitizeChildren(child, grantedActions, insideRepeatedTemplate || childStartsRepeatedTemplate)
+    sanitizeChildren(child, context, insideRepeatedTemplate || childStartsRepeatedTemplate)
     safeChildren.push(child)
   }
 
   parent.childNodes = safeChildren
 }
 
-export const sanitizeSurfaceHtml = (html: string, grantedActions: ReadonlySet<string>): string => {
+export const sanitizeSurfaceHtml = (
+  html: string,
+  grantedActions: ReadonlySet<string>,
+): SanitizationResult => {
   const fragment = parseFragment(html)
-  sanitizeChildren(fragment, grantedActions)
-  return serialize(fragment)
+  const context: SanitizationContext = { grantedActions, dropped: [] }
+  sanitizeChildren(fragment, context)
+  return Object.freeze({
+    html: serialize(fragment),
+    dropped: Object.freeze(context.dropped),
+  })
 }

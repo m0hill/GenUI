@@ -3,9 +3,10 @@ import { test } from "node:test"
 import { sanitizeSurfaceHtml } from "./sanitizer.js"
 
 const granted = new Set(["dice.roll"])
+const sanitize = (html: string): string => sanitizeSurfaceHtml(html, granted).html
 
 void test("sanitizer strips dangerous tags, event handlers, and URL schemes", () => {
-  const safe = sanitizeSurfaceHtml(
+  const sanitized = sanitizeSurfaceHtml(
     [
       `<div onclick="evil()">`,
       `<script>alert(1)</script>`,
@@ -17,6 +18,7 @@ void test("sanitizer strips dangerous tags, event handlers, and URL schemes", ()
     ].join(""),
     granted,
   )
+  const safe = sanitized.html
 
   assert.doesNotMatch(safe, /<script/i)
   assert.doesNotMatch(safe, /<iframe/i)
@@ -25,17 +27,24 @@ void test("sanitizer strips dangerous tags, event handlers, and URL schemes", ()
   assert.doesNotMatch(safe, /javascript:/i)
   assert.doesNotMatch(safe, /data:text/i)
   assert.match(safe, /src="https:\/\/example\.com\/image\.png"/)
+  assert.deepEqual(sanitized.dropped, [
+    { node: "div", attribute: "onclick", value: "evil()", reason: "event_handler" },
+    { node: "script", reason: "forbidden_element" },
+    { node: "iframe", reason: "forbidden_element" },
+    { node: "a", attribute: "href", value: "javascript:alert(1)", reason: "unsafe_url" },
+    { node: "img", attribute: "src", value: "data:text/html,evil", reason: "unsafe_url" },
+    { node: "img", attribute: "onerror", value: "evil()", reason: "event_handler" },
+  ])
 })
 
 void test("sanitizer strips direct form submission attributes", () => {
-  const safe = sanitizeSurfaceHtml(
+  const safe = sanitize(
     [
       `<form action="https://example.com/post" method="post" target="_top">`,
       `<button formaction="https://example.com/override">Submit</button>`,
       `<a href="https://example.com" target="_top" download ping="https://example.com/ping">Open</a>`,
       `</form>`,
     ].join(""),
-    granted,
   )
 
   assert.doesNotMatch(safe, /\saction=/i)
@@ -48,14 +57,15 @@ void test("sanitizer strips direct form submission attributes", () => {
 })
 
 void test("sanitizer strips indirect URL-bearing attributes and unsafe inline styles", () => {
-  const safe = sanitizeSurfaceHtml(
+  const sanitized = sanitizeSurfaceHtml(
     [
       `<svg><a xlink:href="javascript:alert(1)">bad</a></svg>`,
       `<img srcset="javascript:alert(1) 1x, https://example.com/a.png 2x">`,
-      `<div style="color: #111827; background: linear-gradient(135deg,#fff,#f8fafc); box-shadow: 0 10px 25px rgba(15,23,42,.06); background-image:url(https://example.com/track.png); behavior:url(x); unknown: 1">x</div>`,
+      `<div style="color: #111827; background-image:url(https://example.com/track.png); unknown: 1">x</div>`,
     ].join(""),
     granted,
   )
+  const safe = sanitized.html
 
   assert.doesNotMatch(safe, /xlink:href/i)
   assert.doesNotMatch(safe, /srcset/i)
@@ -63,14 +73,38 @@ void test("sanitizer strips indirect URL-bearing attributes and unsafe inline st
   assert.doesNotMatch(safe, /url\(/i)
   assert.doesNotMatch(safe, /behavior/i)
   assert.doesNotMatch(safe, /unknown/i)
-  assert.match(
-    safe,
-    /style="color: #111827; background: linear-gradient\(135deg,#fff,#f8fafc\); box-shadow: 0 10px 25px rgba\(15,23,42,.06\);"/,
-  )
+  assert.match(safe, /style="color: #111827;"/)
+  assert.deepEqual(sanitized.dropped, [
+    {
+      node: "a",
+      attribute: "xlink:href",
+      value: "javascript:alert(1)",
+      reason: "url_attribute",
+    },
+    {
+      node: "img",
+      attribute: "srcset",
+      value: "javascript:alert(1) 1x, https://example.com/a.png 2x",
+      reason: "url_attribute",
+    },
+    {
+      node: "div",
+      attribute: "style",
+      value: "color: #111827; background-image:url(https://example.com/track.png); unknown: 1",
+      reason: "unsafe_style_declaration",
+    },
+  ])
+})
+
+void test("sanitizer does not report safe style normalization as a drop", () => {
+  const sanitized = sanitizeSurfaceHtml(`<div style="color:red">x</div>`, granted)
+
+  assert.equal(sanitized.html, `<div style="color: red;">x</div>`)
+  assert.deepEqual(sanitized.dropped, [])
 })
 
 void test("sanitizer preserves only granted capability calls", () => {
-  const safe = sanitizeSurfaceHtml(
+  const sanitized = sanitizeSurfaceHtml(
     [
       `<button data-genui-on-click="@capability('dice.roll', { sides: 6 }, { target: 'rollResult' })">Roll</button>`,
       `<button data-genui-on-click="@capability('demo.secret', {})">Secret</button>`,
@@ -78,6 +112,7 @@ void test("sanitizer preserves only granted capability calls", () => {
     ].join(""),
     granted,
   )
+  const safe = sanitized.html
 
   assert.match(
     safe,
@@ -87,10 +122,24 @@ void test("sanitizer preserves only granted capability calls", () => {
   assert.match(safe, /data-genui-each="\$orders.value.items"/)
   assert.match(safe, /data-genui-as="order"/)
   assert.match(safe, /data-genui-text="\$order.id"/)
+  assert.deepEqual(sanitized.dropped, [
+    {
+      node: "button",
+      attribute: "data-genui-on-click",
+      value: "@capability('demo.secret', {})",
+      reason: "ungranted_action",
+    },
+    {
+      node: "button",
+      attribute: "data-genui-on-click",
+      value: "@capability('demo.secret', { id: $order.id })",
+      reason: "ungranted_action",
+    },
+  ])
 })
 
 void test("sanitizer strips bindings inside repeated templates", () => {
-  const safe = sanitizeSurfaceHtml(
+  const sanitized = sanitizeSurfaceHtml(
     [
       `<input data-genui-bind="outside" value="kept">`,
       `<section data-genui-each="$orders.value.items" data-genui-as="order" data-genui-bind="root">`,
@@ -100,6 +149,7 @@ void test("sanitizer strips bindings inside repeated templates", () => {
     ].join(""),
     granted,
   )
+  const safe = sanitized.html
 
   assert.match(safe, /data-genui-bind="outside"/)
   assert.match(safe, /data-genui-each="\$orders.value.items"/)
@@ -107,10 +157,24 @@ void test("sanitizer strips bindings inside repeated templates", () => {
   assert.match(safe, /data-genui-text="\$order.id"/)
   assert.doesNotMatch(safe, /data-genui-bind="root"/)
   assert.doesNotMatch(safe, /data-genui-bind="orderName"/)
+  assert.deepEqual(sanitized.dropped, [
+    {
+      node: "section",
+      attribute: "data-genui-bind",
+      value: "root",
+      reason: "forbidden_repeated_template_attribute",
+    },
+    {
+      node: "input",
+      attribute: "data-genui-bind",
+      value: "orderName",
+      reason: "forbidden_repeated_template_attribute",
+    },
+  ])
 })
 
 void test("sanitizer strips unsafe GenUI expressions", () => {
-  const safe = sanitizeSurfaceHtml(
+  const sanitized = sanitizeSurfaceHtml(
     [
       `<span data-genui-text="window.location">x</span>`,
       `<button data-genui-on-click="@capability('dice.roll', { sides: 6 }); fetch('/x')">Bad</button>`,
@@ -120,6 +184,7 @@ void test("sanitizer strips unsafe GenUI expressions", () => {
     ].join(""),
     granted,
   )
+  const safe = sanitized.html
 
   assert.doesNotMatch(safe, /window\.location/)
   assert.doesNotMatch(safe, /fetch/)
@@ -129,10 +194,36 @@ void test("sanitizer strips unsafe GenUI expressions", () => {
   assert.match(safe, /data-genui-show="\$status == 'pending'"/)
   assert.doesNotMatch(safe, /data-genui-style-behavior/)
   assert.doesNotMatch(safe, /data-genui-attr-onclick/)
+  assert.deepEqual(sanitized.dropped, [
+    {
+      node: "span",
+      attribute: "data-genui-text",
+      value: "window.location",
+      reason: "invalid_genui_expression",
+    },
+    {
+      node: "button",
+      attribute: "data-genui-on-click",
+      value: "@capability('dice.roll', { sides: 6 }); fetch('/x')",
+      reason: "invalid_genui_expression",
+    },
+    {
+      node: "span",
+      attribute: "data-genui-style-behavior",
+      value: "$count",
+      reason: "invalid_genui_attribute",
+    },
+    {
+      node: "span",
+      attribute: "data-genui-attr-onclick",
+      value: "$count",
+      reason: "invalid_genui_attribute",
+    },
+  ])
 })
 
 void test("sanitizer strips JavaScript-shaped constructor expressions", () => {
-  const safe = sanitizeSurfaceHtml(
+  const sanitized = sanitizeSurfaceHtml(
     [
       `<span data-genui-text="this['constructor']['constructor']('return 1')()">x</span>`,
       `<button data-genui-on-click="@capability('dice.roll', { sides: this['constructor']['constructor']('return 6')() })">Roll</button>`,
@@ -140,21 +231,46 @@ void test("sanitizer strips JavaScript-shaped constructor expressions", () => {
     ].join(""),
     granted,
   )
+  const safe = sanitized.html
 
   assert.doesNotMatch(safe, /constructor/)
   assert.doesNotMatch(safe, /data-genui-on-click/)
   assert.match(safe, /data-genui-text="\$count"/)
+  assert.deepEqual(sanitized.dropped, [
+    {
+      node: "span",
+      attribute: "data-genui-text",
+      value: "this['constructor']['constructor']('return 1')()",
+      reason: "invalid_genui_expression",
+    },
+    {
+      node: "button",
+      attribute: "data-genui-on-click",
+      value:
+        "@capability('dice.roll', { sides: this['constructor']['constructor']('return 6')() })",
+      reason: "invalid_genui_expression",
+    },
+  ])
+})
+
+void test("sanitizer truncates dropped attribute values", () => {
+  const longValue = "x".repeat(240)
+  const sanitized = sanitizeSurfaceHtml(`<div data-genui-unknown="${longValue}"></div>`, granted)
+
+  assert.equal(sanitized.dropped[0]?.reason, "unknown_genui_attribute")
+  assert.equal(sanitized.dropped[0]?.value?.length, 200)
+  assert.match(sanitized.dropped[0]?.value ?? "", /\.\.\.$/)
 })
 
 void test("sanitizer repairs truncated HTML and is idempotent", () => {
-  const safe = sanitizeSurfaceHtml(`<section><div><span data-genui-text="$label">Hi`, granted)
+  const safe = sanitize(`<section><div><span data-genui-text="$label">Hi`)
 
   assert.equal(safe, `<section><div><span data-genui-text="$label">Hi</span></div></section>`)
-  assert.equal(sanitizeSurfaceHtml(safe, granted), safe)
+  assert.equal(sanitize(safe), safe)
 })
 
 void test("sanitizer preserves text that contains a literal less-than character", () => {
-  const safe = sanitizeSurfaceHtml(`<p>2 < 3`, granted)
+  const safe = sanitize(`<p>2 < 3`)
 
   assert.equal(safe, `<p>2 &lt; 3</p>`)
 })

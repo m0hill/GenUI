@@ -182,26 +182,42 @@ export const isSafeStyleValue = (value: string): boolean => {
 export const isSafeStyleDeclaration = (property: string, value: string): boolean =>
   isSafeStyleProperty(property) && isSafeStyleValue(value)
 
-export const sanitizeInlineStyle = (source: string): string | undefined => {
-  if (source.length > 8_000) return undefined
+export interface SanitizedInlineStyle {
+  readonly value?: string
+  readonly dropped: boolean
+}
+
+export const sanitizeInlineStyleWithDiagnostics = (source: string): SanitizedInlineStyle => {
+  if (source.length > 8_000) return { dropped: true }
 
   const declarations = splitCssList(source, ";")
-  if (declarations === undefined) return undefined
+  if (declarations === undefined) return { dropped: true }
 
-  const safe = declarations.flatMap((declaration) => {
-    if (declaration.length === 0) return []
+  let dropped = false
+  const safe: string[] = []
+  for (const declaration of declarations) {
+    if (declaration.length === 0) continue
 
     const parsed = splitDeclaration(declaration)
-    if (parsed === undefined) return []
+    if (parsed === undefined) {
+      dropped = true
+      continue
+    }
 
     const [property, rawValue] = parsed
     const normalizedProperty = normalizeStylePropertyName(property)
     const value = rawValue.trim()
 
-    return isSafeStyleDeclaration(normalizedProperty, value)
-      ? [`${normalizedProperty}: ${value};`]
-      : []
-  })
+    if (isSafeStyleDeclaration(normalizedProperty, value)) {
+      safe.push(`${normalizedProperty}: ${value};`)
+    } else {
+      dropped = true
+    }
+  }
 
-  return safe.length === 0 ? undefined : safe.join(" ")
+  const value = safe.length === 0 ? undefined : safe.join(" ")
+  return value === undefined ? { dropped: true } : { value, dropped }
 }
+
+export const sanitizeInlineStyle = (source: string): string | undefined =>
+  sanitizeInlineStyleWithDiagnostics(source).value

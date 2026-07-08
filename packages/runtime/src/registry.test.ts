@@ -8,6 +8,8 @@ import {
   type ActionResult,
   type StandardSchemaV1,
   type Surface,
+  type SurfaceRecord,
+  type SurfaceStore,
 } from "./types.js"
 import { isRecord, testSchema } from "./test-schema.test-support.js"
 
@@ -125,6 +127,17 @@ void test("registry projects a grant and sanitizes HTML under that grant", async
       { name: "dice.roll", reason: "duplicate" },
       { name: "demo.blocked", reason: "blocked" },
     ],
+    html: {
+      dropped: [
+        {
+          node: "button",
+          attribute: "data-genui-on-click",
+          value: "@capability('demo.blocked', {})",
+          reason: "ungranted_action",
+        },
+        { node: "script", reason: "forbidden_element" },
+      ],
+    },
   })
 })
 
@@ -206,6 +219,53 @@ void test("registry executes surfaces restored from a shared store", async () =>
   )
 })
 
+void test("registry upgrades legacy surface records without diagnostics", async () => {
+  const html = `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`
+  const actions = [
+    action({
+      name: "dice.roll",
+      description: "Roll a die.",
+      effect: "read",
+      input: rollInput,
+      output: rollOutput,
+      execute: (_ctx: TestCtx, input: RollInput) => ({ total: input.sides }),
+    }),
+  ]
+  const sourceStore = memoryStore()
+  const creator = new Genui<TestCtx>({ actions, store: sourceStore })
+  const surface = await creator.surface({ html, actions: ["dice.roll"] })
+  const record = await sourceStore.get(surface.id)
+  assert.notEqual(record, undefined)
+  if (record === undefined) return
+
+  let stored = {
+    surface: record.surface,
+    source: record.source,
+  } as unknown as SurfaceRecord
+  const legacyStore: SurfaceStore = {
+    get: () => stored,
+    set: (record) => {
+      stored = record
+    },
+  }
+  const executor = new Genui<TestCtx>({ actions, store: legacyStore })
+
+  assert.deepEqual(
+    await executor.execute(
+      { surfaceId: surface.id, callId: "call-1", action: "dice.roll", input: { sides: 6 } },
+      { userId: "u1" },
+    ),
+    { ok: true, value: { total: 6 } },
+  )
+  assert.equal("diagnostics" in stored, true)
+  assert.deepEqual(await executor.diagnostics(surface.id), {
+    actions: ["dice.roll"],
+    granted: ["dice.roll"],
+    dropped: [],
+    html: { dropped: [] },
+  })
+})
+
 void test("registry returns a structured result when the surface store is unavailable", async () => {
   const registry = new Genui<TestCtx>({
     actions: [
@@ -278,6 +338,16 @@ void test("registry reprojects stored surface source under current policy", asyn
     actions: ["dice.roll"],
     granted: [],
     dropped: [{ name: "dice.roll", reason: "blocked" }],
+    html: {
+      dropped: [
+        {
+          node: "button",
+          attribute: "data-genui-on-click",
+          value: "@capability('dice.roll', { sides: 6 })",
+          reason: "ungranted_action",
+        },
+      ],
+    },
   })
 
   const reprojected = await hardened.reproject(created.id)
