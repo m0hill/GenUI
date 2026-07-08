@@ -5,7 +5,7 @@ import { getCodexApiKey, openAICodexProviderId } from "./pi-auth.js"
 
 const codexModel = getModel(openAICodexProviderId, "gpt-5.5")
 
-const provider = process.env.AI_PROVIDER ?? "mara"
+const provider = process.env.AI_PROVIDER ?? "codex"
 
 export const aiModel =
   provider === "baseten" ? basetenModel : provider === "codex" ? codexModel : maraModel
