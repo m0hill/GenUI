@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { mountSurface, type SurfaceEvent } from "./index.js"
-import type { CapabilityCall, CapabilityResult } from "../types.js"
+import { mount, type SurfaceEvent } from "./index.js"
+import type { ActionCall, ActionResult } from "../types.js"
 import { protocolChannel } from "./protocol.js"
 import {
   asDomElement,
@@ -15,12 +15,12 @@ import {
   testSurface,
 } from "./test-support.test-support.js"
 
-void test("mountSurface renders a sandboxed iframe and replaces/disposes it", () => {
+void test("mount renders a sandboxed iframe and replaces/disposes it", () => {
   const { element } = createMountTarget()
   const first = testSurface([diceDescriptor], `<button>Roll</button>`)
   const second = testSurface([diceDescriptor], `<button>Roll</button>`)
-  const instance = mountSurface(asDomElement(element), first, {
-    transport: async (): Promise<CapabilityResult> => ({ ok: true, value: {} }),
+  const instance = mount(asDomElement(element), first, {
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
   })
   const iframe = mountedIframe(element)
 
@@ -36,7 +36,7 @@ void test("mountSurface renders a sandboxed iframe and replaces/disposes it", ()
   assert.equal(element.querySelector("iframe"), null)
 })
 
-void test("mountSurface refuses unsupported surface dialects", () => {
+void test("mount refuses unsupported surface dialects", () => {
   const { element } = createMountTarget()
   const current = testSurface([diceDescriptor], `<button>Roll</button>`)
   const unsupported = {
@@ -46,15 +46,15 @@ void test("mountSurface refuses unsupported surface dialects", () => {
 
   assert.throws(
     () =>
-      mountSurface(asDomElement(element), unsupported, {
-        transport: async (): Promise<CapabilityResult> => ({ ok: true, value: {} }),
+      mount(asDomElement(element), unsupported, {
+        transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
       }),
     /Unsupported generated UI dialect: genui\/1/,
   )
   assert.equal(element.querySelector("iframe"), null)
 
-  const instance = mountSurface(asDomElement(element), current, {
-    transport: async (): Promise<CapabilityResult> => ({ ok: true, value: {} }),
+  const instance = mount(asDomElement(element), current, {
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
   })
   assert.throws(() => instance.replace(unsupported), /Unsupported generated UI dialect: genui\/1/)
   assert.equal(instance.surface, current)
@@ -62,13 +62,13 @@ void test("mountSurface refuses unsupported surface dialects", () => {
   instance.dispose()
 })
 
-void test("mountSurface brokers granted capability calls through transport", async () => {
+void test("mount brokers granted capability calls through transport", async () => {
   const { window, element } = createMountTarget()
   const current = testSurface([diceDescriptor], `<button>Roll</button>`)
   const events: SurfaceEvent[] = []
-  const calls: CapabilityCall[] = []
-  const instance = mountSurface(asDomElement(element), current, {
-    transport: async (call): Promise<CapabilityResult> => {
+  const calls: ActionCall[] = []
+  const instance = mount(asDomElement(element), current, {
+    transport: async (call): Promise<ActionResult> => {
       calls.push(call)
       return { ok: true, value: { total: 6 } }
     },
@@ -80,7 +80,7 @@ void test("mountSurface brokers granted capability calls through transport", asy
   await flushAsync()
 
   assert.deepEqual(calls, [
-    { surfaceId: current.id, callId: "call-1", capability: "dice.roll", input: { sides: 6 } },
+    { surfaceId: current.id, callId: "call-1", action: "dice.roll", input: { sides: 6 } },
   ])
   assert.deepEqual(
     events.map((event) => event.type),
@@ -92,13 +92,13 @@ void test("mountSurface brokers granted capability calls through transport", asy
   instance.dispose()
 })
 
-void test("mountSurface refuses ungranted calls before transport", async () => {
+void test("mount refuses ungranted calls before transport", async () => {
   const { window, element } = createMountTarget()
   const current = testSurface([], `<button>Roll</button>`)
   const events: SurfaceEvent[] = []
   let transportCalled = false
-  mountSurface(asDomElement(element), current, {
-    transport: async (): Promise<CapabilityResult> => {
+  mount(asDomElement(element), current, {
+    transport: async (): Promise<ActionResult> => {
       transportCalled = true
       return { ok: true, value: {} }
     },
@@ -118,12 +118,12 @@ void test("mountSurface refuses ungranted calls before transport", async () => {
   )
 })
 
-void test("mountSurface emits link, resize, and protocol violation events", () => {
+void test("mount emits link, resize, and protocol violation events", () => {
   const { window, element } = createMountTarget()
   const current = testSurface([diceDescriptor], `<button>Roll</button>`)
   const events: SurfaceEvent[] = []
-  mountSurface(asDomElement(element), current, {
-    transport: async (): Promise<CapabilityResult> => ({ ok: true, value: {} }),
+  mount(asDomElement(element), current, {
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
     maxHeight: 320,
     onEvent: (event) => events.push(event),
   })
@@ -156,14 +156,14 @@ void test("mountSurface emits link, resize, and protocol violation events", () =
   ])
 })
 
-void test("mountSurface aborts and drops pending results after replacing a surface", async () => {
+void test("mount aborts and drops pending results after replacing a surface", async () => {
   const { window, element } = createMountTarget()
   const first = testSurface([diceDescriptor], `<button>Roll</button>`)
   const second = testSurface([diceDescriptor], `<button>Roll</button>`)
-  const result = deferred<CapabilityResult>()
+  const result = deferred<ActionResult>()
   const events: SurfaceEvent[] = []
   let signal: AbortSignal | undefined
-  const instance = mountSurface(asDomElement(element), first, {
+  const instance = mount(asDomElement(element), first, {
     transport: async (_call, options) => {
       signal = options.signal
       return result.promise
@@ -187,13 +187,13 @@ void test("mountSurface aborts and drops pending results after replacing a surfa
   assert.equal(instance.surface, second)
 })
 
-void test("mountSurface drops pending results after dispose", async () => {
+void test("mount drops pending results after dispose", async () => {
   const { window, element } = createMountTarget()
   const current = testSurface([diceDescriptor], `<button>Roll</button>`)
-  const result = deferred<CapabilityResult>()
+  const result = deferred<ActionResult>()
   const events: SurfaceEvent[] = []
   let signal: AbortSignal | undefined
-  const instance = mountSurface(asDomElement(element), current, {
+  const instance = mount(asDomElement(element), current, {
     transport: async (_call, options) => {
       signal = options.signal
       return result.promise

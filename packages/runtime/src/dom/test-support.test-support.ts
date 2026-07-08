@@ -4,7 +4,7 @@ import {
   type Element as HappyElement,
   type HTMLIFrameElement as HappyIFrameElement,
 } from "happy-dom"
-import type { CapabilityDescriptor, Surface } from "../types.js"
+import type { Action, Surface } from "../types.js"
 import { isRecord, jsonRoundTrip } from "../test-support.test-support.js"
 import { protocolChannel } from "./protocol.js"
 
@@ -15,34 +15,34 @@ export const diceDescriptor = {
   description: "Roll a die.",
   effect: "read",
   requiresApproval: false,
-} satisfies CapabilityDescriptor
+} satisfies Action
 
 export const approvedDescriptor = {
   name: "notes.create",
   description: "Create a note.",
   effect: "write",
   requiresApproval: true,
-} satisfies CapabilityDescriptor
+} satisfies Action
 
-export const testSurface = (capabilities: Surface["grant"]["capabilities"], html = ""): Surface => {
+export const testSurface = (actions: Surface["grant"]["actions"], html = ""): Surface => {
   const id = globalThis.crypto.randomUUID()
   return {
     id,
     html,
-    grant: { surfaceId: id, capabilities },
+    grant: { surfaceId: id, actions },
     dialect: "genui/0",
   }
 }
 
 export const sandboxCapabilityMessage = (
   surface: Surface,
-  capability = "dice.roll",
+  action = "dice.roll",
 ): Readonly<Record<string, unknown>> => ({
   channel: protocolChannel,
   type: "capability",
   surfaceId: surface.id,
   callId: "call-1",
-  capability,
+  action,
   input: { sides: 6 },
   target: "rollResult",
 })
@@ -89,7 +89,7 @@ export const createMountTarget = (): {
 }
 
 export const asDomElement = (element: HappyElement): Element => {
-  // SAFETY: happy-dom implements the DOM Element operations used by mountSurface; its TypeScript
+  // SAFETY: happy-dom implements the DOM Element operations used by mount; its TypeScript
   // classes are distinct from lib.dom classes even though the runtime API is compatible here.
   return element as unknown as Element
 }

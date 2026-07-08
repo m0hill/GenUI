@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.79.0",
-    "@hono-ai/genui-runtime": "workspace:*",
+    "@hono-ai/genui": "workspace:*",
     "@hono/node-server": "^1.19.6",
     "datastar-kit": "^0.4.0",
     "hono": "^4.12.19",

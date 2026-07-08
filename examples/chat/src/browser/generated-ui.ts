@@ -1,11 +1,5 @@
-import { mountSurface, type SurfaceTransportOptions } from "@hono-ai/genui-runtime/dom"
-import type {
-  CapabilityCall,
-  CapabilityDescriptor,
-  CapabilityErrorCode,
-  CapabilityResult,
-  Surface,
-} from "@hono-ai/genui-runtime"
+import { mount, type SurfaceTransportOptions } from "@hono-ai/genui/dom"
+import type { ActionCall, Action, ActionErrorCode, ActionResult, Surface } from "@hono-ai/genui"
 
 const surfaceSelector = "[data-genui-surface]"
 const startupPollMs = 1_000
@@ -13,7 +7,7 @@ const startupPollLimitMs = 30_000
 
 interface MountedSurface {
   readonly source: string
-  readonly instance: ReturnType<typeof mountSurface>
+  readonly instance: ReturnType<typeof mount>
 }
 
 const mountedSurfaces = new Map<Element, MountedSurface>()
@@ -23,7 +17,7 @@ let started = false
 const hasMountedIframe = (element: Element): boolean =>
   element.firstElementChild?.tagName === "IFRAME"
 
-const capabilityErrorCodes: ReadonlySet<string> = new Set<CapabilityErrorCode>([
+const actionErrorCodes: ReadonlySet<string> = new Set<ActionErrorCode>([
   "unknown_surface",
   "not_granted",
   "blocked",
@@ -37,7 +31,7 @@ const capabilityErrorCodes: ReadonlySet<string> = new Set<CapabilityErrorCode>([
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null
 
-const isCapabilityDescriptor = (value: unknown): value is CapabilityDescriptor =>
+const isAction = (value: unknown): value is Action =>
   isRecord(value) &&
   typeof value.name === "string" &&
   typeof value.description === "string" &&
@@ -50,18 +44,18 @@ const isSurface = (value: unknown): value is Surface => {
   if (typeof value.dialect !== "string") return false
   if (!isRecord(value.grant)) return false
   if (value.grant.surfaceId !== value.id) return false
-  if (!Array.isArray(value.grant.capabilities)) return false
-  return value.grant.capabilities.every(isCapabilityDescriptor)
+  if (!Array.isArray(value.grant.actions)) return false
+  return value.grant.actions.every(isAction)
 }
 
-const isCapabilityErrorCode = (value: unknown): value is CapabilityErrorCode =>
-  typeof value === "string" && capabilityErrorCodes.has(value)
+const isActionErrorCode = (value: unknown): value is ActionErrorCode =>
+  typeof value === "string" && actionErrorCodes.has(value)
 
-const parseCapabilityResult = (value: unknown): CapabilityResult | undefined => {
+const parseActionResult = (value: unknown): ActionResult | undefined => {
   if (!isRecord(value) || typeof value.ok !== "boolean") return undefined
   if (value.ok) return { ok: true, value: value.value }
   if (!isRecord(value.error)) return undefined
-  if (!isCapabilityErrorCode(value.error.code)) return undefined
+  if (!isActionErrorCode(value.error.code)) return undefined
   if (typeof value.error.message !== "string") return undefined
   return { ok: false, error: { code: value.error.code, message: value.error.message } }
 }
@@ -94,27 +88,27 @@ const composerForm = (): HTMLFormElement | undefined => {
   return form instanceof HTMLFormElement ? form : undefined
 }
 
-const capabilityError = (code: CapabilityErrorCode, message: string): CapabilityResult => ({
+const actionError = (code: ActionErrorCode, message: string): ActionResult => ({
   ok: false,
   error: { code, message },
 })
 
 const chatIsBusy = (): boolean => promptInput()?.disabled === true
 
-const submitFollowUpPrompt = async (input: unknown): Promise<CapabilityResult> => {
+const submitFollowUpPrompt = async (input: unknown): Promise<ActionResult> => {
   if (!isRecord(input) || typeof input.prompt !== "string") {
-    return capabilityError("invalid_input", "chat.follow_up expects a prompt string.")
+    return actionError("invalid_input", "chat.follow_up expects a prompt string.")
   }
 
   const prompt = input.prompt.trim()
-  if (prompt.length === 0) return capabilityError("invalid_input", "Prompt is empty.")
-  if (prompt.length > 1_200) return capabilityError("invalid_input", "Prompt is too long.")
-  if (chatIsBusy()) return capabilityError("execution_failed", "The chat is already generating.")
+  if (prompt.length === 0) return actionError("invalid_input", "Prompt is empty.")
+  if (prompt.length > 1_200) return actionError("invalid_input", "Prompt is too long.")
+  if (chatIsBusy()) return actionError("execution_failed", "The chat is already generating.")
 
   const field = promptInput()
   const form = composerForm()
   if (field === undefined || form === undefined) {
-    return capabilityError("execution_failed", "Chat composer is not available.")
+    return actionError("execution_failed", "Chat composer is not available.")
   }
 
   field.value = prompt
@@ -124,18 +118,18 @@ const submitFollowUpPrompt = async (input: unknown): Promise<CapabilityResult> =
   return { ok: true, value: "Follow-up sent." }
 }
 
-const executeServerCapability = async (
-  call: CapabilityCall,
+const executeServerAction = async (
+  call: ActionCall,
   options: SurfaceTransportOptions,
-): Promise<CapabilityResult> => {
-  const response = await fetch("/genui/capability", {
+): Promise<ActionResult> => {
+  const response = await fetch("/genui/action", {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     signal: options.signal,
     body: JSON.stringify({
       surfaceId: call.surfaceId,
       callId: call.callId,
-      capability: call.capability,
+      action: call.action,
       input: call.input ?? {},
       chatId: currentChatId(),
       approved: true,
@@ -143,20 +137,17 @@ const executeServerCapability = async (
   })
 
   return (
-    parseCapabilityResult(await response.json().catch(() => undefined)) ??
-    capabilityError("execution_failed", "Capability returned an invalid response.")
+    parseActionResult(await response.json().catch(() => undefined)) ??
+    actionError("execution_failed", "Action returned an invalid response.")
   )
 }
 
-const transport = (
-  call: CapabilityCall,
-  options: SurfaceTransportOptions,
-): Promise<CapabilityResult> => {
-  if (call.capability === "chat.follow_up") return submitFollowUpPrompt(call.input)
-  return executeServerCapability(call, options)
+const transport = (call: ActionCall, options: SurfaceTransportOptions): Promise<ActionResult> => {
+  if (call.action === "chat.follow_up") return submitFollowUpPrompt(call.input)
+  return executeServerAction(call, options)
 }
 
-const approve = (descriptor: CapabilityDescriptor, call: CapabilityCall): boolean => {
+const confirm = (descriptor: Action, call: ActionCall): boolean => {
   if (!descriptor.requiresApproval) return true
 
   const preview = (() => {
@@ -172,7 +163,7 @@ const approve = (descriptor: CapabilityDescriptor, call: CapabilityCall): boolea
   )
 }
 
-const mountSurfaceElement = (element: Element, source: string, surface: Surface): void => {
+const mountElement = (element: Element, source: string, surface: Surface): void => {
   const existing = mountedSurfaces.get(element)
   if (existing !== undefined) {
     if (existing.source === source && hasMountedIframe(element)) return
@@ -187,9 +178,9 @@ const mountSurfaceElement = (element: Element, source: string, surface: Surface)
     mountedSurfaces.delete(element)
   }
 
-  const instance = mountSurface(element, surface, {
+  const instance = mount(element, surface, {
     transport,
-    approve,
+    confirm,
     onEvent(event) {
       if (event.type === "link") window.open(event.href, "_blank", "noopener,noreferrer")
     },
@@ -210,7 +201,7 @@ const syncGeneratedSurfaces = (): void => {
   for (const element of document.querySelectorAll(surfaceSelector)) {
     const source = element.getAttribute("data-genui-surface")
     const surface = parseSurface(source ?? undefined)
-    if (source !== null && surface !== undefined) mountSurfaceElement(element, source, surface)
+    if (source !== null && surface !== undefined) mountElement(element, source, surface)
   }
   disposeStaleSurfaces()
 }

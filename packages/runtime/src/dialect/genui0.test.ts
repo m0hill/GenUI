@@ -11,7 +11,7 @@ import {
   genui0RuntimeDirectiveFromAttribute,
 } from "./genui0.js"
 
-const grantedCapabilities = new Set(["dice.roll"])
+const grantedActions = new Set(["dice.roll"])
 
 const runtimeContext = {
   isTruthy(value: unknown): boolean {
@@ -50,7 +50,7 @@ void test("genui/0 allows only granted capability actions with v0 object inputs"
     allowGenui0DataAttribute({
       name: "data-genui-on-click",
       value: "@capability('dice.roll', { sides: 6, label: $label }, { target: 'rollResult' })",
-      grantedCapabilities,
+      grantedActions,
     }),
     {
       name: "data-genui-on-click",
@@ -62,7 +62,7 @@ void test("genui/0 allows only granted capability actions with v0 object inputs"
     allowGenui0DataAttribute({
       name: "data-genui-on-click",
       value: "@capability('demo.secret', {})",
-      grantedCapabilities,
+      grantedActions,
     }),
     undefined,
   )
@@ -71,7 +71,7 @@ void test("genui/0 allows only granted capability actions with v0 object inputs"
       name: "data-genui-on-click",
       value:
         "@capability('dice.roll', { sides: this['constructor']['constructor']('return 6')() })",
-      grantedCapabilities,
+      grantedActions,
     }),
     undefined,
   )
@@ -79,7 +79,7 @@ void test("genui/0 allows only granted capability actions with v0 object inputs"
     allowGenui0DataAttribute({
       name: "data-genui-on-click",
       value: "@capability('dice.roll', { sides: 6 }, { target: window.location })",
-      grantedCapabilities,
+      grantedActions,
     }),
     undefined,
   )
@@ -90,7 +90,7 @@ void test("genui/0 allows simple local state expressions", () => {
     allowGenui0DataAttribute({
       name: "data-genui-state",
       value: "{ count: 1, label: 'Roll' }",
-      grantedCapabilities,
+      grantedActions,
     }),
     { name: "data-genui-state", value: "{ count: 1, label: 'Roll' }" },
   )
@@ -98,7 +98,7 @@ void test("genui/0 allows simple local state expressions", () => {
     allowGenui0DataAttribute({
       name: "data-genui-text",
       value: "$count",
-      grantedCapabilities,
+      grantedActions,
     }),
     { name: "data-genui-text", value: "$count" },
   )
@@ -106,7 +106,7 @@ void test("genui/0 allows simple local state expressions", () => {
     allowGenui0DataAttribute({
       name: "data-genui-bind",
       value: "count",
-      grantedCapabilities,
+      grantedActions,
     }),
     { name: "data-genui-bind", value: "count" },
   )
@@ -114,7 +114,7 @@ void test("genui/0 allows simple local state expressions", () => {
     allowGenui0DataAttribute({
       name: "data-genui-each",
       value: "$orders.value.items",
-      grantedCapabilities,
+      grantedActions,
     }),
     { name: "data-genui-each", value: "$orders.value.items" },
   )
@@ -122,7 +122,7 @@ void test("genui/0 allows simple local state expressions", () => {
     allowGenui0DataAttribute({
       name: "data-genui-as",
       value: "order",
-      grantedCapabilities,
+      grantedActions,
     }),
     { name: "data-genui-as", value: "order" },
   )
@@ -130,7 +130,7 @@ void test("genui/0 allows simple local state expressions", () => {
     allowGenui0DataAttribute({
       name: "data-genui-show",
       value: "$status == 'pending'",
-      grantedCapabilities,
+      grantedActions,
     }),
     { name: "data-genui-show", value: "$status == 'pending'" },
   )
@@ -138,7 +138,7 @@ void test("genui/0 allows simple local state expressions", () => {
     allowGenui0DataAttribute({
       name: "data-genui-on-click",
       value: "@set('tab', 'details')",
-      grantedCapabilities,
+      grantedActions,
     }),
     { name: "data-genui-on-click", value: "@set('tab', 'details')" },
   )
@@ -146,7 +146,7 @@ void test("genui/0 allows simple local state expressions", () => {
     allowGenui0DataAttribute({
       name: "data-genui-style-background-color",
       value: "$color",
-      grantedCapabilities,
+      grantedActions,
     }),
     { name: "data-genui-style-background-color", value: "$color" },
   )
@@ -154,7 +154,7 @@ void test("genui/0 allows simple local state expressions", () => {
     allowGenui0DataAttribute({
       name: "data-genui-attr-aria-label",
       value: "$label",
-      grantedCapabilities,
+      grantedActions,
     }),
     { name: "data-genui-attr-aria-label", value: "$label" },
   )
@@ -165,7 +165,7 @@ void test("genui/0 rejects general JavaScript expressions", () => {
     allowGenui0DataAttribute({
       name: "data-genui-text",
       value: "window.location",
-      grantedCapabilities,
+      grantedActions,
     }),
     undefined,
   )
@@ -173,7 +173,7 @@ void test("genui/0 rejects general JavaScript expressions", () => {
     allowGenui0DataAttribute({
       name: "data-genui-show",
       value: "$count > 2",
-      grantedCapabilities,
+      grantedActions,
     }),
     undefined,
   )
@@ -181,7 +181,7 @@ void test("genui/0 rejects general JavaScript expressions", () => {
     allowGenui0DataAttribute({
       name: "data-genui-on-click",
       value: "@set('tab', window.location)",
-      grantedCapabilities,
+      grantedActions,
     }),
     undefined,
   )
@@ -189,7 +189,7 @@ void test("genui/0 rejects general JavaScript expressions", () => {
     allowGenui0DataAttribute({
       name: "data-genui-as",
       value: "bad-target",
-      grantedCapabilities,
+      grantedActions,
     }),
     undefined,
   )
@@ -197,7 +197,7 @@ void test("genui/0 rejects general JavaScript expressions", () => {
     allowGenui0DataAttribute({
       name: "data-genui-style-behavior",
       value: "$value",
-      grantedCapabilities,
+      grantedActions,
     }),
     undefined,
   )
@@ -205,7 +205,7 @@ void test("genui/0 rejects general JavaScript expressions", () => {
     allowGenui0DataAttribute({
       name: "data-genui-attr-onclick",
       value: "$value",
-      grantedCapabilities,
+      grantedActions,
     }),
     undefined,
   )
@@ -216,7 +216,7 @@ void test("genui/0 owns repeated-template structural directive constraints", () 
     allowGenui0DataAttribute({
       name: "data-genui-bind",
       value: "orderName",
-      grantedCapabilities,
+      grantedActions,
       insideRepeatedTemplate: true,
     }),
     undefined,
@@ -225,7 +225,7 @@ void test("genui/0 owns repeated-template structural directive constraints", () 
     allowGenui0DataAttribute({
       name: "data-genui-bind",
       value: "items",
-      grantedCapabilities,
+      grantedActions,
       elementStartsRepeatedTemplate: true,
     }),
     undefined,
@@ -234,7 +234,7 @@ void test("genui/0 owns repeated-template structural directive constraints", () 
     allowGenui0DataAttribute({
       name: "data-genui-text",
       value: "$order.name",
-      grantedCapabilities,
+      grantedActions,
       insideRepeatedTemplate: true,
     }),
     { name: "data-genui-text", value: "$order.name" },

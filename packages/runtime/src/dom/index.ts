@@ -1,7 +1,7 @@
 import {
   genuiDialect,
-  type CapabilityCall,
-  type CapabilityResult,
+  type ActionCall,
+  type ActionResult,
   type ExecuteOptions,
   type Surface,
 } from "../types.js"
@@ -19,17 +19,14 @@ export type {
   SurfaceViolationReason,
 } from "./surface-broker.js"
 
-export interface MountSurfaceOptions {
-  readonly transport: (
-    call: CapabilityCall,
-    options: SurfaceTransportOptions,
-  ) => Promise<CapabilityResult>
-  readonly approve?: NonNullable<ExecuteOptions["approve"]>
+export interface MountOptions {
+  readonly transport: (call: ActionCall, options: SurfaceTransportOptions) => Promise<ActionResult>
+  readonly confirm?: NonNullable<ExecuteOptions["approve"]>
   readonly maxHeight?: number
   readonly onEvent?: (event: SurfaceEvent) => void
 }
 
-export interface SurfaceInstance {
+export interface Mounted {
   readonly surface: Surface
   replace(surface: Surface): void
   dispose(): void
@@ -50,19 +47,15 @@ const assertSupportedSurfaceDialect = (surface: Surface): void => {
   }
 }
 
-/** Mount a generated surface into a sandboxed iframe and broker its capability calls. */
-export const mountSurface = (
-  element: Element,
-  surface: Surface,
-  options: MountSurfaceOptions,
-): SurfaceInstance => {
+/** Mount a generated surface into a sandboxed iframe and broker its action calls. */
+export const mount = (element: Element, surface: Surface, options: MountOptions): Mounted => {
   assertSupportedSurfaceDialect(surface)
 
   const ownerDocument = element.ownerDocument
   let disposed = false
   const broker = createSurfaceBroker(surface, {
     transport: options.transport,
-    approve: options.approve,
+    confirm: options.confirm,
     maxHeight: options.maxHeight,
   })
 

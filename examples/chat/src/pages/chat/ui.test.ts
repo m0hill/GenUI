@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai"
-import type { Surface } from "@hono-ai/genui-runtime"
+import type { Surface } from "@hono-ai/genui"
 import { renderToString } from "datastar-kit"
 import type { AssistantTurn } from "../../session/chat-session.js"
 import { AssistantTurnItem } from "./ui.js"
@@ -10,7 +10,7 @@ const generatedSurface: Surface = {
   id: "surface-test",
   dialect: "genui/0",
   html: `<section style="padding: 12px"><h2>Preview UI</h2></section>`,
-  grant: { surfaceId: "surface-test", capabilities: [] },
+  grant: { surfaceId: "surface-test", actions: [] },
 }
 
 const createTurn = (

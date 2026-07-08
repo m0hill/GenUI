@@ -63,14 +63,14 @@ const isSafeHttpsUrl = (value: string): boolean => /^https:\/\//i.test(value.tri
 
 const sanitizeDataAttribute = (
   attribute: Attribute,
-  grantedCapabilities: ReadonlySet<string>,
+  grantedActions: ReadonlySet<string>,
   insideRepeatedTemplate: boolean,
   elementStartsRepeatedTemplate: boolean,
 ): Attribute | undefined => {
   const allowed = allowGenui0DataAttribute({
     name: attribute.name,
     value: attribute.value,
-    grantedCapabilities,
+    grantedActions,
     insideRepeatedTemplate,
     elementStartsRepeatedTemplate,
   })
@@ -80,7 +80,7 @@ const sanitizeDataAttribute = (
 
 const sanitizeAttribute = (
   attribute: Attribute,
-  grantedCapabilities: ReadonlySet<string>,
+  grantedActions: ReadonlySet<string>,
   insideRepeatedTemplate: boolean,
 ): Attribute | undefined => {
   const name = attributeName(attribute).toLowerCase()
@@ -93,7 +93,7 @@ const sanitizeAttribute = (
   if (insideRepeatedTemplate && genui0AttributeForbiddenInRepeatedTemplate(name)) return undefined
   if (directSubmissionAttributeNames.has(name)) return undefined
   if (name.startsWith("data-")) {
-    return sanitizeDataAttribute(attribute, grantedCapabilities, insideRepeatedTemplate, false)
+    return sanitizeDataAttribute(attribute, grantedActions, insideRepeatedTemplate, false)
   }
 
   if (allowedUrlAttributeNames.has(name)) {
@@ -109,11 +109,11 @@ const sanitizeAttribute = (
 
 const sanitizeAttributes = (
   element: ElementNode,
-  grantedCapabilities: ReadonlySet<string>,
+  grantedActions: ReadonlySet<string>,
   insideRepeatedTemplate: boolean,
 ): void => {
   element.attrs = element.attrs.flatMap((attribute) => {
-    const safe = sanitizeAttribute(attribute, grantedCapabilities, insideRepeatedTemplate)
+    const safe = sanitizeAttribute(attribute, grantedActions, insideRepeatedTemplate)
     return safe === undefined ? [] : [safe]
   })
 
@@ -129,7 +129,7 @@ const sanitizeAttributes = (
 
 const sanitizeChildren = (
   parent: ParentNode,
-  grantedCapabilities: ReadonlySet<string>,
+  grantedActions: ReadonlySet<string>,
   insideRepeatedTemplate = false,
 ): void => {
   const safeChildren: ChildNode[] = []
@@ -143,26 +143,19 @@ const sanitizeChildren = (
 
     if (removedElementTags.has(child.tagName.toLowerCase())) continue
 
-    sanitizeAttributes(child, grantedCapabilities, insideRepeatedTemplate)
+    sanitizeAttributes(child, grantedActions, insideRepeatedTemplate)
     const childStartsRepeatedTemplate = child.attrs.some((attribute) =>
       genui0AttributeStartsRepeatedTemplate(attributeName(attribute)),
     )
-    sanitizeChildren(
-      child,
-      grantedCapabilities,
-      insideRepeatedTemplate || childStartsRepeatedTemplate,
-    )
+    sanitizeChildren(child, grantedActions, insideRepeatedTemplate || childStartsRepeatedTemplate)
     safeChildren.push(child)
   }
 
   parent.childNodes = safeChildren
 }
 
-export const sanitizeSurfaceHtml = (
-  html: string,
-  grantedCapabilities: ReadonlySet<string>,
-): string => {
+export const sanitizeSurfaceHtml = (html: string, grantedActions: ReadonlySet<string>): string => {
   const fragment = parseFragment(html)
-  sanitizeChildren(fragment, grantedCapabilities)
+  sanitizeChildren(fragment, grantedActions)
   return serialize(fragment)
 }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { createRegistry, defineCapability } from "./registry.js"
-import type { CapabilityCall, CapabilityResult, Surface } from "./types.js"
+import { action, Genui } from "./registry.js"
+import type { ActionCall, ActionResult, Surface } from "./types.js"
 import { createSurfaceBroker, type SurfaceBrokerEffect } from "./dom/surface-broker.js"
 import type { SurfaceBrokerTask } from "./dom/surface-broker.js"
 import { protocolChannel } from "./dom/protocol.js"
@@ -128,7 +128,7 @@ class OrdersStore {
 }
 
 const ordersSurfaceHtml = `
-  <form data-genui-on-submit="@capability('orders.search', { query: $query }, { target: 'orders' })">
+  <form data-genui-on-submit="@action('orders.search', { query: $query }, { target: 'orders' })">
     <input data-genui-bind="query" value="Acme">
     <button>Search</button>
   </form>
@@ -150,25 +150,20 @@ const ordersSurfaceHtml = `
           </ul>
         </td>
         <td>
-          <button data-genui-on-click="@capability('orders.refund', { id: $order.id }, { target: 'orders' })">Refund</button>
-          <button data-genui-on-click="@capability('orders.add_note', { id: $order.id, note: 'Priority follow-up' }, { target: 'orders' })">Add note</button>
+          <button data-genui-on-click="@action('orders.refund', { id: $order.id }, { target: 'orders' })">Refund</button>
+          <button data-genui-on-click="@action('orders.add_note', { id: $order.id, note: 'Priority follow-up' }, { target: 'orders' })">Add note</button>
         </td>
       </tr>
     </tbody>
   </table>
 `
 
-const capabilityMessage = (
-  surface: Surface,
-  capability: string,
-  input: unknown,
-  callId: string,
-) => ({
+const actionMessage = (surface: Surface, action: string, input: unknown, callId: string) => ({
   channel: protocolChannel,
   type: "capability",
   surfaceId: surface.id,
   callId,
-  capability,
+  action,
   input,
   target: "orders",
 })
@@ -189,7 +184,7 @@ const resultMessage = (
   return effect.message
 }
 
-const ordersResultValue = (result: CapabilityResult): OrdersResult => {
+const ordersResultValue = (result: ActionResult): OrdersResult => {
   if (!result.ok) assert.fail(`Expected orders result, received ${result.error.code}.`)
   const parsed = parseOrdersResult(result.value)
   if (!parsed.ok) assert.fail(parsed.message)
@@ -197,9 +192,9 @@ const ordersResultValue = (result: CapabilityResult): OrdersResult => {
 }
 
 void test("orders-admin proof exercises grants, approval, nested data, and refresh mutations", async () => {
-  const registry = createRegistry<OrdersContext>({
-    capabilities: [
-      defineCapability({
+  const registry = new Genui<OrdersContext>({
+    actions: [
+      action({
         name: "orders.search",
         description: "Search orders by customer.",
         effect: "read",
@@ -207,16 +202,16 @@ void test("orders-admin proof exercises grants, approval, nested data, and refre
         output: testSchema(parseOrdersResult),
         execute: (ctx, input) => ctx.store.search(input.query),
       }),
-      defineCapability({
+      action({
         name: "orders.refund",
         description: "Refund an order and return the refreshed order list.",
         effect: "write",
-        policy: "require_approval",
+        policy: "ask",
         input: testSchema(parseRefundOrderInput),
         output: testSchema(parseOrdersResult),
         execute: (ctx, input) => ctx.store.refund(input.id),
       }),
-      defineCapability({
+      action({
         name: "orders.add_note",
         description: "Add a note to an order and return the refreshed order list.",
         effect: "write",
@@ -227,25 +222,25 @@ void test("orders-admin proof exercises grants, approval, nested data, and refre
     ],
   })
   const ctx: OrdersContext = { userId: "user-1", store: new OrdersStore() }
-  const surface = await registry.createSurface({
+  const surface = await registry.surface({
     html: ordersSurfaceHtml,
-    requested: ["orders.search", "orders.refund", "orders.add_note"],
+    actions: ["orders.search", "orders.refund", "orders.add_note"],
   })
-  const limitedSurface = await registry.createSurface({
+  const limitedSurface = await registry.surface({
     html: ordersSurfaceHtml,
-    requested: ["orders.search"],
+    actions: ["orders.search"],
   })
-  const transportCalls: CapabilityCall[] = []
-  const brokerApprovals: CapabilityCall[] = []
-  const registryApprovals: CapabilityCall[] = []
+  const transportCalls: ActionCall[] = []
+  const brokerApprovals: ActionCall[] = []
+  const registryApprovals: ActionCall[] = []
   let brokerApproves = true
 
   const broker = createSurfaceBroker(surface, {
-    approve: (_descriptor, call) => {
+    confirm: (_descriptor, call) => {
       brokerApprovals.push(call)
       return brokerApproves
     },
-    transport: async (call): Promise<CapabilityResult> => {
+    transport: async (call): Promise<ActionResult> => {
       transportCalls.push(call)
       return registry.execute(call, ctx, {
         approve: (_descriptor, approvedCall) => {
@@ -257,7 +252,7 @@ void test("orders-admin proof exercises grants, approval, nested data, and refre
   })
 
   assert.deepEqual(
-    surface.grant.capabilities.map((capability) => capability.name),
+    surface.grant.actions.map((capability) => capability.name),
     ["orders.search", "orders.refund", "orders.add_note"],
   )
   assert.equal(surface.html.includes("$orders.value.items.length == 0"), true)
@@ -267,7 +262,7 @@ void test("orders-admin proof exercises grants, approval, nested data, and refre
     {
       surfaceId: surface.id,
       callId: "direct-refund",
-      capability: "orders.refund",
+      action: "orders.refund",
       input: { id: "order-1" },
     },
     ctx,
@@ -278,7 +273,7 @@ void test("orders-admin proof exercises grants, approval, nested data, and refre
   const searchResult = resultMessage(
     await taskEffects(
       broker.handleSandboxMessage(
-        capabilityMessage(surface, "orders.search", { query: "Acme" }, "call-search"),
+        actionMessage(surface, "orders.search", { query: "Acme" }, "call-search"),
       ),
     ),
   )
@@ -291,7 +286,7 @@ void test("orders-admin proof exercises grants, approval, nested data, and refre
   const deniedRefund = resultMessage(
     await taskEffects(
       broker.handleSandboxMessage(
-        capabilityMessage(surface, "orders.refund", { id: "order-1" }, "call-refund-denied"),
+        actionMessage(surface, "orders.refund", { id: "order-1" }, "call-refund-denied"),
       ),
     ),
   )
@@ -306,7 +301,7 @@ void test("orders-admin proof exercises grants, approval, nested data, and refre
   const approvedRefund = resultMessage(
     await taskEffects(
       broker.handleSandboxMessage(
-        capabilityMessage(surface, "orders.refund", { id: "order-1" }, "call-refund"),
+        actionMessage(surface, "orders.refund", { id: "order-1" }, "call-refund"),
       ),
     ),
   )
@@ -317,7 +312,7 @@ void test("orders-admin proof exercises grants, approval, nested data, and refre
   const noteResult = resultMessage(
     await taskEffects(
       broker.handleSandboxMessage(
-        capabilityMessage(
+        actionMessage(
           surface,
           "orders.add_note",
           { id: "order-1", note: "Priority follow-up" },
@@ -331,7 +326,7 @@ void test("orders-admin proof exercises grants, approval, nested data, and refre
 
   let limitedTransportCalled = false
   const limitedBroker = createSurfaceBroker(limitedSurface, {
-    transport: async (): Promise<CapabilityResult> => {
+    transport: async (): Promise<ActionResult> => {
       limitedTransportCalled = true
       return { ok: true, value: {} }
     },
@@ -339,12 +334,7 @@ void test("orders-admin proof exercises grants, approval, nested data, and refre
   const ungrantedRefund = resultMessage(
     await taskEffects(
       limitedBroker.handleSandboxMessage(
-        capabilityMessage(
-          limitedSurface,
-          "orders.refund",
-          { id: "order-1" },
-          "call-ungranted-refund",
-        ),
+        actionMessage(limitedSurface, "orders.refund", { id: "order-1" }, "call-ungranted-refund"),
       ),
     ),
   )
@@ -355,7 +345,7 @@ void test("orders-admin proof exercises grants, approval, nested data, and refre
   )
   assert.equal(limitedTransportCalled, false)
   assert.deepEqual(
-    transportCalls.map((call) => call.capability),
+    transportCalls.map((call) => call.action),
     ["orders.search", "orders.refund", "orders.add_note"],
   )
   assert.deepEqual(

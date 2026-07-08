@@ -1,94 +1,89 @@
-import { projectGrantedCapabilities } from "./capability-projections.js"
+import { projectGrantedActions } from "./action-projections.js"
 import { sanitizeSurfaceHtml } from "./sanitizer.js"
 import {
+  type Action,
+  type AnyActionDefinition,
+  type DroppedAction,
   genuiDialect,
-  type AnyCapabilityDefinition,
-  type CapabilityDescriptor,
-  type CreateSurfaceInput,
-  type DroppedCapabilityRequest,
   type Grant,
   type Surface,
+  type SurfaceInput,
   type SurfaceProjectionDiagnostics,
   type SurfaceRecord,
-  type SurfaceSource,
   type SurfaceStore,
 } from "./types.js"
 
-interface ProjectedSurfaceSource {
+interface ProjectedSurfaceInput {
   readonly html: string
-  readonly capabilities: readonly CapabilityDescriptor[]
+  readonly actions: readonly Action[]
   readonly diagnostics: SurfaceProjectionDiagnostics
 }
 
 interface CreateSurfaceRuntimeOptions<Ctx> {
-  readonly byName: ReadonlyMap<string, AnyCapabilityDefinition<Ctx>>
+  readonly byName: ReadonlyMap<string, AnyActionDefinition<Ctx>>
   readonly store?: SurfaceStore
 }
 
 interface CreateSurfaceRecordInput {
   readonly html: string
-  readonly capabilities: readonly CapabilityDescriptor[]
-  readonly source: SurfaceSource
+  readonly actions: readonly Action[]
+  readonly source: SurfaceInput
 }
 
 interface ReplaceSurfaceRecordInput {
   readonly record: SurfaceRecord
   readonly html: string
-  readonly capabilities: readonly CapabilityDescriptor[]
+  readonly actions: readonly Action[]
 }
 
 interface CreateSurfaceValueInput {
   readonly id: string
   readonly html: string
-  readonly capabilities: readonly CapabilityDescriptor[]
+  readonly actions: readonly Action[]
   readonly meta?: Readonly<Record<string, unknown>>
 }
 
 export interface SurfaceRuntime {
-  createSurface(input: CreateSurfaceInput): Promise<Surface>
+  surface(input: SurfaceInput): Promise<Surface>
   reprojectSurface(id: string): Promise<Surface | undefined>
   getRecord(id: string): Promise<SurfaceRecord | undefined>
   diagnostics(id: string): Promise<SurfaceProjectionDiagnostics | undefined>
 }
 
-const copyDropped = (
-  dropped: readonly DroppedCapabilityRequest[],
-): readonly DroppedCapabilityRequest[] =>
+const copyDropped = (dropped: readonly DroppedAction[]): readonly DroppedAction[] =>
   Object.freeze(dropped.map((item) => Object.freeze({ ...item })))
 
 const diagnosticsFor = (
-  source: SurfaceSource,
-  capabilities: readonly CapabilityDescriptor[],
-  dropped: readonly DroppedCapabilityRequest[],
+  source: SurfaceInput,
+  actions: readonly Action[],
+  dropped: readonly DroppedAction[],
 ): SurfaceProjectionDiagnostics =>
   Object.freeze({
-    requested: Object.freeze([...source.requested]),
-    granted: Object.freeze(capabilities.map((capability) => capability.name)),
+    actions: Object.freeze([...source.actions]),
+    granted: Object.freeze(actions.map((action) => action.name)),
     dropped: copyDropped(dropped),
   })
 
-const copyCapabilities = (
-  capabilities: readonly CapabilityDescriptor[],
-): readonly CapabilityDescriptor[] =>
-  Object.freeze(capabilities.map((capability) => Object.freeze({ ...capability })))
+const copyActions = (actions: readonly Action[]): readonly Action[] =>
+  Object.freeze(actions.map((action) => Object.freeze({ ...action })))
 
 const copyMeta = (
   meta: Readonly<Record<string, unknown>> | undefined,
 ): Readonly<Record<string, unknown>> | undefined =>
   meta === undefined ? undefined : Object.freeze({ ...meta })
 
-const copySurfaceSource = (source: SurfaceSource): SurfaceSource => {
-  const requested = Object.freeze([...source.requested])
+const copySurfaceInput = (source: SurfaceInput): SurfaceInput => {
+  const actions = Object.freeze([...source.actions])
   const meta = copyMeta(source.meta)
   return Object.freeze(
-    meta === undefined ? { html: source.html, requested } : { html: source.html, requested, meta },
+    meta === undefined ? { html: source.html, actions } : { html: source.html, actions, meta },
   )
 }
 
 const createSurfaceValue = (input: CreateSurfaceValueInput): Surface => {
   const grant: Grant = Object.freeze({
     surfaceId: input.id,
-    capabilities: copyCapabilities(input.capabilities),
+    actions: copyActions(input.actions),
   })
   const meta = copyMeta(input.meta)
 
@@ -105,22 +100,22 @@ const copySurface = (surface: Surface): Surface =>
   createSurfaceValue({
     id: surface.id,
     html: surface.html,
-    capabilities: surface.grant.capabilities,
+    actions: surface.grant.actions,
     meta: surface.meta,
   })
 
 const copySurfaceRecord = (record: SurfaceRecord): SurfaceRecord =>
   Object.freeze({
     surface: copySurface(record.surface),
-    source: copySurfaceSource(record.source),
+    source: copySurfaceInput(record.source),
   })
 
 const createSurfaceRecord = (input: CreateSurfaceRecordInput): SurfaceRecord => {
-  const source = copySurfaceSource(input.source)
+  const source = copySurfaceInput(input.source)
   const surface = createSurfaceValue({
     id: createSurfaceId(),
     html: input.html,
-    capabilities: input.capabilities,
+    actions: input.actions,
     meta: source.meta,
   })
 
@@ -132,14 +127,14 @@ const replaceSurfaceRecord = (input: ReplaceSurfaceRecordInput): SurfaceRecord =
     surface: createSurfaceValue({
       id: input.record.surface.id,
       html: input.html,
-      capabilities: input.capabilities,
+      actions: input.actions,
       meta: input.record.source.meta,
     }),
     source: input.record.source,
   })
 
 /** Create the default in-memory generated surface store. */
-export const createMemorySurfaceStore = (): SurfaceStore => {
+export const memoryStore = (): SurfaceStore => {
   const records = new Map<string, SurfaceRecord>()
 
   return {
@@ -156,14 +151,14 @@ export const createMemorySurfaceStore = (): SurfaceStore => {
 /** Owns source projection, sanitization, diagnostics, and surface record lifecycle. */
 export const createSurfaceRuntime = <Ctx>({
   byName,
-  store = createMemorySurfaceStore(),
+  store = memoryStore(),
 }: CreateSurfaceRuntimeOptions<Ctx>): SurfaceRuntime => {
-  const project = (source: SurfaceSource): ProjectedSurfaceSource => {
-    const grantProjection = projectGrantedCapabilities({ requested: source.requested, byName })
+  const project = (source: SurfaceInput): ProjectedSurfaceInput => {
+    const grantProjection = projectGrantedActions({ actions: source.actions, byName })
     return {
       html: sanitizeSurfaceHtml(source.html, grantProjection.names),
-      capabilities: grantProjection.capabilities,
-      diagnostics: diagnosticsFor(source, grantProjection.capabilities, grantProjection.dropped),
+      actions: grantProjection.actions,
+      diagnostics: diagnosticsFor(source, grantProjection.actions, grantProjection.dropped),
     }
   }
 
@@ -172,11 +167,11 @@ export const createSurfaceRuntime = <Ctx>({
     return record === undefined ? undefined : copySurfaceRecord(record)
   }
 
-  const createSurface = async (input: CreateSurfaceInput): Promise<Surface> => {
+  const surface = async (input: SurfaceInput): Promise<Surface> => {
     const projected = project(input)
     const record = createSurfaceRecord({
       html: projected.html,
-      capabilities: projected.capabilities,
+      actions: projected.actions,
       source: input,
     })
     await store.set(record)
@@ -192,7 +187,7 @@ export const createSurfaceRuntime = <Ctx>({
     const nextRecord = replaceSurfaceRecord({
       record,
       html: projected.html,
-      capabilities: projected.capabilities,
+      actions: projected.actions,
     })
     await store.set(nextRecord)
     return copySurface(nextRecord.surface)
@@ -207,7 +202,7 @@ export const createSurfaceRuntime = <Ctx>({
   }
 
   return {
-    createSurface,
+    surface,
     reprojectSurface,
     getRecord: storedRecord,
     diagnostics,

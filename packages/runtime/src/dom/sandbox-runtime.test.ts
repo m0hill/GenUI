@@ -56,7 +56,7 @@ void test("sandbox runtime posts capability calls from click actions", () => {
   const message = capabilityPostMessage(messages)
   assert.equal(message.channel, protocolChannel)
   assert.equal(message.surfaceId, "surface-test")
-  assert.equal(message.capability, "dice.roll")
+  assert.equal(message.action, "dice.roll")
   assert.equal(typeof message.callId, "string")
   assert.equal(message.target, "rollResult")
   assert.deepEqual(jsonRoundTrip(message.input), {
@@ -82,7 +82,7 @@ void test("sandbox runtime posts capability calls from submit actions", () => {
 
   assert.equal(defaultAllowed, false)
   const message = capabilityPostMessage(messages)
-  assert.equal(message.capability, "weather.lookup")
+  assert.equal(message.action, "weather.lookup")
   assert.deepEqual(jsonRoundTrip(message.input), { city: "Tokyo" })
   assert.equal(message.target, undefined)
 })
@@ -110,7 +110,7 @@ void test("sandbox runtime exposes result state to later capability inputs", () 
     ?.dispatchEvent(new window.Event("click", { bubbles: true, cancelable: true }))
 
   const message = capabilityPostMessage(messages)
-  assert.equal(message.capability, "notes.create")
+  assert.equal(message.action, "notes.create")
   assert.deepEqual(jsonRoundTrip(message.input), { total: 6 })
 })
 
@@ -350,7 +350,7 @@ void test("sandbox runtime renders repeated items with scoped capability inputs"
   assert.equal(displayStyle(window.document.querySelector("#updating")), "")
 
   const message = capabilityPostMessage(messages)
-  assert.equal(message.capability, "orders.refund")
+  assert.equal(message.action, "orders.refund")
   assert.equal(message.target, "orders")
   assert.deepEqual(jsonRoundTrip(message.input), { id: "order-2" })
 
@@ -427,7 +427,7 @@ void test("sandbox runtime renders nested repeated items with merged scopes", ()
     ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }))
 
   const message = capabilityPostMessage(messages)
-  assert.equal(message.capability, "orders.adjust_line")
+  assert.equal(message.action, "orders.adjust_line")
   assert.equal(message.target, "orders")
   assert.deepEqual(jsonRoundTrip(message.input), { lineId: "line-3", orderId: "order-2" })
 

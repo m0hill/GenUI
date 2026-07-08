@@ -1,15 +1,15 @@
 import {
-  capabilityError,
-  type CapabilityCall,
-  type CapabilityDescriptor,
-  type CapabilityResult,
+  actionError,
+  type Action,
+  type ActionCall,
+  type ActionResult,
   type ExecuteOptions,
   type Surface,
 } from "../types.js"
 import { protocolChannel } from "./protocol.js"
 import { normalizeResultTarget } from "./result-routing.js"
-import { resultStateFromCapabilityResult, type ResultState } from "./result-state.js"
-import { parseSandboxMessage, type CapabilitySandboxMessage } from "./sandbox-message-schema.js"
+import { resultStateFromActionResult, type ResultState } from "./result-state.js"
+import { parseSandboxMessage, type ActionSandboxMessage } from "./sandbox-message-schema.js"
 
 const defaultMaxHeight = 1_200
 
@@ -21,13 +21,13 @@ export type SurfaceViolationReason =
   | "unsafe_link"
 
 export type SurfaceEvent =
-  | { readonly type: "call"; readonly call: CapabilityCall; readonly target: string }
+  | { readonly type: "call"; readonly call: ActionCall; readonly target: string }
   | {
       readonly type: "result"
       readonly callId: string
-      readonly capability: string
+      readonly action: string
       readonly target: string
-      readonly result: CapabilityResult
+      readonly result: ActionResult
     }
   | { readonly type: "resize"; readonly height: number }
   | { readonly type: "link"; readonly href: string }
@@ -42,11 +42,8 @@ export interface SurfaceTransportOptions {
 }
 
 export interface SurfaceBrokerOptions {
-  readonly transport: (
-    call: CapabilityCall,
-    options: SurfaceTransportOptions,
-  ) => Promise<CapabilityResult>
-  readonly approve?: NonNullable<ExecuteOptions["approve"]>
+  readonly transport: (call: ActionCall, options: SurfaceTransportOptions) => Promise<ActionResult>
+  readonly confirm?: NonNullable<ExecuteOptions["approve"]>
   readonly maxHeight?: number
 }
 
@@ -55,9 +52,9 @@ export interface SurfaceResultMessage {
   readonly type: "result"
   readonly surfaceId: string
   readonly callId: string
-  readonly capability: string
+  readonly action: string
   readonly target: string
-  readonly result: CapabilityResult
+  readonly result: ActionResult
   readonly state: ResultState
 }
 
@@ -78,10 +75,10 @@ export interface SurfaceBroker {
   dispose(): void
 }
 
-interface BrokerCapabilityRequest {
+interface BrokerActionRequest {
   readonly target: string
-  readonly descriptor: CapabilityDescriptor
-  readonly call: CapabilityCall
+  readonly action: Action
+  readonly call: ActionCall
   readonly controller: AbortController
   readonly surfaceRevision: number
 }
@@ -119,9 +116,9 @@ export const createSurfaceBroker = (
     surfaceId: string,
     revision: number,
     callId: string,
-    capability: string,
+    action: string,
     target: string,
-    result: CapabilityResult,
+    result: ActionResult,
   ): readonly SurfaceBrokerEffect[] => {
     if (disposed || surfaceRevision !== revision || currentSurface.id !== surfaceId) return []
 
@@ -133,32 +130,32 @@ export const createSurfaceBroker = (
           type: "result",
           surfaceId,
           callId,
-          capability,
+          action,
           target,
           result,
-          state: resultStateFromCapabilityResult(result),
+          state: resultStateFromActionResult(result),
         },
       },
-      emit({ type: "result", callId, capability, target, result }),
+      emit({ type: "result", callId, action, target, result }),
     ]
   }
 
-  const executeCapability = async (
-    request: BrokerCapabilityRequest,
+  const executeAction = async (
+    request: BrokerActionRequest,
   ): Promise<readonly SurfaceBrokerEffect[]> => {
     pendingControllers.add(request.controller)
     try {
-      if (request.descriptor.requiresApproval) {
-        const approved = await options.approve?.(request.descriptor, request.call)
+      if (request.action.requiresApproval) {
+        const confirmed = await options.confirm?.(request.action, request.call)
         if (request.controller.signal.aborted) return []
-        if (approved !== true) {
+        if (confirmed !== true) {
           return resultEffects(
             request.call.surfaceId,
             request.surfaceRevision,
             request.call.callId,
-            request.call.capability,
+            request.call.action,
             request.target,
-            capabilityError("approval_denied", "Capability was denied."),
+            actionError("approval_denied", "Action was denied."),
           )
         }
       }
@@ -167,7 +164,7 @@ export const createSurfaceBroker = (
         request.call.surfaceId,
         request.surfaceRevision,
         request.call.callId,
-        request.call.capability,
+        request.call.action,
         request.target,
         await options.transport(request.call, { signal: request.controller.signal }),
       )
@@ -176,9 +173,9 @@ export const createSurfaceBroker = (
         request.call.surfaceId,
         request.surfaceRevision,
         request.call.callId,
-        request.call.capability,
+        request.call.action,
         request.target,
-        capabilityError("execution_failed", "Capability failed."),
+        actionError("execution_failed", "Action failed."),
       )
     } finally {
       pendingControllers.delete(request.controller)
@@ -190,42 +187,42 @@ export const createSurfaceBroker = (
     pendingControllers.clear()
   }
 
-  const handleCapability = (message: CapabilitySandboxMessage): SurfaceBrokerTask => {
+  const handleAction = (message: ActionSandboxMessage): SurfaceBrokerTask => {
     const surfaceId = currentSurface.id
-    const target = normalizeResultTarget(message.target, message.capability)
-    const descriptor = currentSurface.grant.capabilities.find(
-      (capability) => capability.name === message.capability,
+    const target = normalizeResultTarget(message.target, message.action)
+    const grantedAction = currentSurface.grant.actions.find(
+      (action) => action.name === message.action,
     )
-    const call: CapabilityCall = {
+    const call: ActionCall = {
       surfaceId,
       callId: message.callId,
-      capability: message.capability,
+      action: message.action,
       input: message.input,
     }
 
-    if (descriptor === undefined) {
+    if (grantedAction === undefined) {
       return task([
         emit({
           type: "violation",
           reason: "ungranted_call",
-          detail: `Capability is not granted: ${message.capability}`,
+          detail: `Action is not granted: ${message.action}`,
         }),
         ...resultEffects(
           surfaceId,
           surfaceRevision,
           message.callId,
-          message.capability,
+          message.action,
           target,
-          capabilityError("not_granted", "Capability is not granted to this surface."),
+          actionError("not_granted", "Action is not granted to this surface."),
         ),
       ])
     }
 
     return task(
       [emit({ type: "call", call, target })],
-      executeCapability({
+      executeAction({
         target,
-        descriptor,
+        action: grantedAction,
         call,
         controller: new AbortController(),
         surfaceRevision,
@@ -264,7 +261,7 @@ export const createSurfaceBroker = (
         : task([emit({ type: "link", href })])
     }
 
-    return handleCapability(message)
+    return handleAction(message)
   }
 
   return {

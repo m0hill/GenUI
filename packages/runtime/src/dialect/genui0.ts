@@ -4,7 +4,7 @@ import {
   isSafeStyleValue,
   normalizeGenuiStylePropertyName,
 } from "../css-style.js"
-import { genuiDialect, type CapabilityDescriptor } from "../types.js"
+import { genuiDialect, type Action } from "../types.js"
 
 export const genui0AttributeNames = {
   state: "data-genui-state",
@@ -25,7 +25,7 @@ export const genui0AttributeNames = {
 interface Genui0DataAttribute {
   readonly name: string
   readonly value: string | undefined
-  readonly grantedCapabilities: ReadonlySet<string>
+  readonly grantedActions: ReadonlySet<string>
   readonly insideRepeatedTemplate?: boolean
   readonly elementStartsRepeatedTemplate?: boolean
 }
@@ -185,7 +185,7 @@ const genui0DirectiveDefinitions = [
     key: "on_click",
     pattern: { type: "exact", name: genui0AttributeNames.onClick },
     usage: genui0AttributeNames.onClick,
-    instruction: "Use data-genui-on-click for @capability(...) and @set(...) actions.",
+    instruction: "Use data-genui-on-click for @action(...) and @set(...) actions.",
     valueKind: "action",
   },
   {
@@ -323,22 +323,19 @@ const findDirective = (
   return undefined
 }
 
-const isAllowedActionExpression = (
-  value: string,
-  grantedCapabilities: ReadonlySet<string>,
-): boolean => {
+const isAllowedActionExpression = (value: string, grantedActions: ReadonlySet<string>): boolean => {
   if (genui0Language.parseSetAction(value) !== undefined) return true
 
   const action = genui0Language.parseCapabilityAction(value)
-  return action !== undefined && grantedCapabilities.has(action.capability)
+  return action !== undefined && grantedActions.has(action.capability)
 }
 
 const isAllowedValue = (
   valueKind: Genui0DirectiveValueKind,
   value: string,
-  grantedCapabilities: ReadonlySet<string>,
+  grantedActions: ReadonlySet<string>,
 ): boolean => {
-  if (valueKind === "action") return isAllowedActionExpression(value, grantedCapabilities)
+  if (valueKind === "action") return isAllowedActionExpression(value, grantedActions)
   if (valueKind === "object") return genui0Language.isSafeObjectExpression(value)
   if (valueKind === "binding") return genui0Language.isSafeBindingExpression(value)
   if (valueKind === "state_name") return genui0Language.isStateName(value)
@@ -349,7 +346,7 @@ const isAllowedValue = (
 export const allowGenui0DataAttribute = ({
   name,
   value,
-  grantedCapabilities,
+  grantedActions,
   insideRepeatedTemplate = false,
   elementStartsRepeatedTemplate = false,
 }: Genui0DataAttribute): AllowedGenui0DataAttribute | undefined => {
@@ -365,7 +362,7 @@ export const allowGenui0DataAttribute = ({
     return undefined
   }
   if (directive.definition.validateName?.(directive.match) === false) return undefined
-  if (!isAllowedValue(directive.definition.valueKind, value, grantedCapabilities)) return undefined
+  if (!isAllowedValue(directive.definition.valueKind, value, grantedActions)) return undefined
 
   return { name, value }
 }
@@ -470,11 +467,11 @@ export const genui0Runtime = {
 } as const
 
 /** Build the model-facing instruction text for the genui/0 dialect. */
-export const genui0Instructions = (capabilities: readonly CapabilityDescriptor[]): string => {
-  const capabilityList = capabilities
+export const genui0Instructions = (actions: readonly Action[]): string => {
+  const actionList = actions
     .map(
-      (capability) =>
-        `- ${capability.name}: ${capability.description} effect=${capability.effect} approval=${capability.requiresApproval}`,
+      (action) =>
+        `- ${action.name}: ${action.description} effect=${action.effect} approval=${action.requiresApproval}`,
     )
     .join("\n")
 
@@ -484,17 +481,17 @@ export const genui0Instructions = (capabilities: readonly CapabilityDescriptor[]
     "Use inline style attributes for static presentation.",
     `Use only the GenUI directive namespace: ${genui0DirectiveUsages.join(", ")}.`,
     ...genui0DirectiveInstructionLines,
-    "Use @capability('name', input) only for capabilities granted to the surface.",
-    "Use @capability('name', input, { target: 'resultName' }) when multiple calls need separate result state.",
+    "Use @action('name', input) only for actions granted to the surface.",
+    "Use @action('name', input, { target: 'resultName' }) when multiple calls need separate result state.",
     "Use @set('state.path', value) for local-only interactions such as tabs, toggles, disclosure, and selection.",
-    "Capability result state is written to $target.status, $target.value, and $target.error; status is 'pending', 'complete', or 'error'.",
+    "Action result state is written to $target.status, $target.value, and $target.error; status is 'pending', 'complete', or 'error'.",
     "When a target with a previous value becomes pending, $target.value remains available so existing lists and details can stay visible.",
-    "When target is omitted, the default result target is the camel-cased capability name, e.g. orders.search writes to $ordersSearch.",
+    "When target is omitted, the default result target is the camel-cased action name, e.g. orders.search writes to $ordersSearch.",
     "Nested data-genui-each blocks can read outer and inner scope together, e.g. $order.id and $line.id.",
     "Use array length reads such as $orders.value.items.length for empty states.",
     "Use only simple v0 expressions: state reads like $name or $name.path, primitive literals, comparisons, and flat object literals.",
-    "Available capabilities:",
-    capabilityList.length > 0 ? capabilityList : "- none",
+    "Available actions:",
+    actionList.length > 0 ? actionList : "- none",
   ].join("\n")
 }
 

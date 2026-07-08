@@ -1,8 +1,8 @@
 import { isRecord } from "../record.js"
-import type { CapabilityCall } from "../types.js"
+import type { ActionCall } from "../types.js"
 import { protocolChannel } from "./protocol.js"
 
-export interface CapabilitySandboxMessage extends CapabilityCall {
+export interface ActionSandboxMessage extends ActionCall {
   readonly channel: typeof protocolChannel
   readonly type: "capability"
   readonly target?: string
@@ -22,7 +22,7 @@ interface LinkSandboxMessage {
   readonly href: string
 }
 
-export type SandboxMessage = CapabilitySandboxMessage | ResizeSandboxMessage | LinkSandboxMessage
+export type SandboxMessage = ActionSandboxMessage | ResizeSandboxMessage | LinkSandboxMessage
 
 export type ParseSandboxMessageResult =
   | { readonly ok: true; readonly value: SandboxMessage }
@@ -58,10 +58,11 @@ const parseLinkMessage = (
 
 const parseCapabilityMessage = (
   value: Readonly<Record<string, unknown>>,
-): CapabilitySandboxMessage | undefined => {
+): ActionSandboxMessage | undefined => {
   if (typeof value.surfaceId !== "string") return undefined
   if (typeof value.callId !== "string") return undefined
-  if (typeof value.capability !== "string") return undefined
+  const action = typeof value.action === "string" ? value.action : value.capability
+  if (typeof action !== "string") return undefined
   if (value.target !== undefined && typeof value.target !== "string") return undefined
 
   return {
@@ -69,7 +70,7 @@ const parseCapabilityMessage = (
     type: "capability",
     surfaceId: value.surfaceId,
     callId: value.callId,
-    capability: value.capability,
+    action,
     input: value.input,
     ...(typeof value.target === "string" ? { target: value.target } : {}),
   }

@@ -4,13 +4,13 @@
   "type": "module",
   "scripts": {
     "dev": "pnpm --filter @hono-ai/example-chat dev",
-    "test": "pnpm --filter @hono-ai/genui-runtime test && pnpm --filter @hono-ai/example-chat test",
+    "test": "pnpm --filter @hono-ai/genui test && pnpm --filter @hono-ai/example-chat test",
     "build": "pnpm --filter @hono-ai/example-chat build",
     "start": "pnpm --filter @hono-ai/example-chat start",
-    "check": "pnpm run format:check && pnpm --filter @hono-ai/genui-runtime check && pnpm --filter @hono-ai/example-chat check",
-    "typecheck": "pnpm --filter @hono-ai/genui-runtime typecheck && pnpm --filter @hono-ai/example-chat typecheck",
-    "lint": "pnpm --filter @hono-ai/genui-runtime lint && pnpm --filter @hono-ai/example-chat lint",
-    "lint:fix": "pnpm --filter @hono-ai/genui-runtime lint:fix && pnpm --filter @hono-ai/example-chat lint:fix",
+    "check": "pnpm run format:check && pnpm --filter @hono-ai/genui check && pnpm --filter @hono-ai/example-chat check",
+    "typecheck": "pnpm --filter @hono-ai/genui typecheck && pnpm --filter @hono-ai/example-chat typecheck",
+    "lint": "pnpm --filter @hono-ai/genui lint && pnpm --filter @hono-ai/example-chat lint",
+    "lint:fix": "pnpm --filter @hono-ai/genui lint:fix && pnpm --filter @hono-ai/example-chat lint:fix",
     "format": "oxfmt package.json tsconfig.json .oxlintrc.json .oxfmtrc.json examples/chat/package.json examples/chat/tsconfig.json packages/runtime/package.json packages/runtime/tsconfig.json packages/runtime/src",
     "format:check": "oxfmt --check package.json tsconfig.json .oxlintrc.json .oxfmtrc.json examples/chat/package.json examples/chat/tsconfig.json packages/runtime/package.json packages/runtime/tsconfig.json packages/runtime/src"
   },

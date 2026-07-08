@@ -48,7 +48,7 @@ void test("sandbox bridge posts capability calls from click actions", () => {
   const message = capabilityPostMessage(messages)
   assert.equal(message.channel, protocolChannel)
   assert.equal(message.surfaceId, "surface-test")
-  assert.equal(message.capability, "dice.roll")
+  assert.equal(message.action, "dice.roll")
   assert.equal(typeof message.callId, "string")
   assert.equal(message.target, "rollResult")
   assert.deepEqual(jsonRoundTrip(message.input), {
@@ -75,7 +75,7 @@ void test("sandbox bridge posts capability calls from submit actions", () => {
 
   assert.equal(defaultAllowed, false)
   const message = capabilityPostMessage(messages)
-  assert.equal(message.capability, "weather.lookup")
+  assert.equal(message.action, "weather.lookup")
   assert.deepEqual(jsonRoundTrip(message.input), { city: "Tokyo" })
   assert.equal(message.target, undefined)
 })
@@ -134,7 +134,7 @@ void test("sandbox bridge exposes result state to later capability inputs", () =
     ?.dispatchEvent(new window.Event("click", { bubbles: true, cancelable: true }))
 
   const message = capabilityPostMessage(messages)
-  assert.equal(message.capability, "notes.create")
+  assert.equal(message.action, "notes.create")
   assert.deepEqual(jsonRoundTrip(message.input), { total: 6 })
 })
 

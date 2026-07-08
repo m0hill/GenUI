@@ -1,112 +1,113 @@
-import {
-  capabilityPolicy,
-  findGrantedCapability,
-  publicCapabilityDescriptors,
-} from "./capability-projections.js"
+import { actionPolicy, findGrantedAction, publicActions } from "./action-projections.js"
 import { genui0Dialect } from "./dialect/genui0.js"
 import { genui0Language } from "./dialect/genui0-language.js"
 import { parseWithSchema } from "./schema.js"
-import { createSurfaceRuntime } from "./surface-runtime.js"
+import { createSurfaceRuntime, type SurfaceRuntime } from "./surface-runtime.js"
 import {
-  capabilityError,
-  type AnyCapabilityDefinition,
-  type CapabilityCall,
-  type CapabilityDefinition,
-  type CapabilityDescriptor,
-  type CapabilityResult,
-  type CreateSurfaceInput,
+  actionError,
+  type Action,
+  type ActionCall,
+  type ActionDefinition,
+  type ActionResult,
+  type AnyActionDefinition,
   type ExecuteOptions,
-  type Registry,
   type Surface,
+  type SurfaceInput,
+  type SurfaceRecord,
   type SurfaceStore,
 } from "./types.js"
 
-export interface CreateRegistryOptions<Ctx> {
-  readonly capabilities: readonly AnyCapabilityDefinition<Ctx>[]
-  readonly surfaces?: SurfaceStore
+export interface GenuiOptions<Ctx> {
+  readonly actions: readonly AnyActionDefinition<Ctx>[]
+  readonly store?: SurfaceStore
 }
 
-/** Preserve a capability definition's input and output types at declaration sites. */
-export const defineCapability = <Ctx, Input, Output>(
-  definition: CapabilityDefinition<Ctx, Input, Output>,
-): CapabilityDefinition<Ctx, Input, Output> => definition
+/** Preserve an action definition's input and output types at declaration sites. */
+export const action = <Ctx, Input, Output>(
+  definition: ActionDefinition<Ctx, Input, Output>,
+): ActionDefinition<Ctx, Input, Output> => definition
 
-/** Create an isolated registry that owns capability definitions and per-surface grants. */
-export const createRegistry = <Ctx>(options: CreateRegistryOptions<Ctx>): Registry<Ctx> => {
-  const byName = new Map<string, AnyCapabilityDefinition<Ctx>>()
+/** Provider-independent generated UI runtime for one app authority set. */
+export class Genui<Ctx> {
+  readonly #byName: ReadonlyMap<string, AnyActionDefinition<Ctx>>
+  readonly #surfaceRuntime: SurfaceRuntime
 
-  for (const capability of options.capabilities) {
-    if (!genui0Language.isCapabilityName(capability.name)) {
-      throw new Error(`Invalid capability name: ${capability.name}`)
+  constructor(options: GenuiOptions<Ctx>) {
+    const byName = new Map<string, AnyActionDefinition<Ctx>>()
+
+    for (const action of options.actions) {
+      if (!genui0Language.isCapabilityName(action.name)) {
+        throw new Error(`Invalid action name: ${action.name}`)
+      }
+      if (byName.has(action.name)) {
+        throw new Error(`Duplicate action name: ${action.name}`)
+      }
+      byName.set(action.name, action)
     }
-    if (byName.has(capability.name)) {
-      throw new Error(`Duplicate capability name: ${capability.name}`)
-    }
-    byName.set(capability.name, capability)
+
+    this.#byName = byName
+    this.#surfaceRuntime = createSurfaceRuntime({ byName, store: options.store })
   }
 
-  const surfaceRuntime = createSurfaceRuntime({ byName, store: options.surfaces })
+  surface(input: SurfaceInput): Promise<Surface> {
+    return this.#surfaceRuntime.surface(input)
+  }
 
-  const createSurface = (input: CreateSurfaceInput): Promise<Surface> =>
-    surfaceRuntime.createSurface(input)
+  reproject(id: string): Promise<Surface | undefined> {
+    return this.#surfaceRuntime.reprojectSurface(id)
+  }
 
-  const reprojectSurface = (id: string): Promise<Surface | undefined> =>
-    surfaceRuntime.reprojectSurface(id)
+  diagnostics(id: string) {
+    return this.#surfaceRuntime.diagnostics(id)
+  }
 
-  const surfaceDiagnostics = (id: string) => surfaceRuntime.diagnostics(id)
-
-  const execute = async (
-    call: CapabilityCall,
-    ctx: Ctx,
-    options?: ExecuteOptions,
-  ): Promise<CapabilityResult> => {
-    let record: Awaited<ReturnType<typeof surfaceRuntime.getRecord>>
+  async execute(call: ActionCall, ctx: Ctx, options?: ExecuteOptions): Promise<ActionResult> {
+    let record: SurfaceRecord | undefined
     try {
-      record = await surfaceRuntime.getRecord(call.surfaceId)
+      record = await this.#surfaceRuntime.getRecord(call.surfaceId)
     } catch {
-      return capabilityError("storage_unavailable", "Surface store is unavailable.")
+      return actionError("storage_unavailable", "Surface store is unavailable.")
     }
 
     if (record === undefined) {
-      return capabilityError("unknown_surface", "Surface is not available.")
+      return actionError("unknown_surface", "Surface is not available.")
     }
 
-    const capability = byName.get(call.capability)
-    if (capability !== undefined && capabilityPolicy(capability) === "block") {
-      return capabilityError("blocked", "Capability is blocked.")
+    const definition = this.#byName.get(call.action)
+    if (definition !== undefined && actionPolicy(definition) === "block") {
+      return actionError("blocked", "Action is blocked.")
     }
 
-    const descriptor = findGrantedCapability(record.surface.grant, call.capability)
-    if (descriptor === undefined || capability === undefined) {
-      return capabilityError("not_granted", "Capability is not granted to this surface.")
+    const granted = findGrantedAction(record.surface.grant, call.action)
+    if (granted === undefined || definition === undefined) {
+      return actionError("not_granted", "Action is not granted to this surface.")
     }
 
-    if (capabilityPolicy(capability) === "require_approval") {
-      const approved = await options?.approve?.(descriptor, call)
-      if (approved !== true) return capabilityError("approval_denied", "Capability was denied.")
+    if (actionPolicy(definition) === "ask") {
+      const approved = await options?.approve?.(granted, call)
+      if (approved !== true) return actionError("approval_denied", "Action was denied.")
     }
 
-    const input = await parseWithSchema(capability.input, call.input)
-    if (!input.ok) return capabilityError("invalid_input", input.message)
+    const input = await parseWithSchema(definition.input, call.input)
+    if (!input.ok) return actionError("invalid_input", input.message)
 
     try {
-      const value = await capability.execute(ctx, input.value)
-      if (capability.output === undefined) return { ok: true, value }
+      const value = await definition.execute(ctx, input.value)
+      if (definition.output === undefined) return { ok: true, value }
 
-      const output = await parseWithSchema(capability.output, value)
-      if (!output.ok)
-        return capabilityError("invalid_output", "Capability returned invalid output.")
+      const output = await parseWithSchema(definition.output, value)
+      if (!output.ok) return actionError("invalid_output", "Action returned invalid output.")
       return { ok: true, value: output.value }
     } catch {
-      return capabilityError("execution_failed", "Capability failed.")
+      return actionError("execution_failed", "Action failed.")
     }
   }
 
-  const descriptors = (): CapabilityDescriptor[] => publicCapabilityDescriptors(byName.values())
-
-  const instructions = (): string => {
-    return genui0Dialect.instructions(descriptors())
+  actions(): Action[] {
+    return publicActions(this.#byName.values())
   }
 
-  return { createSurface, reprojectSurface, surfaceDiagnostics, execute, descriptors, instructions }
+  instructions(): string {
+    return genui0Dialect.instructions(this.actions())
+  }
 }

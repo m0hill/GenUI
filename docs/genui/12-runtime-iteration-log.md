@@ -11,13 +11,13 @@ The runtime is a provider-independent generated UI primitive.
 The center of gravity is:
 
 - `Surface`: sanitized, serializable HTML plus grant metadata;
-- `Grant`: the per-surface visible capability set;
-- `Capability`: app-defined authority with input/output schemas;
-- `mountSurface`: browser host that isolates the surface and brokers calls;
+- `Grant`: the per-surface visible action set;
+- `Action`: app-defined authority with input/output schemas;
+- `mount`: browser host that isolates the surface and brokers calls;
 - `genui/0`: a small authored HTML dialect using `data-genui-*` directives.
 
 Generated UI should remain HTML-first. The model authors markup and directives; app
-authority stays behind brokered capabilities.
+authority stays behind brokered actions.
 
 ## Templating Position
 
@@ -26,8 +26,8 @@ dialect should not grow a general templating system for reuse, abstraction, part
 includes, or components.
 
 Templating belongs in the runtime only where the model cannot know cardinality at
-generation time: repeating over runtime data that arrives later from state or a
-capability result. That is the boundary for `data-genui-each`.
+generation time: repeating over runtime data that arrives later from state or an action
+result. That is the boundary for `data-genui-each`.
 
 Accepted shape:
 
@@ -40,9 +40,9 @@ Accepted shape:
 - Scope is a state-read overlay, not a state write. `$order` and `$line` do not get
   written into shared surface state.
 - Event-time scope recovery is part of the design. Delegated click/submit handlers use
-  the rendered element scope so row actions can build capability inputs from item data.
-- Capability results stay data-only. The runtime repeats existing sanitized markup over
-  data; capabilities do not return display HTML.
+  the rendered element scope so row actions can build action inputs from item data.
+- Action results stay data-only. The runtime repeats existing sanitized markup over
+  data; actions do not return display HTML.
 - Whole-list rerender is the current rule. Keyed diffing can come later only if real app
   behavior needs it.
 
@@ -68,22 +68,22 @@ extension-model work, not to the current authored dialect.
 The latest outside review agreed with the core primitive and recommended the following
 changes before the API hardens:
 
-- Keep `Surface + Grant + Capability + mountSurface` as the core framework primitive.
+- Keep `Surface + Grant + Action + mount` as the core framework primitive.
 - Prefer a closed GenUI dialect over Datastar-compatible terminology or behavior.
 - Add local actions so ordinary UI state does not require a server round trip.
-- Prefer `data-genui-each` over capability-returned HTML fragments for the next major
+- Prefer `data-genui-each` over action-returned HTML fragments for the next major
   list/result-rendering feature.
-- Keep capability results data-only until there is a browser-side sanitizer story.
+- Keep action results data-only until there is a browser-side sanitizer story.
 - Make result-state instructions explicit so models can render pending/success/error
   states without guessing.
 - Rename submit handling to `data-genui-on-submit`; native submit is already blocked by
   the sandbox document.
-- Eventually make surface storage pluggable so `registry.execute` is honest in
+- Eventually make surface storage pluggable so `genui.execute` is honest in
   multi-process and serverless hosts.
 - Treat broker approval as UX and registry approval as authoritative application policy.
 - Add `AbortSignal` to browser transports before external consumers depend on the
   transport signature.
-- Rename `SurfaceInstance.update()` to `replace()` because it destroys iframe state.
+- Name replacement as `Mounted.replace()` because it destroys iframe state.
 
 ## Sandbox Asset Position
 
@@ -132,16 +132,17 @@ Expression scope is intentionally small:
 - array own-property reads such as `$orders.value.items.length`;
 - primitive literals;
 - equality and inequality comparisons;
-- flat object literals for capability inputs and initial state.
+- flat object literals for action inputs and initial state.
 
-Capability result state is stale-while-pending: when a target with an existing `value`
+Action result state is stale-while-pending: when a target with an existing `value`
 enters `status: "pending"`, the previous `value` remains readable so lists and details
 do not disappear during refresh-style mutations.
 
 Supported event actions:
 
-- `@capability('name', input)`;
-- `@capability('name', input, { target: 'resultName' })`;
+- `@action('name', input)`;
+- `@action('name', input, { target: 'resultName' })`;
+- `@capability('name', input)` and target variants are accepted as legacy spellings;
 - `@set('state.path', value)`.
 
 ## Next Commits
@@ -153,7 +154,7 @@ Supported event actions:
 
 2. Local actions.
    - Done in code: `@set('state.path', value)` updates local surface state without
-     calling a capability.
+     calling a brokered action.
    - Done in code: sanitizer, language, generated sandbox parser, sandbox runtime, and
      instruction coverage all understand `@set`.
    - Follow-up: consider a dedicated `@toggle('state.path')` if boolean toggles are too
@@ -164,19 +165,19 @@ Supported event actions:
    - Done in code: `data-genui-as="order"` creates item scope for `$order.id`.
    - Done in code: nested `data-genui-each` blocks merge outer and inner scopes, so
      actions can read values like `$order.id` and `$line.id` together.
-   - Done in code: item-scoped capability inputs work, for example `{ id: $order.id }`.
+   - Done in code: item-scoped action inputs work, for example `{ id: $order.id }`.
    - Done in code: array `.length` reads work for empty states such as
      `$orders.value.items.length == 0`.
    - Done in code: `data-genui-bind` is stripped inside repeated templates because
      editable row semantics are not defined yet.
-   - Capability results stay data-only; no browser-side HTML fragments are introduced.
+   - Action results stay data-only; no browser-side HTML fragments are introduced.
 
 4. Real app proof.
-   - Done in code: an orders-admin proof test defines app-owned schemas, capabilities,
+   - Done in code: an orders-admin proof test defines app-owned schemas, actions,
      state, and a generated orders surface outside the runtime internals.
-   - Done in code: `orders.search` is a read capability.
-   - Done in code: `orders.refund` is an approval-gated write capability.
-   - Done in code: `orders.add_note` is a write capability.
+   - Done in code: `orders.search` is a read action.
+   - Done in code: `orders.refund` is an approval-gated write action.
+   - Done in code: `orders.add_note` is a write action.
    - Done in code: the proof surface includes a filter form, empty/pending/error state,
      a repeated result table, nested line items, per-row actions, and mutation refresh
      behavior.
@@ -186,42 +187,41 @@ Supported event actions:
      mount API settles further.
 
 5. Surface storage.
-   - Done in code: `createRegistry` accepts a pluggable `SurfaceStore`.
-   - Done in code: `createSurface` is async so real persistence can be used without
+   - Done in code: `new Genui({ store })` accepts a pluggable `SurfaceStore`.
+   - Done in code: `genui.surface(...)` is async so real persistence can be used without
      pretending storage is always in-process memory.
-   - Done in code: the package exports `createMemorySurfaceStore` as the default local
+   - Done in code: the package exports `memoryStore()` as the default local
      implementation.
    - Done in code: execution can run from another registry instance using the same store,
      which makes `Surface` serialization honest across process boundaries.
 
 6. DOM API hardening.
    - Done in code: browser transport receives `{ signal }` so app transports can cancel
-     capability work when a mounted surface is replaced or disposed.
-   - Done in code: pending capability results are aborted and dropped on replacement,
+     action work when a mounted surface is replaced or disposed.
+   - Done in code: pending action results are aborted and dropped on replacement,
      including same-surface-id replacement.
-   - Done in code: `SurfaceInstance.update()` has been renamed to `replace()` because it
+   - Done in code: `Mounted.replace()` is the public replacement API because it
      recreates the sandbox document and destroys sandbox state.
 
 7. Public API hardening.
-   - Done in code: removed `Effect: "local"`. Capability effects now describe authority
-     outside the sandbox: `read`, `write`, or `dangerous`.
-   - Done in code: `MountSurfaceOptions` now states the public DOM contract directly
+   - Done in code: `Effect` includes `local`, `read`, `write`, and `dangerous`.
+   - Done in code: `MountOptions` now states the public DOM contract directly
      instead of extending the internal broker option shape.
-   - Done in code: `@hono-ai/genui-runtime/dom` no longer re-exports result-routing
+   - Done in code: `@hono-ai/genui/dom` no longer re-exports result-routing
      helpers as public API.
-   - Done in code: `Registry` exposes `reprojectSurface(surfaceId)` so stored source can
-     be re-sanitized under current capability policy without changing the surface id.
-   - Done in code: `Registry` exposes `surfaceDiagnostics(surfaceId)` so app/model loops
-     can inspect requested, granted, and dropped capability names.
+   - Done in code: `Genui` exposes `reproject(surfaceId)` so stored source can be
+     re-sanitized under current action policy without changing the surface id.
+   - Done in code: `Genui` exposes `diagnostics(surfaceId)` so app/model loops can
+     inspect requested, granted, and dropped action names.
    - Done in code: projection diagnostics are recomputed from preserved source instead
      of cached, so policy changes are reflected before and after reprojection.
    - Done in docs: local-only UI behavior is represented by dialect actions such as
-     `@set`, not by capabilities.
+     `@set`, not by brokered actions.
    - Done in docs: broker approval is host-side UX; registry approval is authoritative
      application policy.
 
 8. Approval lifecycle hardening.
-   - Done in code: registry tests now assert approval-gated capabilities do not execute
+   - Done in code: registry tests now assert approval-gated actions do not execute
      unless the authoritative registry approval callback returns `true`.
    - Done in code: broker tests now assert broker approval only gates forwarding, and an
      authoritative denial returned by transport still reaches the surface as
@@ -238,7 +238,7 @@ Supported event actions:
      recursive walks; it calls concrete genui/0 policy functions directly.
    - Done in code: the sandbox runtime imports the concrete genui/0 language and directive
      renderer directly instead of accepting a pretend-pluggable dialect object.
-   - Done in code: `mountSurface` refuses surfaces whose `Surface.dialect` is not
+   - Done in code: `mount` refuses surfaces whose `Surface.dialect` is not
      `genui/0`, which is the honest hook where a future dialect-id-to-asset lookup would
      live.
    - Done in docs: `Surface.dialect` is documented as a versioned protocol id, not a
@@ -252,7 +252,7 @@ Supported event actions:
       action/result types are no longer restated in the DOM module.
     - Done in code: the sandbox entry passes `genui0Language` directly instead of wrapping
       identical methods in adapter lambdas.
-    - Done in code: sanitizer/dialect checks, result routing, and registry capability-name
+    - Done in code: sanitizer/dialect checks, result routing, and action-name
       validation call through the shared language object.
 
 11. Result-state ownership.
@@ -260,7 +260,7 @@ Supported event actions:
       error result transitions.
     - Done in code: the sandbox runtime uses `pendingResultState`, including the
       stale-while-pending rule that preserves previous `value`.
-    - Done in code: the broker uses `resultStateFromCapabilityResult` for complete/error
+    - Done in code: the broker uses `resultStateFromActionResult` for complete/error
       messages sent back into the sandbox.
     - Done in code: result target naming remains separate in `result-routing`.
 
@@ -268,10 +268,10 @@ Supported event actions:
     - Done in code: removed the separate `surface-records` module.
     - Done in code: `surface-runtime` now owns surface record creation, copying,
       reprojection, diagnostics, and the default memory store.
-    - Done in code: package-root `createMemorySurfaceStore` still exposes the same public
-      API, but its implementation now lives with the surface lifecycle.
-    - Done in code: removed the tiny `capability-result` module; the standard
-      capability error envelope constructor now lives next to `CapabilityResult`.
+    - Done in code: package-root `memoryStore` exposes the default in-memory store, and
+      its implementation now lives with the surface lifecycle.
+    - Done in code: removed the tiny result-helper module; the standard action error
+      envelope constructor now lives next to `ActionResult`.
 
 13. Shared source scanner.
     - Done in code: replaced duplicate quote/depth scanners in `genui0-language` and
@@ -290,7 +290,7 @@ Supported event actions:
 - Streaming or partial-surface hydration.
 - Plugin system for app-defined directives.
 - Trusted widgets.
-- Capability-returned HTML fragments.
+- Action-returned HTML fragments.
 - Browser-side sanitizer.
 - Keyed list diffing.
 - `<template data-genui-each>` support.
@@ -301,7 +301,7 @@ Supported event actions:
 - Do not build a provider adapter before the browser/runtime loop proves itself.
 - Do not make app-defined directive plugins yet; every sanitizer-allowed directive is a
   runtime contract.
-- Do not add capability-returned HTML fragments before solving browser-side sanitization.
+- Do not add action-returned HTML fragments before solving browser-side sanitization.
 - Do not add general templating. Repetition over runtime data is the only templating
   construct in the authored dialect.
 - Do not couple the runtime to React, Hono, Datastar, Datastar Kit, AI SDK, Pi, OpenAI,

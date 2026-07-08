@@ -26,7 +26,7 @@ interface HostEvent {
 
 interface CapabilityPost {
   readonly callId: string
-  readonly capability: string
+  readonly action: string
   readonly input: unknown
   readonly target?: string
 }
@@ -77,7 +77,7 @@ const installHostHarness = async (
             type: "result",
             surfaceId: "surface-browser",
             callId: lastCall.callId,
-            capability: lastCall.capability,
+            action: lastCall.action,
             target: lastCall.target ?? "diceRoll",
             result,
             state,
@@ -120,11 +120,11 @@ const installHostHarness = async (
         if (
           message.type === "capability" &&
           typeof message.callId === "string" &&
-          typeof message.capability === "string"
+          typeof message.action === "string"
         ) {
           lastCall = {
             callId: message.callId,
-            capability: message.capability,
+            action: message.action,
             input: message.input,
             ...(typeof message.target === "string" ? { target: message.target } : {}),
           }
@@ -216,7 +216,7 @@ void test("browser sandbox renders capability pending and result state", async (
   await page.waitForFunction(() => window.__genuiHost.calls.length === 1)
   const calls = await hostCalls(page)
   assert.equal(calls.length, 1)
-  assert.equal(calls[0]?.capability, "dice.roll")
+  assert.equal(calls[0]?.action, "dice.roll")
   assert.deepEqual(calls[0]?.input, { sides: 8 })
   assert.equal(calls[0]?.target, "rollResult")
 
@@ -308,7 +308,7 @@ void test("browser sandbox renders repeated result items with scoped calls", asy
   await page.waitForFunction(() => window.__genuiHost.calls.length === 2)
   assert.equal(await frame.locator("tbody tr").count(), 2)
   const calls = await hostCalls(page)
-  assert.equal(calls[1]?.capability, "orders.refund")
+  assert.equal(calls[1]?.action, "orders.refund")
   assert.deepEqual(calls[1]?.input, { id: "order-2" })
   assert.equal(calls[1]?.target, "orders")
 })
@@ -361,7 +361,7 @@ void test("browser sandbox renders nested repeated items with merged scoped call
   await frame.locator(".adjust").nth(2).click()
   await page.waitForFunction(() => window.__genuiHost.calls.length === 2)
   const calls = await hostCalls(page)
-  assert.equal(calls[1]?.capability, "orders.adjust_line")
+  assert.equal(calls[1]?.action, "orders.adjust_line")
   assert.deepEqual(calls[1]?.input, { lineId: "line-3", orderId: "order-2" })
   assert.equal(calls[1]?.target, "orders")
 })

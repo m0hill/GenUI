@@ -6,7 +6,7 @@ import {
   type SurfaceBrokerEffect,
   type SurfaceBrokerTask,
 } from "./surface-broker.js"
-import type { CapabilityCall, CapabilityResult } from "../types.js"
+import type { ActionCall, ActionResult } from "../types.js"
 import {
   approvedDescriptor,
   diceDescriptor,
@@ -27,10 +27,10 @@ const resultPost = (effects: readonly SurfaceBrokerEffect[]): SurfaceBrokerEffec
 
 void test("surface broker runs granted capability calls through transport", async () => {
   const current = testSurface([diceDescriptor])
-  const calls: CapabilityCall[] = []
+  const calls: ActionCall[] = []
   const signals: AbortSignal[] = []
   const broker = createSurfaceBroker(current, {
-    transport: async (call, options): Promise<CapabilityResult> => {
+    transport: async (call, options): Promise<ActionResult> => {
       calls.push(call)
       signals.push(options.signal)
       return { ok: true, value: { total: 6 } }
@@ -46,7 +46,7 @@ void test("surface broker runs granted capability calls through transport", asyn
       call: {
         surfaceId: current.id,
         callId: "call-1",
-        capability: "dice.roll",
+        action: "dice.roll",
         input: { sides: 6 },
       },
     },
@@ -54,7 +54,7 @@ void test("surface broker runs granted capability calls through transport", asyn
 
   const effects = await pendingEffects(task)
   assert.deepEqual(calls, [
-    { surfaceId: current.id, callId: "call-1", capability: "dice.roll", input: { sides: 6 } },
+    { surfaceId: current.id, callId: "call-1", action: "dice.roll", input: { sides: 6 } },
   ])
   assert.equal(signals[0]?.aborted, false)
   assert.equal(resultPost(effects)?.type, "post_result")
@@ -62,7 +62,7 @@ void test("surface broker runs granted capability calls through transport", asyn
     {
       type: "result",
       callId: "call-1",
-      capability: "dice.roll",
+      action: "dice.roll",
       target: "rollResult",
       result: { ok: true, value: { total: 6 } },
     },
@@ -73,7 +73,7 @@ void test("surface broker refuses ungranted capability calls before transport", 
   const current = testSurface([])
   let transportCalled = false
   const broker = createSurfaceBroker(current, {
-    transport: async (): Promise<CapabilityResult> => {
+    transport: async (): Promise<ActionResult> => {
       transportCalled = true
       return { ok: true, value: {} }
     },
@@ -101,7 +101,7 @@ void test("surface broker refuses ungranted capability calls before transport", 
 void test("surface broker denies approval-gated calls without approval", async () => {
   const current = testSurface([approvedDescriptor])
   const broker = createSurfaceBroker(current, {
-    transport: async (): Promise<CapabilityResult> => ({ ok: true, value: {} }),
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
   })
 
   const effects = await pendingEffects(
@@ -119,14 +119,14 @@ void test("surface broker denies approval-gated calls without approval", async (
 
 void test("surface broker approval is UX and authoritative transport denial still wins", async () => {
   const current = testSurface([approvedDescriptor])
-  const brokerApprovals: CapabilityCall[] = []
-  const transportCalls: CapabilityCall[] = []
+  const brokerApprovals: ActionCall[] = []
+  const transportCalls: ActionCall[] = []
   const broker = createSurfaceBroker(current, {
-    approve: (_descriptor, call) => {
+    confirm: (_descriptor, call) => {
       brokerApprovals.push(call)
       return true
     },
-    transport: async (call): Promise<CapabilityResult> => {
+    transport: async (call): Promise<ActionResult> => {
       transportCalls.push(call)
       return {
         ok: false,
@@ -160,7 +160,7 @@ void test("surface broker emits protocol, resize, link, and mismatch effects", (
   const current = testSurface([diceDescriptor])
   const broker = createSurfaceBroker(current, {
     maxHeight: 320,
-    transport: async (): Promise<CapabilityResult> => ({ ok: true, value: {} }),
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
   })
 
   assert.deepEqual(
@@ -208,7 +208,7 @@ void test("surface broker emits protocol, resize, link, and mismatch effects", (
 void test("surface broker refuses unsafe forged link messages", () => {
   const current = testSurface([diceDescriptor])
   const broker = createSurfaceBroker(current, {
-    transport: async (): Promise<CapabilityResult> => ({ ok: true, value: {} }),
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
   })
 
   for (const href of ["javascript:alert(1)", "data:text/html,evil", "/internal", "http://x.test"]) {
@@ -227,8 +227,8 @@ void test("surface broker refuses unsafe forged link messages", () => {
 })
 
 void test("surface broker aborts and drops pending results after replace or dispose", async () => {
-  let resolveResult: ((result: CapabilityResult) => void) | undefined
-  const result = new Promise<CapabilityResult>((resolve) => {
+  let resolveResult: ((result: ActionResult) => void) | undefined
+  const result = new Promise<ActionResult>((resolve) => {
     resolveResult = resolve
   })
   const current = testSurface([diceDescriptor])
@@ -251,13 +251,13 @@ void test("surface broker aborts and drops pending results after replace or disp
   assert.deepEqual(await pendingEffects(task), [])
 
   let disposeSignal: AbortSignal | undefined
-  let resolveDisposedResult: ((result: CapabilityResult) => void) | undefined
-  const disposedResult = new Promise<CapabilityResult>((resolve) => {
+  let resolveDisposedResult: ((result: ActionResult) => void) | undefined
+  const disposedResult = new Promise<ActionResult>((resolve) => {
     resolveDisposedResult = resolve
   })
   const disposed = testSurface([diceDescriptor])
   const disposedBroker = createSurfaceBroker(disposed, {
-    transport: async (_call, options): Promise<CapabilityResult> => {
+    transport: async (_call, options): Promise<ActionResult> => {
       disposeSignal = options.signal
       return disposedResult
     },

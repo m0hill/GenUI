@@ -55,7 +55,7 @@ export const installSandboxRuntime = (
   type OwnPropertyRead =
     | { readonly found: false }
     | { readonly found: true; readonly value: unknown }
-  type CapabilityAction = NonNullable<ReturnType<typeof genui0Language.parseCapabilityExpression>>
+  type ActionInvocation = NonNullable<ReturnType<typeof genui0Language.parseCapabilityExpression>>
 
   let nextCallId = 1
   let resizeObserver: ResizeObserver | undefined
@@ -279,7 +279,7 @@ export const installSandboxRuntime = (
     reportHeight()
   }
 
-  const resultTargetFor = (action: CapabilityAction): string =>
+  const resultTargetFor = (action: ActionInvocation): string =>
     action.target ?? genui0Language.defaultResultTarget(action.capability)
 
   const setResultState = (target: string, state: unknown): void => {
@@ -288,7 +288,7 @@ export const installSandboxRuntime = (
     writePath([target], state)
   }
 
-  const postCapabilityCall = (expression: string, scope: StateScope): boolean => {
+  const postActionCall = (expression: string, scope: StateScope): boolean => {
     const action = genui0Language.parseCapabilityExpression(expression, readStateFromScope(scope))
     if (action === undefined) return false
 
@@ -298,7 +298,7 @@ export const installSandboxRuntime = (
     post({
       type: "capability",
       callId: createCallId(),
-      capability: action.capability,
+      action: action.capability,
       input: action.input,
       ...(action.target === undefined ? {} : { target: action.target }),
     })
@@ -325,7 +325,7 @@ export const installSandboxRuntime = (
   }
 
   const runAuthoredAction = (expression: string, scope: StateScope): boolean =>
-    runLocalAction(expression, scope) || postCapabilityCall(expression, scope)
+    runLocalAction(expression, scope) || postActionCall(expression, scope)
 
   const handleClick = (event: MouseEvent): void => {
     const action = closestWithAttribute(event.target, genui0AttributeNames.onClick)

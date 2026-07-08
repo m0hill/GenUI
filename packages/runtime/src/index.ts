@@ -1,25 +1,23 @@
-export { createRegistry, defineCapability } from "./registry.js"
-export { createMemorySurfaceStore } from "./surface-runtime.js"
+export { action, Genui } from "./registry.js"
+export { memoryStore } from "./surface-runtime.js"
 export { genuiDialect } from "./types.js"
-export type { CreateRegistryOptions } from "./registry.js"
+export type { GenuiOptions } from "./registry.js"
 export type {
-  CapabilityCall,
-  CapabilityDefinition,
-  CapabilityDescriptor,
-  CapabilityErrorCode,
-  CapabilityResult,
-  CreateSurfaceInput,
+  Action,
+  ActionCall,
+  ActionDefinition,
+  ActionErrorCode,
+  ActionResult,
   Dialect,
-  DroppedCapabilityReason,
-  DroppedCapabilityRequest,
+  DroppedAction,
+  DroppedActionReason,
   Effect,
   ExecuteOptions,
   Grant,
   Policy,
-  Registry,
   Surface,
+  SurfaceInput,
   SurfaceProjectionDiagnostics,
   SurfaceRecord,
-  SurfaceSource,
   SurfaceStore,
 } from "./types.js"

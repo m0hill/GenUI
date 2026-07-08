@@ -232,10 +232,16 @@ const createGenui0Language = (): Genui0Language => {
       : undefined
   }
 
+  const parseActionPrefix = (source: string): string | undefined => {
+    if (source.startsWith("@action(")) return "@action("
+    if (source.startsWith("@capability(")) return "@capability("
+    return undefined
+  }
+
   const parseCapabilityAction = (value: string): Genui0CapabilityAction | undefined => {
     const source = value.trim()
-    const prefix = "@capability("
-    if (!source.startsWith(prefix) || !source.endsWith(")")) return undefined
+    const prefix = parseActionPrefix(source)
+    if (prefix === undefined || !source.endsWith(")")) return undefined
 
     const args = splitTopLevel(source.slice(prefix.length, -1), ",")
     if (args === undefined || (args.length !== 2 && args.length !== 3)) return undefined

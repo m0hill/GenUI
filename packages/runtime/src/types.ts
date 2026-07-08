@@ -5,10 +5,10 @@ export const genuiDialect = "genui/0"
 export type Dialect = string
 
 /** Coarse effect class used for policy, approval, and product UX. */
-export type Effect = "read" | "write" | "dangerous"
+export type Effect = "local" | "read" | "write" | "dangerous"
 
-/** Registry policy applied before app capability code can run. */
-export type Policy = "allow" | "require_approval" | "block"
+/** Genui policy applied before app action code can run. */
+export type Policy = "allow" | "ask" | "block"
 
 /** Minimal Standard Schema issue shape used by the runtime boundary parser. */
 export interface StandardSchemaIssue {
@@ -46,7 +46,7 @@ export interface StandardTypedV1<Input = unknown, Output = Input> {
   }
 }
 
-/** Minimal Standard Schema v1 interface accepted by capability definitions. */
+/** Minimal Standard Schema v1 interface accepted by action definitions. */
 export interface StandardSchemaV1<Input = unknown, Output = Input> {
   readonly "~standard": StandardTypedV1<Input, Output>["~standard"] & {
     readonly validate: (
@@ -57,7 +57,7 @@ export interface StandardSchemaV1<Input = unknown, Output = Input> {
 }
 
 /** App-owned unit of authority that generated UI may request but never execute directly. */
-export interface CapabilityDefinition<Ctx, Input = unknown, Output = unknown> {
+export interface ActionDefinition<Ctx, Input = unknown, Output = unknown> {
   readonly name: string
   readonly description: string
   readonly effect: Effect
@@ -67,21 +67,21 @@ export interface CapabilityDefinition<Ctx, Input = unknown, Output = unknown> {
   execute(ctx: Ctx, input: Input): Output | Promise<Output>
 }
 
-/** Erased capability shape stored by a registry after the schema boundary is recorded. */
-export type AnyCapabilityDefinition<Ctx> = CapabilityDefinition<Ctx, unknown, unknown>
+/** Erased action shape stored by a GenUI instance after the schema boundary is recorded. */
+export type AnyActionDefinition<Ctx> = ActionDefinition<Ctx, unknown, unknown>
 
-/** Public capability projection visible to models, sandboxes, and approval UI. */
-export interface CapabilityDescriptor {
+/** Public action projection visible to models, sandboxes, and approval UI. */
+export interface Action {
   readonly name: string
   readonly description: string
   readonly effect: Effect
   readonly requiresApproval: boolean
 }
 
-/** Authoritative capability set projected for one generated surface. */
+/** Authoritative action set projected for one generated surface. */
 export interface Grant {
   readonly surfaceId: string
-  readonly capabilities: readonly CapabilityDescriptor[]
+  readonly actions: readonly Action[]
 }
 
 /** Serializable generated UI document after sanitization and grant projection. */
@@ -93,16 +93,16 @@ export interface Surface {
   readonly meta?: Readonly<Record<string, unknown>>
 }
 
-/** Transport-independent request from a mounted surface to execute one capability. */
-export interface CapabilityCall {
+/** Transport-independent request from a mounted surface to execute one action. */
+export interface ActionCall {
   readonly surfaceId: string
   readonly callId: string
-  readonly capability: string
+  readonly action: string
   readonly input: unknown
 }
 
-/** Stable error code returned for expected capability execution failures. */
-export type CapabilityErrorCode =
+/** Stable error code returned for expected action execution failures. */
+export type ActionErrorCode =
   | "unknown_surface"
   | "not_granted"
   | "blocked"
@@ -112,53 +112,50 @@ export type CapabilityErrorCode =
   | "storage_unavailable"
   | "execution_failed"
 
-/** Capability execution result envelope. */
-export type CapabilityResult =
+/** Action execution result envelope. */
+export type ActionResult =
   | { readonly ok: true; readonly value: unknown }
   | {
       readonly ok: false
       readonly error: {
-        readonly code: CapabilityErrorCode
+        readonly code: ActionErrorCode
         readonly message: string
       }
     }
 
-/** Build the standard capability failure envelope used across execution boundaries. */
-export const capabilityError = (code: CapabilityErrorCode, message: string): CapabilityResult => ({
+/** Build the standard action failure envelope used across execution boundaries. */
+export const actionError = (code: ActionErrorCode, message: string): ActionResult => ({
   ok: false,
   error: { code, message },
 })
 
 /** Input accepted by a registry when creating a sanitized surface. */
-export interface CreateSurfaceInput {
+export interface SurfaceInput {
   readonly html: string
-  readonly requested: readonly string[]
+  readonly actions: readonly string[]
   readonly meta?: Readonly<Record<string, unknown>>
 }
 
-/** Reason a requested capability did not become part of a surface grant. */
-export type DroppedCapabilityReason = "duplicate" | "unknown" | "blocked"
+/** Reason a requested action did not become part of a surface grant. */
+export type DroppedActionReason = "duplicate" | "unknown" | "blocked"
 
-/** One requested capability name that was omitted while projecting a surface grant. */
-export interface DroppedCapabilityRequest {
+/** One requested action name that was omitted while projecting a surface grant. */
+export interface DroppedAction {
   readonly name: string
-  readonly reason: DroppedCapabilityReason
+  readonly reason: DroppedActionReason
 }
 
 /** Grant projection details for a generated surface. */
 export interface SurfaceProjectionDiagnostics {
-  readonly requested: readonly string[]
+  readonly actions: readonly string[]
   readonly granted: readonly string[]
-  readonly dropped: readonly DroppedCapabilityRequest[]
+  readonly dropped: readonly DroppedAction[]
 }
-
-/** Persisted source input used to reproject a surface under current runtime policy. */
-export type SurfaceSource = CreateSurfaceInput
 
 /** Persistable authoritative surface record owned by the host application. */
 export interface SurfaceRecord {
   readonly surface: Surface
-  readonly source: SurfaceSource
+  readonly source: SurfaceInput
 }
 
 /** Storage boundary for generated surface authority records. */
@@ -169,15 +166,5 @@ export interface SurfaceStore {
 
 /** Optional execution hooks supplied by the host application. */
 export interface ExecuteOptions {
-  approve?(descriptor: CapabilityDescriptor, call: CapabilityCall): boolean | Promise<boolean>
-}
-
-/** Provider- and transport-independent generated UI registry. */
-export interface Registry<Ctx> {
-  createSurface(input: CreateSurfaceInput): Promise<Surface>
-  reprojectSurface(id: string): Promise<Surface | undefined>
-  surfaceDiagnostics(id: string): Promise<SurfaceProjectionDiagnostics | undefined>
-  execute(call: CapabilityCall, ctx: Ctx, options?: ExecuteOptions): Promise<CapabilityResult>
-  descriptors(): CapabilityDescriptor[]
-  instructions(): string
+  approve?(action: Action, call: ActionCall): boolean | Promise<boolean>
 }

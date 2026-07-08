@@ -1,5 +1,5 @@
 {
-  "name": "@hono-ai/genui-runtime",
+  "name": "@hono-ai/genui",
   "version": "0.0.0",
   "private": true,
   "type": "module",

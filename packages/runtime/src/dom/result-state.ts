@@ -1,4 +1,4 @@
-import type { CapabilityResult } from "../types.js"
+import type { ActionResult } from "../types.js"
 
 export type ResultStatus = "pending" | "complete" | "error"
 
@@ -17,8 +17,8 @@ const isRecordWithValue = (value: unknown): value is { readonly value: unknown }
 export const pendingResultState = (previous: unknown): ResultState =>
   isRecordWithValue(previous) ? { status: "pending", value: previous.value } : { status: "pending" }
 
-/** Project a capability result envelope into UI-facing request state. */
-export const resultStateFromCapabilityResult = (result: CapabilityResult): ResultState =>
+/** Project an action result envelope into UI-facing request state. */
+export const resultStateFromActionResult = (result: ActionResult): ResultState =>
   result.ok
     ? { status: "complete", value: result.value }
     : { status: "error", error: result.error.message }

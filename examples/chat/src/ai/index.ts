@@ -9,10 +9,10 @@ import {
   type ToolCall,
   type ToolResultMessage,
 } from "@earendil-works/pi-ai"
-import type { Surface } from "@hono-ai/genui-runtime"
+import type { Surface } from "@hono-ai/genui"
 import { aiModel, getAiApiKey } from "./provider.js"
 import { executeWebSearchTool, webSearchTool, type WebSearchState } from "./web-search-tool.js"
-import { createGeneratedSurface, genuiPromptCapabilities } from "../genui/default-primitives.js"
+import { createGeneratedSurface, genuiPromptActions } from "../genui/default-primitives.js"
 
 const chatPrompt = `
 You are a concise assistant that can answer normally or create polished server-rendered interactive UI.
@@ -38,13 +38,13 @@ Generated UI contract:
 - Make the UI feel designed: clear hierarchy, spacing, cards, accessible contrast, responsive wrapping, and useful empty/error labels.
 
 Generated UI runtime instructions:
-${genuiPromptCapabilities()}
+${genuiPromptActions()}
 
 GenUI examples:
 - Local tabs: <section data-genui-state="{ tab: 'summary' }"><button type="button" data-genui-on-click="@set('tab', 'summary')" data-genui-attr-aria-selected="$tab == 'summary'">Summary</button><button type="button" data-genui-on-click="@set('tab', 'details')" data-genui-attr-aria-selected="$tab == 'details'">Details</button><div data-genui-show="$tab == 'summary'">...</div><div data-genui-show="$tab == 'details'">...</div></section>
-- Follow-up form: <section data-genui-state="{ city: '', days: 3 }"><form data-genui-on-submit="@capability('chat.follow_up', { prompt: $city })"><input data-genui-bind="city" placeholder="City"><button type="submit">Ask</button><p data-genui-show="$chatFollowUp.status == 'error'" data-genui-text="$chatFollowUp.error"></p></form></section>
-- Server weather lookup: <section data-genui-state="{ city: 'Tokyo' }"><input data-genui-bind="city"><button type="button" data-genui-on-click="@capability('demo.weather.lookup', { city: $city, days: 3 }, { target: 'weather' })">Check weather</button><p data-genui-show="$weather.status == 'pending'">Loading...</p><pre data-genui-text="$weather.value"></pre></section>
-- Lists: <section><button type="button" data-genui-on-click="@capability('demo.notes.list', { limit: 5 }, { target: 'notes' })">Load notes</button><ul data-genui-each="$notes.value.notes" data-genui-as="note"><li data-genui-text="$note.text"></li></ul></section>
+- Follow-up form: <section data-genui-state="{ city: '', days: 3 }"><form data-genui-on-submit="@action('chat.follow_up', { prompt: $city })"><input data-genui-bind="city" placeholder="City"><button type="submit">Ask</button><p data-genui-show="$chatFollowUp.status == 'error'" data-genui-text="$chatFollowUp.error"></p></form></section>
+- Server weather lookup: <section data-genui-state="{ city: 'Tokyo' }"><input data-genui-bind="city"><button type="button" data-genui-on-click="@action('demo.weather.lookup', { city: $city, days: 3 }, { target: 'weather' })">Check weather</button><p data-genui-show="$weather.status == 'pending'">Loading...</p><pre data-genui-text="$weather.value"></pre></section>
+- Lists: <section><button type="button" data-genui-on-click="@action('demo.notes.list', { limit: 5 }, { target: 'notes' })">Load notes</button><ul data-genui-each="$notes.value.notes" data-genui-as="note"><li data-genui-text="$note.text"></li></ul></section>
 
 Quality bar for create_ui:
 - Prefer small but complete interfaces: cards, calculators, selectors, comparisons, timelines, itineraries, dashboards, galleries, quizzes, or forms.
@@ -53,10 +53,10 @@ Quality bar for create_ui:
 `.trim()
 
 const createUiParameters = Type.Object({
-  capabilities: Type.Optional(
+  actions: Type.Optional(
     Type.Array(Type.String(), {
       description:
-        "Exact generated UI capability names used by the HTML, e.g. chat.follow_up or demo.weather.lookup.",
+        "Exact generated UI action names used by the HTML, e.g. chat.follow_up or demo.weather.lookup.",
     }),
   ),
   html: Type.String({
@@ -88,14 +88,12 @@ type StreamAiTurnUpdate =
   | { type: "assistant_update"; messageIndex: number; message: AssistantMessage }
   | { type: "tool_update"; toolCall: ToolCall; state: AssistantToolState }
 
-const capabilityNamesFromArguments = (argumentsValue: unknown): string[] | undefined => {
+const actionNamesFromArguments = (argumentsValue: unknown): string[] | undefined => {
   if (typeof argumentsValue !== "object" || argumentsValue === null) return undefined
-  const capabilities = (argumentsValue as { readonly capabilities?: unknown }).capabilities
-  if (!Array.isArray(capabilities)) return undefined
+  const actions = (argumentsValue as { readonly actions?: unknown }).actions
+  if (!Array.isArray(actions)) return undefined
 
-  const names = capabilities.filter(
-    (capability): capability is string => typeof capability === "string",
-  )
+  const names = actions.filter((action): action is string => typeof action === "string")
   return names.length > 0 ? names : undefined
 }
 
@@ -110,7 +108,7 @@ export const createUiSurfaceFromToolArguments = async (
     chatId: sessionId,
     toolCallId: toolCall.id,
     html,
-    requested: capabilityNamesFromArguments(toolCall.arguments),
+    actions: actionNamesFromArguments(toolCall.arguments),
   })
 }
 
@@ -166,7 +164,7 @@ export async function* streamAiTurn(
             chatId: options.sessionId,
             toolCallId: aiEvent.toolCall.id,
             html: input.html,
-            requested: input.capabilities,
+            actions: input.actions,
           })
           state = {
             status: "complete",

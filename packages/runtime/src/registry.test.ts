@@ -1,11 +1,11 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { createRegistry, defineCapability } from "./registry.js"
-import { createMemorySurfaceStore } from "./surface-runtime.js"
+import { action, Genui } from "./registry.js"
+import { memoryStore } from "./surface-runtime.js"
 import {
   genuiDialect,
-  type CapabilityErrorCode,
-  type CapabilityResult,
+  type ActionErrorCode,
+  type ActionResult,
   type StandardSchemaV1,
   type Surface,
 } from "./types.js"
@@ -67,7 +67,7 @@ const emptyInput = testSchema<Readonly<Record<string, never>>>((value) =>
   isRecord(value) ? { ok: true, value: {} } : { ok: false, message: "input must be an object." },
 )
 
-const assertErrorCode = (result: CapabilityResult, code: CapabilityErrorCode): void => {
+const assertErrorCode = (result: ActionResult, code: ActionErrorCode): void => {
   assert.equal(result.ok, false)
   if (result.ok) return
   assert.equal(result.error.code, code)
@@ -75,9 +75,9 @@ const assertErrorCode = (result: CapabilityResult, code: CapabilityErrorCode): v
 }
 
 void test("registry projects a grant and sanitizes HTML under that grant", async () => {
-  const registry = createRegistry<TestCtx>({
-    capabilities: [
-      defineCapability({
+  const registry = new Genui<TestCtx>({
+    actions: [
+      action({
         name: "dice.roll",
         description: "Roll a die.",
         effect: "read",
@@ -85,7 +85,7 @@ void test("registry projects a grant and sanitizes HTML under that grant", async
         output: rollOutput,
         execute: (_ctx, input) => ({ total: input.sides }),
       }),
-      defineCapability({
+      action({
         name: "demo.blocked",
         description: "Blocked test capability.",
         effect: "dangerous",
@@ -96,13 +96,13 @@ void test("registry projects a grant and sanitizes HTML under that grant", async
     ],
   })
 
-  const surface = await registry.createSurface({
+  const surface = await registry.surface({
     html: [
       `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`,
       `<button data-genui-on-click="@capability('demo.blocked', {})">Blocked</button>`,
       `<script>alert(1)</script>`,
     ].join(""),
-    requested: ["dice.roll", "missing.capability", "dice.roll", "demo.blocked"],
+    actions: ["dice.roll", "missing.action", "dice.roll", "demo.blocked"],
     meta: { source: "test" },
   })
 
@@ -110,18 +110,18 @@ void test("registry projects a grant and sanitizes HTML under that grant", async
   assert.doesNotMatch(surface.id, /^surface-\d+$/)
   assert.equal(surface.grant.surfaceId, surface.id)
   assert.deepEqual(
-    surface.grant.capabilities.map((capability) => capability.name),
+    surface.grant.actions.map((capability) => capability.name),
     ["dice.roll"],
   )
   assert.match(surface.html, /data-genui-on-click="@capability\('dice\.roll'/)
   assert.doesNotMatch(surface.html, /demo\.blocked/)
   assert.doesNotMatch(surface.html, /<script/i)
   assert.deepEqual(JSON.parse(JSON.stringify(surface)), surface)
-  assert.deepEqual(await registry.surfaceDiagnostics(surface.id), {
-    requested: ["dice.roll", "missing.capability", "dice.roll", "demo.blocked"],
+  assert.deepEqual(await registry.diagnostics(surface.id), {
+    actions: ["dice.roll", "missing.action", "dice.roll", "demo.blocked"],
     granted: ["dice.roll"],
     dropped: [
-      { name: "missing.capability", reason: "unknown" },
+      { name: "missing.action", reason: "unknown" },
       { name: "dice.roll", reason: "duplicate" },
       { name: "demo.blocked", reason: "blocked" },
     ],
@@ -132,7 +132,7 @@ void test("surface dialect type permits future dialect identifiers", () => {
   const surface: Surface = {
     id: "surface-test",
     html: "",
-    grant: { surfaceId: "surface-test", capabilities: [] },
+    grant: { surfaceId: "surface-test", actions: [] },
     dialect: "genui/future",
   }
 
@@ -140,9 +140,9 @@ void test("surface dialect type permits future dialect identifiers", () => {
 })
 
 void test("same HTML receives different authority from different grants", async () => {
-  const registry = createRegistry<TestCtx>({
-    capabilities: [
-      defineCapability({
+  const registry = new Genui<TestCtx>({
+    actions: [
+      action({
         name: "dice.roll",
         description: "Roll a die.",
         effect: "read",
@@ -153,8 +153,8 @@ void test("same HTML receives different authority from different grants", async 
     ],
   })
   const html = `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`
-  const armed = await registry.createSurface({ html, requested: ["dice.roll"] })
-  const defanged = await registry.createSurface({ html, requested: [] })
+  const armed = await registry.surface({ html, actions: ["dice.roll"] })
+  const defanged = await registry.surface({ html, actions: [] })
 
   assert.notEqual(armed.id, defanged.id)
   assert.equal(armed.grant.surfaceId, armed.id)
@@ -164,14 +164,14 @@ void test("same HTML receives different authority from different grants", async 
 
   assert.deepEqual(
     await registry.execute(
-      { surfaceId: armed.id, callId: "call-1", capability: "dice.roll", input: { sides: 6 } },
+      { surfaceId: armed.id, callId: "call-1", action: "dice.roll", input: { sides: 6 } },
       { userId: "u1" },
     ),
     { ok: true, value: { total: 6 } },
   )
   assertErrorCode(
     await registry.execute(
-      { surfaceId: defanged.id, callId: "call-2", capability: "dice.roll", input: { sides: 6 } },
+      { surfaceId: defanged.id, callId: "call-2", action: "dice.roll", input: { sides: 6 } },
       { userId: "u1" },
     ),
     "not_granted",
@@ -179,9 +179,9 @@ void test("same HTML receives different authority from different grants", async 
 })
 
 void test("registry executes surfaces restored from a shared store", async () => {
-  const store = createMemorySurfaceStore()
-  const capabilities = [
-    defineCapability({
+  const store = memoryStore()
+  const actions = [
+    action({
       name: "dice.roll",
       description: "Roll a die.",
       effect: "read",
@@ -190,16 +190,16 @@ void test("registry executes surfaces restored from a shared store", async () =>
       execute: (_ctx: TestCtx, input: RollInput) => ({ total: input.sides }),
     }),
   ]
-  const creator = createRegistry<TestCtx>({ capabilities, surfaces: store })
-  const executor = createRegistry<TestCtx>({ capabilities, surfaces: store })
-  const surface = await creator.createSurface({
+  const creator = new Genui<TestCtx>({ actions, store })
+  const executor = new Genui<TestCtx>({ actions, store })
+  const surface = await creator.surface({
     html: `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`,
-    requested: ["dice.roll"],
+    actions: ["dice.roll"],
   })
 
   assert.deepEqual(
     await executor.execute(
-      { surfaceId: surface.id, callId: "call-1", capability: "dice.roll", input: { sides: 6 } },
+      { surfaceId: surface.id, callId: "call-1", action: "dice.roll", input: { sides: 6 } },
       { userId: "u1" },
     ),
     { ok: true, value: { total: 6 } },
@@ -207,9 +207,9 @@ void test("registry executes surfaces restored from a shared store", async () =>
 })
 
 void test("registry returns a structured result when the surface store is unavailable", async () => {
-  const registry = createRegistry<TestCtx>({
-    capabilities: [
-      defineCapability({
+  const registry = new Genui<TestCtx>({
+    actions: [
+      action({
         name: "dice.roll",
         description: "Roll a die.",
         effect: "read",
@@ -218,7 +218,7 @@ void test("registry returns a structured result when the surface store is unavai
         execute: (_ctx, input) => ({ total: input.sides }),
       }),
     ],
-    surfaces: {
+    store: {
       get: async () => {
         throw new Error("database is offline")
       },
@@ -228,7 +228,7 @@ void test("registry returns a structured result when the surface store is unavai
 
   assert.deepEqual(
     await registry.execute(
-      { surfaceId: "surface-1", callId: "call-1", capability: "dice.roll", input: { sides: 6 } },
+      { surfaceId: "surface-1", callId: "call-1", action: "dice.roll", input: { sides: 6 } },
       { userId: "u1" },
     ),
     {
@@ -242,12 +242,12 @@ void test("registry returns a structured result when the surface store is unavai
 })
 
 void test("registry reprojects stored surface source under current policy", async () => {
-  const store = createMemorySurfaceStore()
+  const store = memoryStore()
   const html = `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`
-  const creator = createRegistry<TestCtx>({
-    surfaces: store,
-    capabilities: [
-      defineCapability({
+  const creator = new Genui<TestCtx>({
+    store: store,
+    actions: [
+      action({
         name: "dice.roll",
         description: "Roll a die.",
         effect: "read",
@@ -258,11 +258,11 @@ void test("registry reprojects stored surface source under current policy", asyn
     ],
   })
 
-  const created = await creator.createSurface({ html, requested: ["dice.roll"] })
-  const hardened = createRegistry<TestCtx>({
-    surfaces: store,
-    capabilities: [
-      defineCapability({
+  const created = await creator.surface({ html, actions: ["dice.roll"] })
+  const hardened = new Genui<TestCtx>({
+    store: store,
+    actions: [
+      action({
         name: "dice.roll",
         description: "Roll a die.",
         effect: "dangerous",
@@ -274,23 +274,23 @@ void test("registry reprojects stored surface source under current policy", asyn
     ],
   })
 
-  assert.deepEqual(await hardened.surfaceDiagnostics(created.id), {
-    requested: ["dice.roll"],
+  assert.deepEqual(await hardened.diagnostics(created.id), {
+    actions: ["dice.roll"],
     granted: [],
     dropped: [{ name: "dice.roll", reason: "blocked" }],
   })
 
-  const reprojected = await hardened.reprojectSurface(created.id)
+  const reprojected = await hardened.reproject(created.id)
 
   assert.equal(reprojected?.id, created.id)
-  assert.deepEqual(reprojected?.grant.capabilities, [])
+  assert.deepEqual(reprojected?.grant.actions, [])
   assert.doesNotMatch(reprojected?.html ?? "", /data-genui-on-click/)
 })
 
 void test("returned surface mutations cannot change registry authority", async () => {
-  const registry = createRegistry<TestCtx>({
-    capabilities: [
-      defineCapability({
+  const registry = new Genui<TestCtx>({
+    actions: [
+      action({
         name: "dice.roll",
         description: "Roll a die.",
         effect: "read",
@@ -299,9 +299,9 @@ void test("returned surface mutations cannot change registry authority", async (
       }),
     ],
   })
-  const surface = await registry.createSurface({
+  const surface = await registry.surface({
     html: `<button data-genui-on-click="@capability('dice.roll', {})">Roll</button>`,
-    requested: [],
+    actions: [],
   })
   const forgedDescriptor = {
     name: "dice.roll",
@@ -311,7 +311,7 @@ void test("returned surface mutations cannot change registry authority", async (
   } as const
 
   try {
-    Reflect.set(surface.grant.capabilities, "0", forgedDescriptor)
+    Reflect.set(surface.grant.actions, "0", forgedDescriptor)
     Object.defineProperty(surface.grant, "capabilities", { value: [forgedDescriptor] })
   } catch {
     // Frozen public surface values are also acceptable; execution must stay denied either way.
@@ -319,7 +319,7 @@ void test("returned surface mutations cannot change registry authority", async (
 
   assertErrorCode(
     await registry.execute(
-      { surfaceId: surface.id, callId: "call-1", capability: "dice.roll", input: {} },
+      { surfaceId: surface.id, callId: "call-1", action: "dice.roll", input: {} },
       { userId: "u1" },
     ),
     "not_granted",
@@ -327,9 +327,9 @@ void test("returned surface mutations cannot change registry authority", async (
 })
 
 void test("descriptors expose only the public capability projection", () => {
-  const registry = createRegistry<TestCtx>({
-    capabilities: [
-      defineCapability({
+  const registry = new Genui<TestCtx>({
+    actions: [
+      action({
         name: "dice.roll",
         description: "Roll a die.",
         effect: "read",
@@ -337,15 +337,15 @@ void test("descriptors expose only the public capability projection", () => {
         output: rollOutput,
         execute: (_ctx, input) => ({ total: input.sides }),
       }),
-      defineCapability({
+      action({
         name: "demo.write",
         description: "Write data after approval.",
         effect: "write",
-        policy: "require_approval",
+        policy: "ask",
         input: textInput,
         execute: (_ctx, input) => ({ accepted: input.text }),
       }),
-      defineCapability({
+      action({
         name: "demo.blocked",
         description: "Blocked test capability.",
         effect: "dangerous",
@@ -356,7 +356,7 @@ void test("descriptors expose only the public capability projection", () => {
     ],
   })
 
-  const descriptors = registry.descriptors()
+  const descriptors = registry.actions()
   assert.deepEqual(
     descriptors.map((descriptor) => descriptor.name),
     ["dice.roll", "demo.write"],
@@ -374,9 +374,9 @@ void test("descriptors expose only the public capability projection", () => {
 })
 
 void test("registry executes granted capabilities and validates inputs and outputs", async () => {
-  const registry = createRegistry<TestCtx>({
-    capabilities: [
-      defineCapability({
+  const registry = new Genui<TestCtx>({
+    actions: [
+      action({
         name: "dice.roll",
         description: "Roll a die.",
         effect: "read",
@@ -386,9 +386,9 @@ void test("registry executes granted capabilities and validates inputs and outpu
       }),
     ],
   })
-  const surface = await registry.createSurface({
+  const surface = await registry.surface({
     html: `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`,
-    requested: ["dice.roll"],
+    actions: ["dice.roll"],
   })
 
   assert.deepEqual(
@@ -396,7 +396,7 @@ void test("registry executes granted capabilities and validates inputs and outpu
       {
         surfaceId: surface.id,
         callId: "call-1",
-        capability: "dice.roll",
+        action: "dice.roll",
         input: { sides: 6 },
       },
       { userId: "ab" },
@@ -409,7 +409,7 @@ void test("registry executes granted capabilities and validates inputs and outpu
       {
         surfaceId: surface.id,
         callId: "call-2",
-        capability: "dice.roll",
+        action: "dice.roll",
         input: { sides: "six" },
       },
       { userId: "ab" },
@@ -420,13 +420,13 @@ void test("registry executes granted capabilities and validates inputs and outpu
 
 void test("registry approval is the authoritative execution gate", async () => {
   let executed = 0
-  const registry = createRegistry<TestCtx>({
-    capabilities: [
-      defineCapability({
+  const registry = new Genui<TestCtx>({
+    actions: [
+      action({
         name: "notes.create",
         description: "Create a note.",
         effect: "write",
-        policy: "require_approval",
+        policy: "ask",
         input: textInput,
         execute: (_ctx, input) => {
           executed += 1
@@ -435,14 +435,14 @@ void test("registry approval is the authoritative execution gate", async () => {
       }),
     ],
   })
-  const surface = await registry.createSurface({
+  const surface = await registry.surface({
     html: `<button data-genui-on-click="@capability('notes.create', { text: 'hi' })">Create</button>`,
-    requested: ["notes.create"],
+    actions: ["notes.create"],
   })
   const call = {
     surfaceId: surface.id,
     callId: "call-1",
-    capability: "notes.create",
+    action: "notes.create",
     input: { text: "hi" },
   }
 
@@ -463,9 +463,9 @@ void test("registry approval is the authoritative execution gate", async () => {
 })
 
 void test("registry returns every expected capability error as a value", async () => {
-  const registry = createRegistry<TestCtx>({
-    capabilities: [
-      defineCapability({
+  const registry = new Genui<TestCtx>({
+    actions: [
+      action({
         name: "dice.roll",
         description: "Roll a die.",
         effect: "read",
@@ -473,15 +473,15 @@ void test("registry returns every expected capability error as a value", async (
         output: rollOutput,
         execute: (_ctx, input) => ({ total: input.sides }),
       }),
-      defineCapability({
+      action({
         name: "demo.approve",
         description: "Approval-gated capability.",
         effect: "write",
-        policy: "require_approval",
+        policy: "ask",
         input: textInput,
         execute: (_ctx, input) => ({ accepted: input.text }),
       }),
-      defineCapability({
+      action({
         name: "demo.blocked",
         description: "Blocked capability.",
         effect: "dangerous",
@@ -489,7 +489,7 @@ void test("registry returns every expected capability error as a value", async (
         input: emptyInput,
         execute: () => ({}),
       }),
-      defineCapability({
+      action({
         name: "demo.bad_output",
         description: "Returns invalid output.",
         effect: "read",
@@ -497,7 +497,7 @@ void test("registry returns every expected capability error as a value", async (
         output: invalidOutput,
         execute: () => ({ total: "wrong" }),
       }),
-      defineCapability({
+      action({
         name: "demo.throws",
         description: "Throws during execution.",
         effect: "read",
@@ -506,14 +506,14 @@ void test("registry returns every expected capability error as a value", async (
           throw new Error("internal detail")
         },
       }),
-      defineCapability({
+      action({
         name: "demo.throw_input_schema",
         description: "Throws during input validation.",
         effect: "read",
         input: throwingSchema<Readonly<Record<string, never>>>(),
         execute: () => ({}),
       }),
-      defineCapability({
+      action({
         name: "demo.throw_output_schema",
         description: "Throws during output validation.",
         effect: "read",
@@ -523,9 +523,9 @@ void test("registry returns every expected capability error as a value", async (
       }),
     ],
   })
-  const surface = await registry.createSurface({
+  const surface = await registry.surface({
     html: `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`,
-    requested: [
+    actions: [
       "dice.roll",
       "demo.approve",
       "demo.bad_output",
@@ -537,35 +537,35 @@ void test("registry returns every expected capability error as a value", async (
 
   assertErrorCode(
     await registry.execute(
-      { surfaceId: "missing", callId: "call-1", capability: "dice.roll", input: { sides: 6 } },
+      { surfaceId: "missing", callId: "call-1", action: "dice.roll", input: { sides: 6 } },
       { userId: "u1" },
     ),
     "unknown_surface",
   )
   assertErrorCode(
     await registry.execute(
-      { surfaceId: surface.id, callId: "call-2", capability: "demo.missing", input: {} },
+      { surfaceId: surface.id, callId: "call-2", action: "demo.missing", input: {} },
       { userId: "u1" },
     ),
     "not_granted",
   )
   assertErrorCode(
     await registry.execute(
-      { surfaceId: surface.id, callId: "call-3", capability: "demo.blocked", input: {} },
+      { surfaceId: surface.id, callId: "call-3", action: "demo.blocked", input: {} },
       { userId: "u1" },
     ),
     "blocked",
   )
   assertErrorCode(
     await registry.execute(
-      { surfaceId: surface.id, callId: "call-4", capability: "demo.approve", input: { text: "x" } },
+      { surfaceId: surface.id, callId: "call-4", action: "demo.approve", input: { text: "x" } },
       { userId: "u1" },
     ),
     "approval_denied",
   )
   assertErrorCode(
     await registry.execute(
-      { surfaceId: surface.id, callId: "call-5", capability: "demo.approve", input: { text: "x" } },
+      { surfaceId: surface.id, callId: "call-5", action: "demo.approve", input: { text: "x" } },
       { userId: "u1" },
       { approve: () => false },
     ),
@@ -573,7 +573,7 @@ void test("registry returns every expected capability error as a value", async (
   )
   assert.deepEqual(
     await registry.execute(
-      { surfaceId: surface.id, callId: "call-6", capability: "demo.approve", input: { text: "x" } },
+      { surfaceId: surface.id, callId: "call-6", action: "demo.approve", input: { text: "x" } },
       { userId: "u1" },
       { approve: () => true },
     ),
@@ -581,21 +581,21 @@ void test("registry returns every expected capability error as a value", async (
   )
   assertErrorCode(
     await registry.execute(
-      { surfaceId: surface.id, callId: "call-7", capability: "demo.bad_output", input: {} },
+      { surfaceId: surface.id, callId: "call-7", action: "demo.bad_output", input: {} },
       { userId: "u1" },
     ),
     "invalid_output",
   )
   assertErrorCode(
     await registry.execute(
-      { surfaceId: surface.id, callId: "call-8", capability: "demo.throws", input: {} },
+      { surfaceId: surface.id, callId: "call-8", action: "demo.throws", input: {} },
       { userId: "u1" },
     ),
     "execution_failed",
   )
   assertErrorCode(
     await registry.execute(
-      { surfaceId: surface.id, callId: "call-9", capability: "demo.throw_input_schema", input: {} },
+      { surfaceId: surface.id, callId: "call-9", action: "demo.throw_input_schema", input: {} },
       { userId: "u1" },
     ),
     "invalid_input",
@@ -605,7 +605,7 @@ void test("registry returns every expected capability error as a value", async (
       {
         surfaceId: surface.id,
         callId: "call-10",
-        capability: "demo.throw_output_schema",
+        action: "demo.throw_output_schema",
         input: {},
       },
       { userId: "u1" },
@@ -615,38 +615,40 @@ void test("registry returns every expected capability error as a value", async (
 })
 
 void test("registry rejects invalid and duplicate capability names at construction", () => {
-  assert.throws(() =>
-    createRegistry<TestCtx>({
-      capabilities: [
-        defineCapability({
-          name: "dice",
-          description: "Missing namespace.",
-          effect: "read",
-          input: emptyInput,
-          execute: () => ({}),
-        }),
-      ],
-    }),
+  assert.throws(
+    () =>
+      new Genui<TestCtx>({
+        actions: [
+          action({
+            name: "dice",
+            description: "Missing namespace.",
+            effect: "read",
+            input: emptyInput,
+            execute: () => ({}),
+          }),
+        ],
+      }),
   )
 
-  assert.throws(() =>
-    createRegistry<TestCtx>({
-      capabilities: [
-        defineCapability({
-          name: "dice.roll",
-          description: "First.",
-          effect: "read",
-          input: emptyInput,
-          execute: () => ({}),
-        }),
-        defineCapability({
-          name: "dice.roll",
-          description: "Second.",
-          effect: "read",
-          input: emptyInput,
-          execute: () => ({}),
-        }),
-      ],
-    }),
+  assert.throws(
+    () =>
+      new Genui<TestCtx>({
+        actions: [
+          action({
+            name: "dice.roll",
+            description: "First.",
+            effect: "read",
+            input: emptyInput,
+            execute: () => ({}),
+          }),
+          action({
+            name: "dice.roll",
+            description: "Second.",
+            effect: "read",
+            input: emptyInput,
+            execute: () => ({}),
+          }),
+        ],
+      }),
   )
 })

@@ -4,7 +4,7 @@ import { Hono } from "hono"
 import { z } from "zod"
 import { event, get, mod, read, reply } from "datastar-kit"
 import { streamAiTurn } from "../../ai/index.js"
-import { genuiRegistry } from "../../genui/default-primitives.js"
+import { genui } from "../../genui/default-primitives.js"
 import {
   appendAiMessage,
   createChat,
@@ -24,10 +24,10 @@ const ChatSignals = z.object({
   prompt: z.string().trim().min(1, "Type a message before sending."),
 })
 
-const GenuiCapabilityRequest = z.object({
+const GenuiActionRequest = z.object({
   surfaceId: z.string().min(1),
   callId: z.string().min(1),
-  capability: z.string(),
+  action: z.string(),
   input: z.unknown().optional(),
   chatId: z.string().optional(),
   approved: z.boolean().default(false),
@@ -221,24 +221,24 @@ chat.post("/chat", async (c) => {
   })
 })
 
-chat.post("/genui/capability", async (c) => {
+chat.post("/genui/action", async (c) => {
   let body: unknown
   try {
     body = await c.req.json()
   } catch {
-    return c.json({ ok: false, error: "Capability request must be JSON." }, 400)
+    return c.json({ ok: false, error: "Action request must be JSON." }, 400)
   }
 
-  const request = GenuiCapabilityRequest.safeParse(body)
+  const request = GenuiActionRequest.safeParse(body)
   if (!request.success) {
-    return c.json({ ok: false, error: "Capability request is invalid." }, 400)
+    return c.json({ ok: false, error: "Action request is invalid." }, 400)
   }
 
-  const result = await genuiRegistry.execute(
+  const result = await genui.execute(
     {
       surfaceId: request.data.surfaceId,
       callId: request.data.callId,
-      capability: request.data.capability,
+      action: request.data.action,
       input: request.data.input ?? {},
     },
     { chatId: request.data.chatId, signal: c.req.raw.signal },

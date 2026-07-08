@@ -1,7 +1,7 @@
-import { createRegistry, defineCapability, type Surface } from "@hono-ai/genui-runtime"
+import { action, Genui, type Surface } from "@hono-ai/genui"
 import { z } from "zod"
 
-export interface GenuiCapabilityContext {
+export interface GenuiActionContext {
   readonly chatId?: string
   readonly signal?: AbortSignal
 }
@@ -153,25 +153,25 @@ const lookupWeather = async (
   }
 }
 
-export const defaultGenuiCapabilityNames = ["chat.follow_up"] as const
+export const defaultGenuiActionNames = ["chat.follow_up"] as const
 
 export interface CreateGeneratedSurfaceInput {
   readonly chatId: string
   readonly toolCallId: string
   readonly html: string
-  readonly requested?: readonly string[]
+  readonly actions?: readonly string[]
 }
 
-export const genuiRegistry = createRegistry<GenuiCapabilityContext>({
-  capabilities: [
-    defineCapability({
+export const genui = new Genui<GenuiActionContext>({
+  actions: [
+    action({
       name: "chat.follow_up",
       description: "Submit a follow-up prompt into the current chat composer.",
       effect: "write",
       input: z.object({ prompt: z.string().trim().min(1).max(1200) }),
       execute: () => undefined,
     }),
-    defineCapability({
+    action({
       name: "demo.time.now",
       description: "Return the server's current ISO time and locale display text.",
       effect: "read",
@@ -184,7 +184,7 @@ export const genuiRegistry = createRegistry<GenuiCapabilityContext>({
         }
       },
     }),
-    defineCapability({
+    action({
       name: "demo.palette.generate",
       description: "Generate a deterministic color palette from a short seed.",
       effect: "read",
@@ -197,7 +197,7 @@ export const genuiRegistry = createRegistry<GenuiCapabilityContext>({
         colors: createPalette(input.seed, input.count),
       }),
     }),
-    defineCapability({
+    action({
       name: "demo.weather.lookup",
       description: "Look up a short weather forecast for a city using Open-Meteo.",
       effect: "read",
@@ -207,11 +207,11 @@ export const genuiRegistry = createRegistry<GenuiCapabilityContext>({
       }),
       execute: (ctx, input) => lookupWeather(input.city, input.days, ctx.signal),
     }),
-    defineCapability({
+    action({
       name: "demo.notes.create",
       description: "Create an in-memory demo note for this local app session.",
       effect: "write",
-      policy: "require_approval",
+      policy: "ask",
       input: z.object({ text: z.string().trim().min(1).max(500) }),
       execute: (ctx, input) => {
         const note = {
@@ -224,7 +224,7 @@ export const genuiRegistry = createRegistry<GenuiCapabilityContext>({
         return note
       },
     }),
-    defineCapability({
+    action({
       name: "demo.notes.list",
       description: "List recent in-memory demo notes created through generated UI.",
       effect: "read",
@@ -234,11 +234,11 @@ export const genuiRegistry = createRegistry<GenuiCapabilityContext>({
   ],
 })
 
-export const genuiPromptCapabilities = (): string => genuiRegistry.instructions()
+export const genuiPromptActions = (): string => genui.instructions()
 
 export const createGeneratedSurface = (input: CreateGeneratedSurfaceInput): Promise<Surface> =>
-  genuiRegistry.createSurface({
+  genui.surface({
     html: input.html,
-    requested: input.requested ?? defaultGenuiCapabilityNames,
+    actions: input.actions ?? defaultGenuiActionNames,
     meta: { chatId: input.chatId, toolCallId: input.toolCallId },
   })
