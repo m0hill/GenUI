@@ -26,10 +26,10 @@ const genui0Language = createGenui0Language()
 
 const language: SandboxRuntimeLanguage = {
   invalid: genui0Language.invalid,
-  parseObjectLiteral: (source, readSignal) => genui0Language.parseObjectLiteral(source, readSignal),
-  evaluateExpression: (source, readSignal) => genui0Language.evaluateExpression(source, readSignal),
-  parseCapabilityExpression: (expression, readSignal) =>
-    genui0Language.parseCapabilityExpression(expression, readSignal),
+  parseObjectLiteral: (source, readState) => genui0Language.parseObjectLiteral(source, readState),
+  evaluateExpression: (source, readState) => genui0Language.evaluateExpression(source, readState),
+  parseCapabilityExpression: (expression, readState) =>
+    genui0Language.parseCapabilityExpression(expression, readState),
   defaultResultTarget: (capability) => genui0Language.defaultResultTarget(capability),
 }
 
@@ -53,10 +53,10 @@ const createHarness = (html: string, surfaceId = "surface-test"): RuntimeHarness
 
 void test("sandbox runtime posts capability calls from click actions", () => {
   const { window, messages } = createHarness(`
-    <div data-signals="{ label: 'Fallback' }">
-      <input data-bind="label" value="Lucky">
-      <input data-bind="sides" type="number" value="6">
-      <button data-on:click="@capability('dice.roll', { label: $label, sides: $sides, missing: $missing }, { target: 'rollResult' })">
+    <div data-genui-state="{ label: 'Fallback' }">
+      <input data-genui-bind="label" value="Lucky">
+      <input data-genui-bind="sides" type="number" value="6">
+      <button data-genui-on-click="@capability('dice.roll', { label: $label, sides: $sides, missing: $missing }, { target: 'rollResult' })">
         Roll
       </button>
     </div>
@@ -81,8 +81,8 @@ void test("sandbox runtime posts capability calls from click actions", () => {
 
 void test("sandbox runtime posts capability calls from prevented submit actions", () => {
   const { window, messages } = createHarness(`
-    <form data-on:submit__prevent="@capability('weather.lookup', { city: $city })">
-      <input data-bind="city" value="Tokyo">
+    <form data-genui-on-submit-prevent="@capability('weather.lookup', { city: $city })">
+      <input data-genui-bind="city" value="Tokyo">
       <button>Search</button>
     </form>
   `)
@@ -102,7 +102,7 @@ void test("sandbox runtime posts capability calls from prevented submit actions"
 
 void test("sandbox runtime exposes result state to later capability inputs", () => {
   const { window, messages } = createHarness(`
-    <button data-on:click="@capability('notes.create', { total: $rollResult.value.total })">
+    <button data-genui-on-click="@capability('notes.create', { total: $rollResult.value.total })">
       Save
     </button>
   `)
@@ -129,12 +129,12 @@ void test("sandbox runtime exposes result state to later capability inputs", () 
 
 void test("sandbox runtime renders capability pending, success, and error states", () => {
   const { window, messages } = createHarness(`
-    <button data-on:click="@capability('dice.roll', { sides: 6 }, { target: 'rollResult' })">
+    <button data-genui-on-click="@capability('dice.roll', { sides: 6 }, { target: 'rollResult' })">
       Roll
     </button>
-    <p id="pending" data-show="$rollResult.status == 'pending'">Loading</p>
-    <p id="success" data-show="$rollResult.status == 'complete'" data-text="$rollResult.value.total"></p>
-    <p id="error" data-show="$rollResult.status == 'error'" data-text="$rollResult.error"></p>
+    <p id="pending" data-genui-show="$rollResult.status == 'pending'">Loading</p>
+    <p id="success" data-genui-show="$rollResult.status == 'complete'" data-genui-text="$rollResult.value.total"></p>
+    <p id="error" data-genui-show="$rollResult.status == 'error'" data-genui-text="$rollResult.error"></p>
   `)
 
   const pending = window.document.querySelector("#pending")
@@ -191,26 +191,35 @@ void test("sandbox runtime renders capability pending, success, and error states
 
 void test("sandbox runtime refreshes local directives from bound input state", () => {
   const { window } = createHarness(`
-    <input data-bind="city" value="red">
-    <p id="city" data-text="$city"></p>
-    <p id="visible" data-show="$city == 'blue'">Blue</p>
-    <p id="classed" data-class:active="$city == 'blue'"></p>
-    <p id="styled" data-style:color="$city"></p>
-    <p id="attr" data-attr:title="$city"></p>
+    <input data-genui-bind="city" value="red">
+    <p id="city" data-genui-text="$city"></p>
+    <p id="visible" data-genui-show="$city == 'blue'">Blue</p>
+    <p id="classed" data-genui-class-active="$city == 'blue'"></p>
+    <p id="classed-hyphen" data-genui-class-is-active="$city == 'blue'"></p>
+    <p id="styled" data-genui-style-color="$city"></p>
+    <p id="styled-hyphen" data-genui-style-background-color="$city"></p>
+    <p id="attr" data-genui-attr-title="$city"></p>
+    <p id="attr-hyphen" data-genui-attr-aria-label="$city"></p>
   `)
   const input = window.document.querySelector("input")
   const city = window.document.querySelector("#city")
   const visible = window.document.querySelector("#visible")
   const classed = window.document.querySelector("#classed")
+  const classedHyphen = window.document.querySelector("#classed-hyphen")
   const styled = window.document.querySelector("#styled")
+  const styledHyphen = window.document.querySelector("#styled-hyphen")
   const attr = window.document.querySelector("#attr")
+  const attrHyphen = window.document.querySelector("#attr-hyphen")
   assert.notEqual(input, null)
 
   assert.equal(city?.textContent, "red")
   assert.equal(displayStyle(visible), "none")
   assert.equal(classed?.classList.contains("active"), false)
+  assert.equal(classedHyphen?.classList.contains("is-active"), false)
   assert.equal(styled?.getAttribute("style"), "color: red;")
+  assert.equal(styledHyphen?.getAttribute("style"), "background-color: red;")
   assert.equal(attr?.getAttribute("title"), "red")
+  assert.equal(attrHyphen?.getAttribute("aria-label"), "red")
 
   if (input !== null) input.value = "blue"
   input?.dispatchEvent(new window.Event("input", { bubbles: true }))
@@ -218,8 +227,11 @@ void test("sandbox runtime refreshes local directives from bound input state", (
   assert.equal(city?.textContent, "blue")
   assert.equal(displayStyle(visible), "")
   assert.equal(classed?.classList.contains("active"), true)
+  assert.equal(classedHyphen?.classList.contains("is-active"), true)
   assert.equal(styled?.getAttribute("style"), "color: blue;")
+  assert.equal(styledHyphen?.getAttribute("style"), "background-color: blue;")
   assert.equal(attr?.getAttribute("title"), "blue")
+  assert.equal(attrHyphen?.getAttribute("aria-label"), "blue")
 })
 
 void test("sandbox runtime brokers link clicks", () => {
@@ -244,8 +256,8 @@ void test("sandbox runtime brokers link clicks", () => {
 
 void test("sandbox runtime ignores unsupported actions and disposes listeners", () => {
   const { window, messages, instance } = createHarness(`
-    <button id="unsupported" data-on:click="unsupported">Bad</button>
-    <button id="roll" data-on:click="@capability('dice.roll', { sides: 6 })">Roll</button>
+    <button id="unsupported" data-genui-on-click="unsupported">Bad</button>
+    <button id="roll" data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>
   `)
 
   const defaultAllowed = window.document

@@ -7,19 +7,19 @@ const grantedCapabilities = new Set(["dice.roll"])
 void test("genui/0 allows only granted capability actions with v0 object inputs", () => {
   assert.deepEqual(
     allowGenui0DataAttribute({
-      name: "data-on:click",
+      name: "data-genui-on-click",
       value: "@capability('dice.roll', { sides: 6, label: $label }, { target: 'rollResult' })",
       grantedCapabilities,
     }),
     {
-      name: "data-on:click",
+      name: "data-genui-on-click",
       value: "@capability('dice.roll', { sides: 6, label: $label }, { target: 'rollResult' })",
     },
   )
 
   assert.equal(
     allowGenui0DataAttribute({
-      name: "data-on:click",
+      name: "data-genui-on-click",
       value: "@capability('demo.secret', {})",
       grantedCapabilities,
     }),
@@ -27,7 +27,7 @@ void test("genui/0 allows only granted capability actions with v0 object inputs"
   )
   assert.equal(
     allowGenui0DataAttribute({
-      name: "data-on:click",
+      name: "data-genui-on-click",
       value:
         "@capability('dice.roll', { sides: this['constructor']['constructor']('return 6')() })",
       grantedCapabilities,
@@ -36,7 +36,7 @@ void test("genui/0 allows only granted capability actions with v0 object inputs"
   )
   assert.equal(
     allowGenui0DataAttribute({
-      name: "data-on:click",
+      name: "data-genui-on-click",
       value: "@capability('dice.roll', { sides: 6 }, { target: window.location })",
       grantedCapabilities,
     }),
@@ -47,42 +47,42 @@ void test("genui/0 allows only granted capability actions with v0 object inputs"
 void test("genui/0 allows simple local state expressions", () => {
   assert.deepEqual(
     allowGenui0DataAttribute({
-      name: "data-signals",
+      name: "data-genui-state",
       value: "{ count: 1, label: 'Roll' }",
       grantedCapabilities,
     }),
-    { name: "data-signals", value: "{ count: 1, label: 'Roll' }" },
+    { name: "data-genui-state", value: "{ count: 1, label: 'Roll' }" },
   )
   assert.deepEqual(
     allowGenui0DataAttribute({
-      name: "data-text",
+      name: "data-genui-text",
       value: "$count",
       grantedCapabilities,
     }),
-    { name: "data-text", value: "$count" },
+    { name: "data-genui-text", value: "$count" },
   )
   assert.deepEqual(
     allowGenui0DataAttribute({
-      name: "data-bind",
+      name: "data-genui-bind",
       value: "count",
       grantedCapabilities,
     }),
-    { name: "data-bind", value: "count" },
+    { name: "data-genui-bind", value: "count" },
   )
   assert.deepEqual(
     allowGenui0DataAttribute({
-      name: "data-show",
+      name: "data-genui-show",
       value: "$status == 'pending'",
       grantedCapabilities,
     }),
-    { name: "data-show", value: "$status == 'pending'" },
+    { name: "data-genui-show", value: "$status == 'pending'" },
   )
 })
 
 void test("genui/0 rejects general JavaScript expressions", () => {
   assert.equal(
     allowGenui0DataAttribute({
-      name: "data-text",
+      name: "data-genui-text",
       value: "window.location",
       grantedCapabilities,
     }),
@@ -90,7 +90,7 @@ void test("genui/0 rejects general JavaScript expressions", () => {
   )
   assert.equal(
     allowGenui0DataAttribute({
-      name: "data-show",
+      name: "data-genui-show",
       value: "$count > 2",
       grantedCapabilities,
     }),

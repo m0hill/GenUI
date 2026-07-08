@@ -97,8 +97,8 @@ void test("registry projects a grant and sanitizes HTML under that grant", () =>
 
   const surface = registry.createSurface({
     html: [
-      `<button data-on:click="@capability('dice.roll', { sides: 6 })">Roll</button>`,
-      `<button data-on:click="@capability('demo.blocked', {})">Blocked</button>`,
+      `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`,
+      `<button data-genui-on-click="@capability('demo.blocked', {})">Blocked</button>`,
       `<script>alert(1)</script>`,
     ].join(""),
     requested: ["dice.roll", "missing.capability", "dice.roll", "demo.blocked"],
@@ -112,7 +112,7 @@ void test("registry projects a grant and sanitizes HTML under that grant", () =>
     surface.grant.capabilities.map((capability) => capability.name),
     ["dice.roll"],
   )
-  assert.match(surface.html, /data-on:click="@capability\('dice\.roll'/)
+  assert.match(surface.html, /data-genui-on-click="@capability\('dice\.roll'/)
   assert.doesNotMatch(surface.html, /demo\.blocked/)
   assert.doesNotMatch(surface.html, /<script/i)
   assert.deepEqual(JSON.parse(JSON.stringify(surface)), surface)
@@ -142,15 +142,15 @@ void test("same HTML receives different authority from different grants", async 
       }),
     ],
   })
-  const html = `<button data-on:click="@capability('dice.roll', { sides: 6 })">Roll</button>`
+  const html = `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`
   const armed = registry.createSurface({ html, requested: ["dice.roll"] })
   const defanged = registry.createSurface({ html, requested: [] })
 
   assert.notEqual(armed.id, defanged.id)
   assert.equal(armed.grant.surfaceId, armed.id)
   assert.equal(defanged.grant.surfaceId, defanged.id)
-  assert.match(armed.html, /data-on:click/)
-  assert.doesNotMatch(defanged.html, /data-on:click/)
+  assert.match(armed.html, /data-genui-on-click/)
+  assert.doesNotMatch(defanged.html, /data-genui-on-click/)
 
   assert.deepEqual(
     await registry.execute(
@@ -181,7 +181,7 @@ void test("returned surface mutations cannot change registry authority", async (
     ],
   })
   const surface = registry.createSurface({
-    html: `<button data-on:click="@capability('dice.roll', {})">Roll</button>`,
+    html: `<button data-genui-on-click="@capability('dice.roll', {})">Roll</button>`,
     requested: [],
   })
   const forgedDescriptor = {
@@ -268,7 +268,7 @@ void test("registry executes granted capabilities and validates inputs and outpu
     ],
   })
   const surface = registry.createSurface({
-    html: `<button data-on:click="@capability('dice.roll', { sides: 6 })">Roll</button>`,
+    html: `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`,
     requested: ["dice.roll"],
   })
 
@@ -361,7 +361,7 @@ void test("registry returns every expected capability error as a value", async (
     ],
   })
   const surface = registry.createSurface({
-    html: `<button data-on:click="@capability('dice.roll', { sides: 6 })">Roll</button>`,
+    html: `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`,
     requested: [
       "dice.roll",
       "demo.approve",

@@ -27,8 +27,8 @@ void test("surface runtime owns grant projection, sanitization, records, and dia
 
   const source = {
     html: [
-      `<button data-on:click="@capability('dice.roll', {})">Roll</button>`,
-      `<button data-on:click="@capability('demo.blocked', {})">Blocked</button>`,
+      `<button data-genui-on-click="@capability('dice.roll', {})">Roll</button>`,
+      `<button data-genui-on-click="@capability('demo.blocked', {})">Blocked</button>`,
       `<script>alert(1)</script>`,
     ].join(""),
     requested: ["dice.roll", "missing.capability", "dice.roll", "demo.blocked"],
@@ -64,7 +64,7 @@ void test("surface runtime reprojects from preserved source under current policy
   ])
   const runtime = createSurfaceRuntime({ byName })
   const source = {
-    html: `<button data-on:click="@capability('dice.roll', {})">Roll</button>`,
+    html: `<button data-genui-on-click="@capability('dice.roll', {})">Roll</button>`,
     requested: ["dice.roll"],
   }
   const created = runtime.createSurface(source)
@@ -77,7 +77,7 @@ void test("surface runtime reprojects from preserved source under current policy
     reprojected?.grant.capabilities.map((item) => item.name),
     [],
   )
-  assert.doesNotMatch(reprojected?.html ?? "", /data-on:click/)
+  assert.doesNotMatch(reprojected?.html ?? "", /data-genui-on-click/)
   assert.deepEqual(runtime.getRecord(created.id)?.source, source)
   assert.deepEqual(runtime.diagnostics(created.id), {
     requested: ["dice.roll"],

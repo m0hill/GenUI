@@ -67,57 +67,57 @@ void test("sanitizer strips indirect URL-bearing attributes and inline styles", 
 void test("sanitizer preserves only granted capability calls", () => {
   const safe = sanitizeSurfaceHtml(
     [
-      `<button data-on:click="@capability('dice.roll', { sides: 6 }, { target: 'rollResult' })">Roll</button>`,
-      `<button data-on:click="@capability('demo.secret', {})">Secret</button>`,
+      `<button data-genui-on-click="@capability('dice.roll', { sides: 6 }, { target: 'rollResult' })">Roll</button>`,
+      `<button data-genui-on-click="@capability('demo.secret', {})">Secret</button>`,
     ].join(""),
     granted,
   )
 
   assert.match(
     safe,
-    /data-on:click="@capability\('dice\.roll', \{ sides: 6 \}, \{ target: 'rollResult' \}\)"/,
+    /data-genui-on-click="@capability\('dice\.roll', \{ sides: 6 \}, \{ target: 'rollResult' \}\)"/,
   )
   assert.doesNotMatch(safe, /demo\.secret/)
 })
 
-void test("sanitizer strips unsafe Datastar expressions", () => {
+void test("sanitizer strips unsafe GenUI expressions", () => {
   const safe = sanitizeSurfaceHtml(
     [
-      `<span data-text="window.location">x</span>`,
-      `<button data-on:click="@capability('dice.roll', { sides: 6 }); fetch('/x')">Bad</button>`,
-      `<span data-signals="{ count: 1 }" data-text="$count">1</span>`,
-      `<span data-show="$status == 'pending'">Loading</span>`,
+      `<span data-genui-text="window.location">x</span>`,
+      `<button data-genui-on-click="@capability('dice.roll', { sides: 6 }); fetch('/x')">Bad</button>`,
+      `<span data-genui-state="{ count: 1 }" data-genui-text="$count">1</span>`,
+      `<span data-genui-show="$status == 'pending'">Loading</span>`,
     ].join(""),
     granted,
   )
 
   assert.doesNotMatch(safe, /window\.location/)
   assert.doesNotMatch(safe, /fetch/)
-  assert.doesNotMatch(safe, /data-on:click/)
-  assert.match(safe, /data-signals="\{ count: 1 \}"/)
-  assert.match(safe, /data-text="\$count"/)
-  assert.match(safe, /data-show="\$status == 'pending'"/)
+  assert.doesNotMatch(safe, /data-genui-on-click/)
+  assert.match(safe, /data-genui-state="\{ count: 1 \}"/)
+  assert.match(safe, /data-genui-text="\$count"/)
+  assert.match(safe, /data-genui-show="\$status == 'pending'"/)
 })
 
 void test("sanitizer strips JavaScript-shaped constructor expressions", () => {
   const safe = sanitizeSurfaceHtml(
     [
-      `<span data-text="this['constructor']['constructor']('return 1')()">x</span>`,
-      `<button data-on:click="@capability('dice.roll', { sides: this['constructor']['constructor']('return 6')() })">Roll</button>`,
-      `<span data-text="$count">1</span>`,
+      `<span data-genui-text="this['constructor']['constructor']('return 1')()">x</span>`,
+      `<button data-genui-on-click="@capability('dice.roll', { sides: this['constructor']['constructor']('return 6')() })">Roll</button>`,
+      `<span data-genui-text="$count">1</span>`,
     ].join(""),
     granted,
   )
 
   assert.doesNotMatch(safe, /constructor/)
-  assert.doesNotMatch(safe, /data-on:click/)
-  assert.match(safe, /data-text="\$count"/)
+  assert.doesNotMatch(safe, /data-genui-on-click/)
+  assert.match(safe, /data-genui-text="\$count"/)
 })
 
 void test("sanitizer repairs truncated HTML and is idempotent", () => {
-  const safe = sanitizeSurfaceHtml(`<section><div><span data-text="$label">Hi`, granted)
+  const safe = sanitizeSurfaceHtml(`<section><div><span data-genui-text="$label">Hi`, granted)
 
-  assert.equal(safe, `<section><div><span data-text="$label">Hi</span></div></section>`)
+  assert.equal(safe, `<section><div><span data-genui-text="$label">Hi</span></div></section>`)
   assert.equal(sanitizeSurfaceHtml(safe, granted), safe)
 })
 

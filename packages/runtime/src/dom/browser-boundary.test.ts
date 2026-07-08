@@ -198,12 +198,12 @@ void test("browser sandbox renders capability pending and result state", async (
   const frame = await installHostHarness(
     page,
     `
-      <form data-on:submit__prevent="@capability('dice.roll', { sides: $sides }, { target: 'rollResult' })">
-        <input data-bind="sides" type="number" value="6">
+      <form data-genui-on-submit-prevent="@capability('dice.roll', { sides: $sides }, { target: 'rollResult' })">
+        <input data-genui-bind="sides" type="number" value="6">
         <button>Roll</button>
       </form>
-      <p id="pending" data-show="$rollResult.status == 'pending'">Loading</p>
-      <p id="total" data-show="$rollResult.status == 'complete'" data-text="$rollResult.value.total"></p>
+      <p id="pending" data-genui-show="$rollResult.status == 'pending'">Loading</p>
+      <p id="total" data-genui-show="$rollResult.status == 'complete'" data-genui-text="$rollResult.value.total"></p>
       ${"<p>content</p>".repeat(30)}
     `,
     { maxHeight: 80 },

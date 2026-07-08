@@ -11,11 +11,11 @@ export interface SandboxRuntimeCapabilityAction {
 
 export interface SandboxRuntimeLanguage {
   readonly invalid: unknown
-  parseObjectLiteral(source: string, readSignal: (expression: string) => unknown): unknown
-  evaluateExpression(source: string, readSignal: (expression: string) => unknown): unknown
+  parseObjectLiteral(source: string, readState: (expression: string) => unknown): unknown
+  evaluateExpression(source: string, readState: (expression: string) => unknown): unknown
   parseCapabilityExpression(
     expression: string,
-    readSignal: (expression: string) => unknown,
+    readState: (expression: string) => unknown,
   ): SandboxRuntimeCapabilityAction | undefined
   defaultResultTarget(capability: string): string
 }
@@ -87,7 +87,7 @@ export const installSandboxRuntime = (
 
   let nextCallId = 1
   let resizeObserver: ResizeObserver | undefined
-  const signals: Record<string, unknown> = {}
+  const state: Record<string, unknown> = {}
   const boundElements: BoundElement[] = []
   const directives: Directive[] = []
 
@@ -97,7 +97,7 @@ export const installSandboxRuntime = (
   const hasOwn = (value: object, key: string): boolean =>
     Object.prototype.hasOwnProperty.call(value, key)
 
-  const signalPath = (expression: string): readonly string[] => {
+  const statePath = (expression: string): readonly string[] => {
     const source = expression.startsWith("$") ? expression.slice(1) : expression
     return source.split(".").filter((part) => part.length > 0)
   }
@@ -106,7 +106,7 @@ export const installSandboxRuntime = (
     const [name, ...rest] = path
     if (name === undefined) return ""
 
-    let value: unknown = hasOwn(signals, name) ? signals[name] : ""
+    let value: unknown = hasOwn(state, name) ? state[name] : ""
     for (const property of rest) {
       if (!isRecord(value) || !hasOwn(value, property)) return ""
       value = value[property]
@@ -119,17 +119,17 @@ export const installSandboxRuntime = (
     if (name === undefined) return
 
     if (rest.length === 0) {
-      signals[name] = value
+      state[name] = value
       return
     }
 
     let cursor: Record<string, unknown>
-    const current = signals[name]
+    const current = state[name]
     if (isRecord(current)) {
       cursor = current
     } else {
       cursor = {}
-      signals[name] = cursor
+      state[name] = cursor
     }
 
     for (const property of rest.slice(0, -1)) {
@@ -148,10 +148,10 @@ export const installSandboxRuntime = (
     if (last !== undefined) cursor[last] = value
   }
 
-  const readSignal = (expression: string): unknown => readPath(signalPath(expression))
+  const readState = (expression: string): unknown => readPath(statePath(expression))
 
   const evaluate = (expression: string): unknown =>
-    language.evaluateExpression(expression, readSignal)
+    language.evaluateExpression(expression, readState)
 
   const isTruthy = (value: unknown): boolean =>
     value !== language.invalid &&
@@ -259,7 +259,7 @@ export const installSandboxRuntime = (
   }
 
   const isBoundElement = (target: EventTarget | null): target is Element =>
-    target instanceof global.Element && target.hasAttribute("data-bind")
+    target instanceof global.Element && target.hasAttribute("data-genui-bind")
 
   const safeDynamicAttribute = (attribute: string): boolean => {
     const name = attribute.toLowerCase()
@@ -382,7 +382,7 @@ export const installSandboxRuntime = (
   }
 
   const postCapabilityCall = (expression: string): boolean => {
-    const action = language.parseCapabilityExpression(expression, readSignal)
+    const action = language.parseCapabilityExpression(expression, readState)
     if (action === undefined) return false
 
     setResultState(resultTargetFor(action), { status: "pending" })
@@ -398,8 +398,8 @@ export const installSandboxRuntime = (
   }
 
   const handleClick = (event: MouseEvent): void => {
-    const action = closestWithAttribute(event.target, "data-on:click")
-    const expression = action?.getAttribute("data-on:click") ?? null
+    const action = closestWithAttribute(event.target, "data-genui-on-click")
+    const expression = action?.getAttribute("data-genui-on-click") ?? null
     if (expression !== null && postCapabilityCall(expression)) {
       event.preventDefault()
       return
@@ -426,10 +426,10 @@ export const installSandboxRuntime = (
     if (!(target instanceof global.Element)) return
 
     const form = target.closest("form")
-    if (form === null || !form.hasAttribute("data-on:submit__prevent")) return
+    if (form === null || !form.hasAttribute("data-genui-on-submit-prevent")) return
 
     event.preventDefault()
-    const expression = form.getAttribute("data-on:submit__prevent")
+    const expression = form.getAttribute("data-genui-on-submit-prevent")
     if (expression !== null) postCapabilityCall(expression)
   }
 
@@ -437,7 +437,7 @@ export const installSandboxRuntime = (
     const target = event.target
     if (!isBoundElement(target)) return
 
-    writePath(signalPath(target.getAttribute("data-bind") ?? ""), readElementValue(target))
+    writePath(statePath(target.getAttribute("data-genui-bind") ?? ""), readElementValue(target))
     refresh()
   }
 
@@ -451,20 +451,20 @@ export const installSandboxRuntime = (
     refresh()
   }
 
-  const installInitialSignals = (): void => {
-    for (const element of global.document.querySelectorAll("[data-signals]")) {
+  const installInitialState = (): void => {
+    for (const element of global.document.querySelectorAll("[data-genui-state]")) {
       const parsed = language.parseObjectLiteral(
-        element.getAttribute("data-signals") ?? "{}",
-        readSignal,
+        element.getAttribute("data-genui-state") ?? "{}",
+        readState,
       )
       if (!isRecord(parsed)) continue
-      for (const [name, value] of Object.entries(parsed)) signals[name] = value
+      for (const [name, value] of Object.entries(parsed)) state[name] = value
     }
   }
 
   const installBindings = (): void => {
-    for (const element of global.document.querySelectorAll("[data-bind]")) {
-      const path = signalPath(element.getAttribute("data-bind") ?? "")
+    for (const element of global.document.querySelectorAll("[data-genui-bind]")) {
+      const path = statePath(element.getAttribute("data-genui-bind") ?? "")
       if (path.length === 0) continue
 
       boundElements.push({ element, path })
@@ -478,18 +478,18 @@ export const installSandboxRuntime = (
 
   const installDirective = (element: Element, attribute: Attr): void => {
     const { name, value } = attribute
-    if (name === "data-text") {
+    if (name === "data-genui-text") {
       directives.push({ type: "text", element, expression: value })
       return
     }
 
-    if (name === "data-show") {
+    if (name === "data-genui-show") {
       const visibleDisplay = elementStyle(element)?.display ?? ""
       directives.push({ type: "show", element, expression: value, visibleDisplay })
       return
     }
 
-    if (name === "data-class") {
+    if (name === "data-genui-class") {
       directives.push({
         type: "class_value",
         element,
@@ -499,36 +499,36 @@ export const installSandboxRuntime = (
       return
     }
 
-    if (name.startsWith("data-class:")) {
+    if (name.startsWith("data-genui-class-")) {
       directives.push({
         type: "class_toggle",
         element,
-        className: name.slice("data-class:".length),
+        className: name.slice("data-genui-class-".length),
         expression: value,
       })
       return
     }
 
-    if (name === "data-style") {
+    if (name === "data-genui-style") {
       directives.push({ type: "style_map", element, expression: value })
       return
     }
 
-    if (name.startsWith("data-style:")) {
+    if (name.startsWith("data-genui-style-")) {
       directives.push({
         type: "style_property",
         element,
-        property: name.slice("data-style:".length),
+        property: name.slice("data-genui-style-".length),
         expression: value,
       })
       return
     }
 
-    if (name.startsWith("data-attr:")) {
+    if (name.startsWith("data-genui-attr-")) {
       directives.push({
         type: "attribute",
         element,
-        attribute: name.slice("data-attr:".length),
+        attribute: name.slice("data-genui-attr-".length),
         expression: value,
       })
     }
@@ -540,7 +540,7 @@ export const installSandboxRuntime = (
     }
   }
 
-  installInitialSignals()
+  installInitialState()
   installBindings()
   installDirectives()
   refreshDirectives()

@@ -12,10 +12,10 @@ export interface ResultState {
   readonly error?: string
 }
 
-/** Convert a capability name into the default signal target for result state. */
+/** Convert a capability name into the default target for result state. */
 export const defaultResultTarget = defaultGenui0ResultTarget
 
-/** Keep model-authored result target names inside the v0 signal-name subset. */
+/** Keep model-authored result target names inside the v0 state-name subset. */
 export const normalizeResultTarget = normalizeGenui0ResultTarget
 
 /** Project a capability result envelope into UI-facing request state. */

@@ -6,7 +6,7 @@ import {
   resultStateFromCapabilityResult,
 } from "./result-routing.js"
 
-void test("result routing derives stable signal targets from capability names", () => {
+void test("result routing derives stable state targets from capability names", () => {
   assert.equal(defaultResultTarget("demo.weather.lookup"), "demoWeatherLookup")
   assert.equal(defaultResultTarget("dice.roll"), "diceRoll")
   assert.equal(normalizeResultTarget("forecast", "demo.weather.lookup"), "forecast")

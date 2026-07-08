@@ -42,7 +42,7 @@ const sandboxLanguageFromGeneratedScript = (): NonNullable<
   return language
 }
 
-const readSignal = (expression: string): unknown => {
+const readState = (expression: string): unknown => {
   if (expression === "$label") return "Lucky"
   if (expression === "$sides") return 6
   return ""
@@ -126,8 +126,8 @@ void test("generated sandbox language matches sanitizer capability grammar", () 
     "@capability('dice.roll', { nested: { value: 1 } })",
   ]) {
     const sanitizerAction = parseGenui0CapabilityAction(expression)
-    const directAction = directLanguage.parseCapabilityExpression(expression, readSignal)
-    const sandboxAction = sandboxLanguage.parseCapabilityExpression(expression, readSignal)
+    const directAction = directLanguage.parseCapabilityExpression(expression, readState)
+    const sandboxAction = sandboxLanguage.parseCapabilityExpression(expression, readState)
 
     assert.equal(directAction !== undefined, sanitizerAction !== undefined, expression)
     assert.deepEqual(jsonRoundTrip(sandboxAction), jsonRoundTrip(directAction), expression)
@@ -144,7 +144,7 @@ void test("generated sandbox language matches sanitizer object-expression gramma
     "{ nested: { value: 1 } }",
     "{ bad: ['x'] }",
   ]) {
-    const sandboxValue = sandboxLanguage.parseObjectLiteral(expression, readSignal)
+    const sandboxValue = sandboxLanguage.parseObjectLiteral(expression, readState)
 
     assert.equal(
       sandboxValue !== sandboxLanguage.invalid,

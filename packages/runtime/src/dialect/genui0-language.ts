@@ -13,18 +13,18 @@ export interface Genui0SandboxCapabilityAction {
 export interface Genui0Language {
   readonly invalid: symbol
   isCapabilityName(value: string): boolean
-  isSignalName(value: string): boolean
-  isSignalPath(value: string): boolean
+  isStateName(value: string): boolean
+  isStatePath(value: string): boolean
   isSafeScalarExpression(value: string): boolean
   isSafeObjectExpression(value: string): boolean
   isSafeSimpleExpression(value: string): boolean
   isSafeBindingExpression(value: string): boolean
   parseCapabilityAction(value: string): Genui0CapabilityAction | undefined
-  parseObjectLiteral(source: string, readSignal: (expression: string) => unknown): unknown
-  evaluateExpression(source: string, readSignal: (expression: string) => unknown): unknown
+  parseObjectLiteral(source: string, readState: (expression: string) => unknown): unknown
+  evaluateExpression(source: string, readState: (expression: string) => unknown): unknown
   parseCapabilityExpression(
     expression: string,
-    readSignal: (expression: string) => unknown,
+    readState: (expression: string) => unknown,
   ): Genui0SandboxCapabilityAction | undefined
   defaultResultTarget(capability: string): string
   normalizeResultTarget(target: string | undefined, capability: string): string
@@ -34,7 +34,7 @@ export interface Genui0Language {
 export const createGenui0Language = (): Genui0Language => {
   const capabilityNamePatternSource = "[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+"
   const bareIdentifierPatternSource = "_?[A-Za-z][A-Za-z0-9_]*"
-  const signalPathPatternSource = "\\$_?[A-Za-z][A-Za-z0-9_]*(?:\\._?[A-Za-z][A-Za-z0-9_]*)*"
+  const statePathPatternSource = "\\$_?[A-Za-z][A-Za-z0-9_]*(?:\\._?[A-Za-z][A-Za-z0-9_]*)*"
   const numberLiteralPatternSource = "-?(?:0|[1-9]\\d*)(?:\\.\\d+)?"
   const stringLiteralPatternSource = "(?:\"[^\"\\\\<>]*\"|'[^'\\\\<>]*')"
 
@@ -42,7 +42,7 @@ export const createGenui0Language = (): Genui0Language => {
 
   const capabilityNamePattern = exactPattern(capabilityNamePatternSource, "i")
   const bareIdentifierPattern = exactPattern(bareIdentifierPatternSource)
-  const signalPathPattern = exactPattern(signalPathPatternSource)
+  const statePathPattern = exactPattern(statePathPatternSource)
   const numberLiteralPattern = exactPattern(numberLiteralPatternSource)
   const stringLiteralPattern = exactPattern(stringLiteralPatternSource)
   const invalid = Symbol("genui0.invalid")
@@ -172,12 +172,12 @@ export const createGenui0Language = (): Genui0Language => {
   }
 
   const isCapabilityName = (value: string): boolean => capabilityNamePattern.test(value)
-  const isSignalName = (value: string): boolean => bareIdentifierPattern.test(value)
-  const isSignalPath = (value: string): boolean => signalPathPattern.test(value)
+  const isStateName = (value: string): boolean => bareIdentifierPattern.test(value)
+  const isStatePath = (value: string): boolean => statePathPattern.test(value)
 
   const parseScalarExpression = (
     source: string,
-    readSignal: (expression: string) => unknown,
+    readState: (expression: string) => unknown,
   ): unknown => {
     const value = source.trim()
     if (stringLiteralPattern.test(value)) return value.slice(1, -1)
@@ -185,7 +185,7 @@ export const createGenui0Language = (): Genui0Language => {
     if (value === "true") return true
     if (value === "false") return false
     if (value === "null") return null
-    if (signalPathPattern.test(value)) return readSignal(value)
+    if (statePathPattern.test(value)) return readState(value)
     return invalid
   }
 
@@ -194,7 +194,7 @@ export const createGenui0Language = (): Genui0Language => {
 
   const parseObjectLiteral = (
     source: string,
-    readSignal: (expression: string) => unknown,
+    readState: (expression: string) => unknown,
   ): unknown => {
     const value = source.trim()
     if (!value.startsWith("{") || !value.endsWith("}")) return invalid
@@ -213,7 +213,7 @@ export const createGenui0Language = (): Genui0Language => {
       const key = objectKeyName(keyValue[0])
       if (key === invalid) return invalid
 
-      const parsedValue = parseScalarExpression(keyValue[1], readSignal)
+      const parsedValue = parseScalarExpression(keyValue[1], readState)
       if (parsedValue === invalid) return invalid
       output[key] = parsedValue
     }
@@ -226,21 +226,21 @@ export const createGenui0Language = (): Genui0Language => {
 
   const evaluateExpression = (
     source: string,
-    readSignal: (expression: string) => unknown,
+    readState: (expression: string) => unknown,
   ): unknown => {
     const value = source.trim()
     const comparison = splitComparison(value)
     if (comparison !== undefined) {
-      const left = parseScalarExpression(comparison[0], readSignal)
-      const right = parseScalarExpression(comparison[2], readSignal)
+      const left = parseScalarExpression(comparison[0], readState)
+      const right = parseScalarExpression(comparison[2], readState)
       if (left === invalid || right === invalid) return invalid
       return comparison[1] === "==" ? Object.is(left, right) : !Object.is(left, right)
     }
 
-    const scalar = parseScalarExpression(value, readSignal)
+    const scalar = parseScalarExpression(value, readState)
     if (scalar !== invalid) return scalar
 
-    return parseObjectLiteral(value, readSignal)
+    return parseObjectLiteral(value, readState)
   }
 
   const isSafeSimpleExpression = (value: string): boolean =>
@@ -248,7 +248,7 @@ export const createGenui0Language = (): Genui0Language => {
 
   const isSafeBindingExpression = (value: string): boolean => {
     const source = value.trim()
-    return source.length <= 1_200 && (isSignalName(source) || isSignalPath(source))
+    return source.length <= 1_200 && (isStateName(source) || isStatePath(source))
   }
 
   const parseTargetOptions = (value: string): string | undefined => {
@@ -266,7 +266,7 @@ export const createGenui0Language = (): Genui0Language => {
 
     const [key, target] = keyValue
     const targetValue = stringLiteralValue(target)
-    return objectKeyName(key) === "target" && targetValue !== invalid && isSignalName(targetValue)
+    return objectKeyName(key) === "target" && targetValue !== invalid && isStateName(targetValue)
       ? targetValue
       : undefined
   }
@@ -299,12 +299,12 @@ export const createGenui0Language = (): Genui0Language => {
 
   const parseCapabilityExpression = (
     expression: string,
-    readSignal: (expression: string) => unknown,
+    readState: (expression: string) => unknown,
   ): Genui0SandboxCapabilityAction | undefined => {
     const action = parseCapabilityAction(expression)
     if (action === undefined) return undefined
 
-    const input = parseObjectLiteral(action.inputExpression, readSignal)
+    const input = parseObjectLiteral(action.inputExpression, readState)
     if (input === invalid) return undefined
 
     return action.target === undefined
@@ -325,17 +325,17 @@ export const createGenui0Language = (): Genui0Language => {
   const defaultResultTarget = (capability: string): string => {
     const words = capability.split(/[._-]+/).filter((part) => part.length > 0)
     const target = camelCaseWords(words)
-    return isSignalName(target) ? target : "capability"
+    return isStateName(target) ? target : "capability"
   }
 
   const normalizeResultTarget = (target: string | undefined, capability: string): string =>
-    target !== undefined && isSignalName(target) ? target : defaultResultTarget(capability)
+    target !== undefined && isStateName(target) ? target : defaultResultTarget(capability)
 
   return {
     invalid,
     isCapabilityName,
-    isSignalName,
-    isSignalPath,
+    isStateName,
+    isStatePath,
     isSafeScalarExpression,
     isSafeObjectExpression,
     isSafeSimpleExpression,
@@ -363,7 +363,7 @@ export const isSafeGenui0ObjectExpression = (value: string): boolean =>
 export const isSafeGenui0SimpleExpression = (value: string): boolean =>
   genui0Language.isSafeSimpleExpression(value)
 
-/** Return whether a data-bind expression belongs to the genui/0 subset. */
+/** Return whether a data-genui-bind expression belongs to the genui/0 subset. */
 export const isSafeGenui0BindingExpression = (value: string): boolean =>
   genui0Language.isSafeBindingExpression(value)
 
@@ -371,11 +371,11 @@ export const isSafeGenui0BindingExpression = (value: string): boolean =>
 export const parseGenui0CapabilityAction = (value: string): Genui0CapabilityAction | undefined =>
   genui0Language.parseCapabilityAction(value)
 
-/** Convert a capability name into the default genui/0 result signal target. */
+/** Convert a capability name into the default genui/0 result state target. */
 export const defaultGenui0ResultTarget = (capability: string): string =>
   genui0Language.defaultResultTarget(capability)
 
-/** Keep model-authored result target names inside the genui/0 signal-name subset. */
+/** Keep model-authored result target names inside the genui/0 state-name subset. */
 export const normalizeGenui0ResultTarget = (
   target: string | undefined,
   capability: string,

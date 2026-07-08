@@ -12,14 +12,14 @@ const descriptor = {
 void test("surface records keep source input separate from public surface HTML", () => {
   const records = createSurfaceRecords()
   const source = {
-    html: `<button data-on:click="@capability('dice.roll', {})">Roll</button><script>alert(1)</script>`,
+    html: `<button data-genui-on-click="@capability('dice.roll', {})">Roll</button><script>alert(1)</script>`,
     requested: ["dice.roll", "missing.capability"],
     meta: { origin: "test" },
   }
 
   const surface = records.create({
     source,
-    html: `<button data-on:click="@capability('dice.roll', {})">Roll</button>`,
+    html: `<button data-genui-on-click="@capability('dice.roll', {})">Roll</button>`,
     capabilities: [descriptor],
   })
   const record = records.get(surface.id)
