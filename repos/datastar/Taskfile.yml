@@ -1,0 +1,17 @@
+# https://taskfile.dev
+
+version: "3"
+
+tasks:
+  library:
+    dir: library
+    sources:
+      - "**/*.ts"
+      - "**/*.js"
+      - "**/*.json"
+    generates:
+      - "dist/**/*"
+    cmds:
+      - pnpm i
+      - pnpm build
+
