@@ -7,11 +7,8 @@ import type {
 } from "../types.js"
 import { capabilityError } from "../capability-result.js"
 import { protocolChannel } from "./protocol.js"
-import {
-  normalizeResultTarget,
-  resultStateFromCapabilityResult,
-  type ResultState,
-} from "./result-routing.js"
+import { normalizeResultTarget } from "./result-routing.js"
+import { resultStateFromCapabilityResult, type ResultState } from "./result-state.js"
 import { parseSandboxMessage, type CapabilitySandboxMessage } from "./sandbox-message-schema.js"
 
 const defaultMaxHeight = 1_200

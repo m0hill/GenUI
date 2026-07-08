@@ -249,6 +249,15 @@ Supported event actions:
     - Done in code: sanitizer/dialect checks, result routing, and registry capability-name
       validation call through the shared language object.
 
+11. Result-state ownership.
+    - Done in code: added one shared `result-state` module for pending, complete, and
+      error result transitions.
+    - Done in code: the sandbox runtime uses `pendingResultState`, including the
+      stale-while-pending rule that preserves previous `value`.
+    - Done in code: the broker uses `resultStateFromCapabilityResult` for complete/error
+      messages sent back into the sandbox.
+    - Done in code: result target naming remains separate in `result-routing`.
+
 ## Important Deferred Work
 
 - Prototype-pollution tests around state paths and object literal keys.

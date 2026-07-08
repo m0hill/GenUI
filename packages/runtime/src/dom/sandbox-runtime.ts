@@ -4,6 +4,7 @@ import {
   type Genui0RuntimeDirective,
 } from "../dialect/genui0.js"
 import { genui0Language } from "../dialect/genui0-language.js"
+import { pendingResultState } from "./result-state.js"
 
 export interface SandboxRuntimeConfig {
   readonly channel: string
@@ -287,19 +288,12 @@ export const installSandboxRuntime = (
     writePath([target], state)
   }
 
-  const pendingResultState = (target: string): Record<string, unknown> => {
-    const previous = readPath([target])
-    return isRecord(previous) && hasOwn(previous, "value")
-      ? { status: "pending", value: previous.value }
-      : { status: "pending" }
-  }
-
   const postCapabilityCall = (expression: string, scope: StateScope): boolean => {
     const action = genui0Language.parseCapabilityExpression(expression, readStateFromScope(scope))
     if (action === undefined) return false
 
     const target = resultTargetFor(action)
-    setResultState(target, pendingResultState(target))
+    setResultState(target, pendingResultState(readPath([target])))
     refresh()
     post({
       type: "capability",
