@@ -225,6 +225,26 @@ void test("sandbox runtime refreshes local directives from bound input state", (
   assert.equal(attrHyphen?.getAttribute("aria-label"), "blue")
 })
 
+void test("sandbox runtime renders expression v0.5 operators and formatters", () => {
+  const { window } = createHarness(`
+    <section data-genui-state="{ count: 3, closed: false, amount: 1234.5, ratio: 0.1234, createdAt: '2026-01-02T12:00:00Z' }">
+      <p id="visible" data-genui-show="$count >= 3 && !$closed">Visible</p>
+      <p id="hidden" data-genui-show="$count < 3 || $closed">Hidden</p>
+      <p id="number" data-genui-text="formatNumber($amount)"></p>
+      <p id="currency" data-genui-text="formatCurrency($amount, 'USD')"></p>
+      <p id="percent" data-genui-text="formatPercent($ratio)"></p>
+      <p id="date" data-genui-text="formatDate($createdAt)"></p>
+    </section>
+  `)
+
+  assert.equal(displayStyle(window.document.querySelector("#visible")), "")
+  assert.equal(displayStyle(window.document.querySelector("#hidden")), "none")
+  assert.equal(window.document.querySelector("#number")?.textContent, "1,234.5")
+  assert.equal(window.document.querySelector("#currency")?.textContent, "$1,234.50")
+  assert.equal(window.document.querySelector("#percent")?.textContent, "12.3%")
+  assert.equal(window.document.querySelector("#date")?.textContent, "Jan 2, 2026")
+})
+
 void test("sandbox runtime removes unsafe dynamic style values", () => {
   const { window } = createHarness(`
     <input data-genui-bind="background" value="linear-gradient(135deg,#fff,#f8fafc)">

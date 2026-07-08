@@ -179,7 +179,9 @@ void test("sanitizer strips unsafe GenUI expressions", () => {
       `<span data-genui-text="window.location">x</span>`,
       `<button data-genui-on-click="@capability('dice.roll', { sides: 6 }); fetch('/x')">Bad</button>`,
       `<span data-genui-state="{ count: 1 }" data-genui-text="$count">1</span>`,
-      `<span data-genui-show="$status == 'pending'">Loading</span>`,
+      `<span data-genui-show="$status == 'pending' || ($count >= 3 && !$closed)">Loading</span>`,
+      `<span data-genui-text="formatCurrency($total, 'USD')">Total</span>`,
+      `<span data-genui-text="formatUnknown($total)">Bad format</span>`,
       `<span data-genui-style-behavior="$count" data-genui-attr-onclick="$count">Bad dynamic attrs</span>`,
     ].join(""),
     granted,
@@ -191,7 +193,12 @@ void test("sanitizer strips unsafe GenUI expressions", () => {
   assert.doesNotMatch(safe, /data-genui-on-click/)
   assert.match(safe, /data-genui-state="\{ count: 1 \}"/)
   assert.match(safe, /data-genui-text="\$count"/)
-  assert.match(safe, /data-genui-show="\$status == 'pending'"/)
+  assert.match(
+    safe,
+    /data-genui-show="\$status == 'pending' \|\| \(\$count >= 3 &amp;&amp; !\$closed\)"/,
+  )
+  assert.match(safe, /data-genui-text="formatCurrency\(\$total, 'USD'\)"/)
+  assert.doesNotMatch(safe, /formatUnknown/)
   assert.doesNotMatch(safe, /data-genui-style-behavior/)
   assert.doesNotMatch(safe, /data-genui-attr-onclick/)
   assert.deepEqual(sanitized.dropped, [
@@ -205,6 +212,12 @@ void test("sanitizer strips unsafe GenUI expressions", () => {
       node: "button",
       attribute: "data-genui-on-click",
       value: "@capability('dice.roll', { sides: 6 }); fetch('/x')",
+      reason: "invalid_genui_expression",
+    },
+    {
+      node: "span",
+      attribute: "data-genui-text",
+      value: "formatUnknown($total)",
       reason: "invalid_genui_expression",
     },
     {

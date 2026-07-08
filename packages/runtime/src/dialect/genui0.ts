@@ -510,7 +510,8 @@ export const genui0Instructions = (actions: readonly Action[]): string => {
     "When target is omitted, the default result target is the camel-cased action name, e.g. orders.search writes to $ordersSearch.",
     "Nested data-genui-each blocks can read outer and inner scope together, e.g. $order.id and $line.id.",
     "Use array length reads such as $orders.value.items.length for empty states.",
-    "Use only simple v0 expressions: state reads like $name or $name.path, primitive literals, comparisons, and flat object literals.",
+    "Expression v0.5 supports state reads, primitive literals, ==, !=, <, <=, >, >=, !, &&, ||, parentheses, and flat object literals.",
+    "Use formatNumber(value), formatCurrency(value, 'USD'), formatPercent(value), and formatDate(value) for display text.",
     "Available actions:",
     actionList.length > 0 ? actionList : "- none",
   ].join("\n")

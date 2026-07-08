@@ -46,7 +46,12 @@ export interface Genui0Language {
 }
 
 type Punctuation = "{" | "}" | "(" | ")" | "," | ":"
-type ComparisonOperator = "==" | "!="
+type EqualityOperator = "==" | "!="
+type OrderingOperator = "<" | "<=" | ">" | ">="
+type LogicalOperator = "&&" | "||"
+type UnaryOperator = "!"
+type BinaryOperator = EqualityOperator | OrderingOperator | LogicalOperator
+type FormatterName = "formatNumber" | "formatCurrency" | "formatPercent" | "formatDate"
 
 type Token =
   | {
@@ -88,7 +93,7 @@ type Token =
     }
   | {
       readonly type: "operator"
-      readonly value: ComparisonOperator
+      readonly value: BinaryOperator | UnaryOperator
       readonly start: number
       readonly end: number
     }
@@ -127,17 +132,46 @@ type ObjectExpression = {
   readonly end: number
 }
 
-type Expression =
+type FormatterExpression = {
+  readonly type: "formatter"
+  readonly name: FormatterName
+  readonly args: readonly ValueExpression[]
+  readonly start: number
+  readonly end: number
+}
+
+type UnaryExpression = {
+  readonly type: "unary"
+  readonly operator: UnaryOperator
+  readonly expression: ValueExpression
+  readonly start: number
+  readonly end: number
+}
+
+type BinaryExpression = {
+  readonly type: "binary"
+  readonly operator: BinaryOperator
+  readonly left: ValueExpression
+  readonly right: ValueExpression
+  readonly start: number
+  readonly end: number
+}
+
+type GroupExpression = {
+  readonly type: "group"
+  readonly expression: ValueExpression
+  readonly start: number
+  readonly end: number
+}
+
+type ValueExpression =
   | ScalarExpression
-  | ObjectExpression
-  | {
-      readonly type: "comparison"
-      readonly operator: ComparisonOperator
-      readonly left: ScalarExpression
-      readonly right: ScalarExpression
-      readonly start: number
-      readonly end: number
-    }
+  | FormatterExpression
+  | UnaryExpression
+  | BinaryExpression
+  | GroupExpression
+
+type Expression = ValueExpression | ObjectExpression
 
 /** Build the genui/0 expression grammar used by sanitizer checks and the sandbox runtime. */
 const createGenui0Language = (): Genui0Language => {
@@ -152,6 +186,18 @@ const createGenui0Language = (): Genui0Language => {
   const bareIdentifierPattern = exactPattern(bareIdentifierPatternSource)
   const statePathPattern = exactPattern(statePathPatternSource)
   const invalid = Symbol("genui0.invalid")
+  const formatterArity: Readonly<Record<FormatterName, number>> = Object.freeze({
+    formatNumber: 1,
+    formatCurrency: 2,
+    formatPercent: 1,
+    formatDate: 1,
+  })
+  const formatterNames = new Set<FormatterName>([
+    "formatNumber",
+    "formatCurrency",
+    "formatPercent",
+    "formatDate",
+  ])
 
   const isWhitespace = (character: string): boolean =>
     character === " " || character === "\n" || character === "\r" || character === "\t"
@@ -301,7 +347,14 @@ const createGenui0Language = (): Genui0Language => {
       }
 
       const operator = source.slice(index, index + 2)
-      if (operator === "==" || operator === "!=") {
+      if (
+        operator === "==" ||
+        operator === "!=" ||
+        operator === "<=" ||
+        operator === ">=" ||
+        operator === "&&" ||
+        operator === "||"
+      ) {
         tokens.push({
           type: "operator",
           value: operator,
@@ -309,6 +362,17 @@ const createGenui0Language = (): Genui0Language => {
           end: index + 2,
         })
         index += 2
+        continue
+      }
+
+      if (character === "<" || character === ">" || character === "!") {
+        tokens.push({
+          type: "operator",
+          value: character,
+          start: index,
+          end: index + 1,
+        })
+        index += 1
         continue
       }
 
@@ -344,6 +408,8 @@ const createGenui0Language = (): Genui0Language => {
     const parts = source.split(".")
     return parts.length > 0 && parts.every(isStateName) ? parts : undefined
   }
+  const formatterName = (value: string): FormatterName | undefined =>
+    formatterNames.has(value as FormatterName) ? (value as FormatterName) : undefined
 
   const tokenAt = (tokens: readonly Token[], index: number): Token | undefined => tokens[index]
 
@@ -451,31 +517,225 @@ const createGenui0Language = (): Genui0Language => {
     return undefined
   }
 
-  const parseExpression = (
+  const parseFormatter = (
     tokens: readonly Token[],
     index: number,
-  ): { readonly expression: Expression; readonly next: number } | undefined => {
-    const scalar = parseScalar(tokens, index)
-    if (scalar !== undefined) {
-      const operator = tokenAt(tokens, scalar.next)
-      if (operator?.type !== "operator") return scalar
+  ): { readonly expression: FormatterExpression; readonly next: number } | undefined => {
+    const name = tokenAt(tokens, index)
+    const open = tokenAt(tokens, index + 1)
+    if (name?.type !== "identifier" || open?.type !== "punctuation" || open.value !== "(") {
+      return undefined
+    }
 
-      const right = parseScalar(tokens, scalar.next + 1)
+    const formatter = formatterName(name.value)
+    if (formatter === undefined) return undefined
+
+    const args: ValueExpression[] = []
+    let cursor = index + 2
+    const first = tokenAt(tokens, cursor)
+    if (first?.type === "punctuation" && first.value === ")") {
+      return formatterArity[formatter] === 0
+        ? {
+            expression: {
+              type: "formatter",
+              name: formatter,
+              args,
+              start: name.start,
+              end: first.end,
+            },
+            next: cursor + 1,
+          }
+        : undefined
+    }
+
+    while (cursor < tokens.length) {
+      const arg = parseOr(tokens, cursor)
+      if (arg === undefined) return undefined
+      args.push(arg.expression)
+      cursor = arg.next
+
+      const separator = tokenAt(tokens, cursor)
+      if (separator?.type === "punctuation" && separator.value === ",") {
+        cursor += 1
+        const next = tokenAt(tokens, cursor)
+        if (next === undefined || (next.type === "punctuation" && next.value === ")")) {
+          return undefined
+        }
+        continue
+      }
+
+      if (separator?.type === "punctuation" && separator.value === ")") {
+        return args.length === formatterArity[formatter]
+          ? {
+              expression: {
+                type: "formatter",
+                name: formatter,
+                args,
+                start: name.start,
+                end: separator.end,
+              },
+              next: cursor + 1,
+            }
+          : undefined
+      }
+
+      return undefined
+    }
+
+    return undefined
+  }
+
+  const parsePrimary = (
+    tokens: readonly Token[],
+    index: number,
+  ): { readonly expression: ValueExpression; readonly next: number } | undefined => {
+    const scalar = parseScalar(tokens, index)
+    if (scalar !== undefined) return scalar
+
+    const formatter = parseFormatter(tokens, index)
+    if (formatter !== undefined) return formatter
+
+    const open = tokenAt(tokens, index)
+    if (open?.type !== "punctuation" || open.value !== "(") return undefined
+
+    const expression = parseOr(tokens, index + 1)
+    if (expression === undefined) return undefined
+
+    const close = tokenAt(tokens, expression.next)
+    return close?.type === "punctuation" && close.value === ")"
+      ? {
+          expression: {
+            type: "group",
+            expression: expression.expression,
+            start: open.start,
+            end: close.end,
+          },
+          next: expression.next + 1,
+        }
+      : undefined
+  }
+
+  const parseUnary = (
+    tokens: readonly Token[],
+    index: number,
+  ): { readonly expression: ValueExpression; readonly next: number } | undefined => {
+    const operator = tokenAt(tokens, index)
+    if (operator?.type === "operator" && operator.value === "!") {
+      const expression = parseUnary(tokens, index + 1)
+      return expression === undefined
+        ? undefined
+        : {
+            expression: {
+              type: "unary",
+              operator: "!",
+              expression: expression.expression,
+              start: operator.start,
+              end: expression.expression.end,
+            },
+            next: expression.next,
+          }
+    }
+
+    return parsePrimary(tokens, index)
+  }
+
+  const parseComparison = (
+    tokens: readonly Token[],
+    index: number,
+  ): { readonly expression: ValueExpression; readonly next: number } | undefined => {
+    const left = parseUnary(tokens, index)
+    if (left === undefined) return undefined
+
+    const operator = tokenAt(tokens, left.next)
+    if (
+      operator?.type !== "operator" ||
+      (operator.value !== "==" &&
+        operator.value !== "!=" &&
+        operator.value !== "<" &&
+        operator.value !== "<=" &&
+        operator.value !== ">" &&
+        operator.value !== ">=")
+    ) {
+      return left
+    }
+
+    const right = parseUnary(tokens, left.next + 1)
+    return right === undefined
+      ? undefined
+      : {
+          expression: {
+            type: "binary",
+            operator: operator.value,
+            left: left.expression,
+            right: right.expression,
+            start: left.expression.start,
+            end: right.expression.end,
+          },
+          next: right.next,
+        }
+  }
+
+  const parseAnd = (
+    tokens: readonly Token[],
+    index: number,
+  ): { readonly expression: ValueExpression; readonly next: number } | undefined => {
+    let parsed = parseComparison(tokens, index)
+    if (parsed === undefined) return undefined
+
+    let operator = tokenAt(tokens, parsed.next)
+    while (operator?.type === "operator" && operator.value === "&&") {
+      const right = parseComparison(tokens, parsed.next + 1)
       if (right === undefined) return undefined
-      return {
+      parsed = {
         expression: {
-          type: "comparison",
-          operator: operator.value,
-          left: scalar.expression,
+          type: "binary",
+          operator: "&&",
+          left: parsed.expression,
           right: right.expression,
-          start: scalar.expression.start,
+          start: parsed.expression.start,
           end: right.expression.end,
         },
         next: right.next,
       }
+      operator = tokenAt(tokens, parsed.next)
     }
 
-    return parseObject(tokens, index)
+    return parsed
+  }
+
+  const parseOr = (
+    tokens: readonly Token[],
+    index: number,
+  ): { readonly expression: ValueExpression; readonly next: number } | undefined => {
+    let parsed = parseAnd(tokens, index)
+    if (parsed === undefined) return undefined
+
+    let operator = tokenAt(tokens, parsed.next)
+    while (operator?.type === "operator" && operator.value === "||") {
+      const right = parseAnd(tokens, parsed.next + 1)
+      if (right === undefined) return undefined
+      parsed = {
+        expression: {
+          type: "binary",
+          operator: "||",
+          left: parsed.expression,
+          right: right.expression,
+          start: parsed.expression.start,
+          end: right.expression.end,
+        },
+        next: right.next,
+      }
+      operator = tokenAt(tokens, parsed.next)
+    }
+
+    return parsed
+  }
+
+  const parseExpression = (
+    tokens: readonly Token[],
+    index: number,
+  ): { readonly expression: Expression; readonly next: number } | undefined => {
+    return parseOr(tokens, index) ?? parseObject(tokens, index)
   }
 
   const parseFullScalar = (source: string): ScalarExpression | undefined => {
@@ -515,6 +775,141 @@ const createGenui0Language = (): Genui0Language => {
     }
   }
 
+  const isTruthy = (value: unknown): boolean =>
+    value !== invalid &&
+    value !== false &&
+    value !== null &&
+    value !== undefined &&
+    value !== "" &&
+    value !== 0
+
+  const finiteNumber = (value: unknown): number | undefined => {
+    if (typeof value === "number") return Number.isFinite(value) ? value : undefined
+    if (typeof value !== "string") return undefined
+
+    const source = value.trim()
+    if (source.length === 0) return undefined
+
+    const parsed = Number(source)
+    return Number.isFinite(parsed) ? parsed : undefined
+  }
+
+  const currencyCode = (value: unknown): string | undefined => {
+    if (typeof value !== "string") return undefined
+    const code = value.trim().toUpperCase()
+    return /^[A-Z]{3}$/.test(code) ? code : undefined
+  }
+
+  const dateValue = (value: unknown): Date | undefined => {
+    if (typeof value !== "string" && typeof value !== "number") return undefined
+    const date = new Date(value)
+    return Number.isFinite(date.getTime()) ? date : undefined
+  }
+
+  const formatNumber = (value: unknown): string => {
+    const number = finiteNumber(value)
+    return number === undefined
+      ? ""
+      : new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(number)
+  }
+
+  const formatCurrency = (value: unknown, currency: unknown): string => {
+    const number = finiteNumber(value)
+    const code = currencyCode(currency)
+    return number === undefined || code === undefined
+      ? ""
+      : new Intl.NumberFormat("en-US", {
+          style: "currency",
+          currency: code,
+        }).format(number)
+  }
+
+  const formatPercent = (value: unknown): string => {
+    const number = finiteNumber(value)
+    return number === undefined
+      ? ""
+      : new Intl.NumberFormat("en-US", {
+          style: "percent",
+          maximumFractionDigits: 1,
+        }).format(number)
+  }
+
+  const formatDate = (value: unknown): string => {
+    const date = dateValue(value)
+    return date === undefined
+      ? ""
+      : new Intl.DateTimeFormat("en-US", {
+          timeZone: "UTC",
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        }).format(date)
+  }
+
+  const compareOrdered = (operator: OrderingOperator, left: unknown, right: unknown): boolean => {
+    if (typeof left === "number" && typeof right === "number") {
+      if (!Number.isFinite(left) || !Number.isFinite(right)) return false
+      if (operator === "<") return left < right
+      if (operator === "<=") return left <= right
+      if (operator === ">") return left > right
+      return left >= right
+    }
+
+    if (typeof left === "string" && typeof right === "string") {
+      if (operator === "<") return left < right
+      if (operator === "<=") return left <= right
+      if (operator === ">") return left > right
+      return left >= right
+    }
+
+    return false
+  }
+
+  const evaluateValue = (
+    expression: ValueExpression,
+    readState: (expression: string) => unknown,
+  ): unknown => {
+    switch (expression.type) {
+      case "string":
+      case "number":
+      case "boolean":
+      case "null":
+      case "state":
+        return evaluateScalar(expression, readState)
+      case "group":
+        return evaluateValue(expression.expression, readState)
+      case "unary":
+        return !isTruthy(evaluateValue(expression.expression, readState))
+      case "formatter": {
+        const args = expression.args.map((arg) => evaluateValue(arg, readState))
+        if (expression.name === "formatNumber") return formatNumber(args[0])
+        if (expression.name === "formatCurrency") return formatCurrency(args[0], args[1])
+        if (expression.name === "formatPercent") return formatPercent(args[0])
+        return formatDate(args[0])
+      }
+      case "binary": {
+        if (expression.operator === "&&") {
+          return (
+            isTruthy(evaluateValue(expression.left, readState)) &&
+            isTruthy(evaluateValue(expression.right, readState))
+          )
+        }
+        if (expression.operator === "||") {
+          return (
+            isTruthy(evaluateValue(expression.left, readState)) ||
+            isTruthy(evaluateValue(expression.right, readState))
+          )
+        }
+
+        const left = evaluateValue(expression.left, readState)
+        const right = evaluateValue(expression.right, readState)
+        if (expression.operator === "==") return Object.is(left, right)
+        if (expression.operator === "!=") return !Object.is(left, right)
+        return compareOrdered(expression.operator, left, right)
+      }
+    }
+  }
+
   const evaluateObject = (
     expression: ObjectExpression,
     readState: (expression: string) => unknown,
@@ -530,17 +925,9 @@ const createGenui0Language = (): Genui0Language => {
     expression: Expression,
     readState: (expression: string) => unknown,
   ): unknown => {
-    switch (expression.type) {
-      case "object":
-        return evaluateObject(expression, readState)
-      case "comparison": {
-        const left = evaluateScalar(expression.left, readState)
-        const right = evaluateScalar(expression.right, readState)
-        return expression.operator === "==" ? Object.is(left, right) : !Object.is(left, right)
-      }
-      default:
-        return evaluateScalar(expression, readState)
-    }
+    return expression.type === "object"
+      ? evaluateObject(expression, readState)
+      : evaluateValue(expression, readState)
   }
 
   const sourceFor = (

@@ -76,12 +76,53 @@ void test("genui/0 language validates safe expressions", () => {
   assert.equal(genui0Language.isSafeSimpleExpression("$count"), true)
   assert.equal(genui0Language.isSafeSimpleExpression("$status == 'pending'"), true)
   assert.equal(genui0Language.isSafeSimpleExpression("$status != 'error'"), true)
+  assert.equal(genui0Language.isSafeSimpleExpression("$count > 2"), true)
+  assert.equal(genui0Language.isSafeSimpleExpression("$count >= 2 && !$closed"), true)
+  assert.equal(genui0Language.isSafeSimpleExpression("$status == 'ready' || $count < 3"), true)
+  assert.equal(genui0Language.isSafeSimpleExpression("!($status == 'error')"), true)
+  assert.equal(genui0Language.isSafeSimpleExpression("formatNumber($amount)"), true)
+  assert.equal(genui0Language.isSafeSimpleExpression("formatCurrency($amount, 'USD')"), true)
+  assert.equal(genui0Language.isSafeSimpleExpression("formatPercent($ratio)"), true)
+  assert.equal(genui0Language.isSafeSimpleExpression("formatDate($createdAt)"), true)
   assert.equal(genui0Language.isSafeSimpleExpression("{ count: 1 }"), true)
-  assert.equal(genui0Language.isSafeSimpleExpression("$count > 2"), false)
+  assert.equal(genui0Language.isSafeSimpleExpression("$count + 1"), false)
+  assert.equal(genui0Language.isSafeSimpleExpression("formatNumber($amount, 2)"), false)
+  assert.equal(genui0Language.isSafeSimpleExpression("formatUnknown($amount)"), false)
 
   assert.equal(genui0Language.isSafeBindingExpression("count"), true)
   assert.equal(genui0Language.isSafeBindingExpression("$rollResult.value.total"), true)
   assert.equal(genui0Language.isSafeBindingExpression("count + 1"), false)
+})
+
+void test("genui/0 language evaluates expression v0.5 operators and formatters", () => {
+  const state: Readonly<Record<string, unknown>> = {
+    count: 3,
+    closed: false,
+    status: "ready",
+    amount: 1234.5,
+    ratio: 0.1234,
+    createdAt: "2026-01-02T12:00:00Z",
+  }
+  const readState = (expression: string): unknown => state[expression.slice(1)]
+
+  assert.equal(genui0Language.evaluateExpression("$count > 2", readState), true)
+  assert.equal(genui0Language.evaluateExpression("$count <= 2", readState), false)
+  assert.equal(genui0Language.evaluateExpression("$count >= 3 && !$closed", readState), true)
+  assert.equal(
+    genui0Language.evaluateExpression("$status == 'error' || $count < 2", readState),
+    false,
+  )
+  assert.equal(genui0Language.evaluateExpression("!($status == 'error')", readState), true)
+  assert.equal(genui0Language.evaluateExpression("formatNumber($amount)", readState), "1,234.5")
+  assert.equal(
+    genui0Language.evaluateExpression("formatCurrency($amount, 'USD')", readState),
+    "$1,234.50",
+  )
+  assert.equal(genui0Language.evaluateExpression("formatPercent($ratio)", readState), "12.3%")
+  assert.equal(
+    genui0Language.evaluateExpression("formatDate($createdAt)", readState),
+    "Jan 2, 2026",
+  )
 })
 
 void test("genui/0 language rejects malformed tokenizer input", () => {
@@ -94,6 +135,9 @@ void test("genui/0 language rejects malformed tokenizer input", () => {
     "--1",
     "1x",
     "$a true",
+    "$a &&",
+    "$a || || $b",
+    "formatNumber($a,)",
   ]) {
     assert.equal(genui0Language.isSafeSimpleExpression(expression), false, expression)
   }

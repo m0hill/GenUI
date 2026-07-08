@@ -129,10 +129,18 @@ void test("genui/0 allows simple local state expressions", () => {
   assert.deepEqual(
     allowGenui0DataAttribute({
       name: "data-genui-show",
-      value: "$status == 'pending'",
+      value: "$status == 'pending' || ($count >= 3 && !$closed)",
       grantedActions,
     }),
-    { name: "data-genui-show", value: "$status == 'pending'" },
+    { name: "data-genui-show", value: "$status == 'pending' || ($count >= 3 && !$closed)" },
+  )
+  assert.deepEqual(
+    allowGenui0DataAttribute({
+      name: "data-genui-text",
+      value: "formatCurrency($total, 'USD')",
+      grantedActions,
+    }),
+    { name: "data-genui-text", value: "formatCurrency($total, 'USD')" },
   )
   assert.deepEqual(
     allowGenui0DataAttribute({
@@ -172,7 +180,7 @@ void test("genui/0 rejects general JavaScript expressions", () => {
   assert.deepEqual(
     allowGenui0DataAttribute({
       name: "data-genui-show",
-      value: "$count > 2",
+      value: "$count + 2",
       grantedActions,
     }),
     { reason: "invalid_genui_expression" },
@@ -326,7 +334,8 @@ void test("genui/0 instructions describe dialect and capability descriptors", ()
   assert.match(instructions, /\$target\.error/)
   assert.match(instructions, /'pending', 'complete', or 'error'/)
   assert.match(instructions, /orders\.search writes to \$ordersSearch/)
-  assert.match(instructions, /simple v0 expressions/)
+  assert.match(instructions, /Expression v0\.5/)
+  assert.match(instructions, /formatCurrency/)
 })
 
 void test("genui/0 instructions include every directive usage and directive line", () => {

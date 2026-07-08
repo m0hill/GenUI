@@ -303,6 +303,15 @@ Supported event actions:
       `Genui.diagnostics(surfaceId)` exposes both action grant diagnostics and
       `html.dropped` details for model repair loops.
 
+16. Expression v0.5.
+    - Done in code: the closed expression AST now supports ordering comparisons
+      (`<`, `<=`, `>`, `>=`), unary `!`, boolean `&&`/`||`, and parenthesized grouping.
+    - Done in code: display formatters are allowlisted as expression calls:
+      `formatNumber(value)`, `formatCurrency(value, 'USD')`, `formatPercent(value)`,
+      and `formatDate(value)`.
+    - Done in code: sanitizer validation, sandbox evaluation, generated sandbox asset,
+      and model-facing `genui/0` instructions were updated together.
+
 ## Important Deferred Work
 
 - Model adapters.
