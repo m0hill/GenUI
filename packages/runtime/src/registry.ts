@@ -1,3 +1,4 @@
+import { genui0Instructions } from "./dialect/genui0.js"
 import { sanitizeSurfaceHtml } from "./sanitizer.js"
 import { parseWithSchema } from "./schema.js"
 import {
@@ -150,20 +151,7 @@ export const createRegistry = <Ctx>(options: CreateRegistryOptions<Ctx>): Regist
   const descriptors = (): CapabilityDescriptor[] => publicCapabilities(byName.values())
 
   const instructions = (): string => {
-    const capabilities = descriptors()
-      .map(
-        (capability) =>
-          `- ${capability.name}: ${capability.description} effect=${capability.effect} approval=${capability.requiresApproval}`,
-      )
-      .join("\n")
-
-    return [
-      `Generated UI dialect: ${genuiDialect}.`,
-      "Create fragment HTML only. Do not include scripts, iframes, external styles, or document tags.",
-      "Use @capability('name', input) only for capabilities granted to the surface.",
-      "Available capabilities:",
-      capabilities.length > 0 ? capabilities : "- none",
-    ].join("\n")
+    return genui0Instructions(descriptors())
   }
 
   return { createSurface, execute, descriptors, instructions }
