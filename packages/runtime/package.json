@@ -5,7 +5,8 @@
   "type": "module",
   "types": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./dom": "./src/dom/index.ts"
   },
   "scripts": {
     "test": "nub --test $(find src -name '*.test.ts' -print)",
@@ -18,5 +19,8 @@
   },
   "dependencies": {
     "parse5": "^8.0.1"
+  },
+  "devDependencies": {
+    "happy-dom": "^20.10.6"
   }
 }
