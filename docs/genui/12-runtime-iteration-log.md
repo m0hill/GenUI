@@ -232,6 +232,16 @@ Supported event actions:
      imports genui/0 directive functions or attribute names directly.
    - Done in code: registry instructions route through `genui0Dialect.instructions`.
 
+10. Language interface unification.
+    - Done in code: `genui0-language` now exports one shared `genui0Language` object
+      instead of module-level wrapper aliases around a private singleton.
+    - Done in code: the sandbox runtime language type is derived as a `Pick` of
+      `Genui0Language`, so action/result types are no longer restated in the DOM module.
+    - Done in code: the sandbox entry passes `genui0Language` directly instead of wrapping
+      identical methods in adapter lambdas.
+    - Done in code: sanitizer/dialect checks, result routing, and registry capability-name
+      validation call through the shared language object.
+
 ## Important Deferred Work
 
 - Prototype-pollution tests around state paths and object literal keys.

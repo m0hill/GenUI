@@ -1,35 +1,20 @@
 import type { SurfaceDialectRuntime, SurfaceRuntimeDirective } from "../dialect/surface-dialect.js"
+import type { Genui0Language } from "../dialect/genui0-language.js"
 
 export interface SandboxRuntimeConfig {
   readonly channel: string
   readonly surfaceId: string
 }
 
-export interface SandboxRuntimeCapabilityAction {
-  readonly capability: string
-  readonly input: unknown
-  readonly target?: string
-}
-
-export interface SandboxRuntimeSetAction {
-  readonly path: readonly string[]
-  readonly value: unknown
-}
-
-export interface SandboxRuntimeLanguage {
-  readonly invalid: unknown
-  parseObjectLiteral(source: string, readState: (expression: string) => unknown): unknown
-  evaluateExpression(source: string, readState: (expression: string) => unknown): unknown
-  parseCapabilityExpression(
-    expression: string,
-    readState: (expression: string) => unknown,
-  ): SandboxRuntimeCapabilityAction | undefined
-  parseSetExpression(
-    expression: string,
-    readState: (expression: string) => unknown,
-  ): SandboxRuntimeSetAction | undefined
-  defaultResultTarget(capability: string): string
-}
+export type SandboxRuntimeLanguage = Pick<
+  Genui0Language,
+  | "invalid"
+  | "parseObjectLiteral"
+  | "evaluateExpression"
+  | "parseCapabilityExpression"
+  | "parseSetExpression"
+  | "defaultResultTarget"
+>
 
 export interface SandboxRuntimeGlobal {
   readonly document: Document
@@ -77,6 +62,9 @@ export const installSandboxRuntime = (
   type OwnPropertyRead =
     | { readonly found: false }
     | { readonly found: true; readonly value: unknown }
+  type CapabilityAction = NonNullable<
+    ReturnType<SandboxRuntimeLanguage["parseCapabilityExpression"]>
+  >
 
   let nextCallId = 1
   let resizeObserver: ResizeObserver | undefined
@@ -300,7 +288,7 @@ export const installSandboxRuntime = (
     reportHeight()
   }
 
-  const resultTargetFor = (action: SandboxRuntimeCapabilityAction): string =>
+  const resultTargetFor = (action: CapabilityAction): string =>
     action.target ?? language.defaultResultTarget(action.capability)
 
   const setResultState = (target: string, state: unknown): void => {

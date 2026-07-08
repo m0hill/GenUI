@@ -1,11 +1,4 @@
-import {
-  isGenui0StateName,
-  isSafeGenui0BindingExpression,
-  isSafeGenui0ObjectExpression,
-  isSafeGenui0SimpleExpression,
-  parseGenui0CapabilityAction,
-  parseGenui0SetAction,
-} from "./genui0-language.js"
+import { genui0Language } from "./genui0-language.js"
 import {
   isSafeStyleProperty,
   isSafeStyleValue,
@@ -336,9 +329,9 @@ const isAllowedActionExpression = (
   value: string,
   grantedCapabilities: ReadonlySet<string>,
 ): boolean => {
-  if (parseGenui0SetAction(value) !== undefined) return true
+  if (genui0Language.parseSetAction(value) !== undefined) return true
 
-  const action = parseGenui0CapabilityAction(value)
+  const action = genui0Language.parseCapabilityAction(value)
   return action !== undefined && grantedCapabilities.has(action.capability)
 }
 
@@ -348,10 +341,10 @@ const isAllowedValue = (
   grantedCapabilities: ReadonlySet<string>,
 ): boolean => {
   if (valueKind === "action") return isAllowedActionExpression(value, grantedCapabilities)
-  if (valueKind === "object") return isSafeGenui0ObjectExpression(value)
-  if (valueKind === "binding") return isSafeGenui0BindingExpression(value)
-  if (valueKind === "state_name") return isGenui0StateName(value)
-  return isSafeGenui0SimpleExpression(value)
+  if (valueKind === "object") return genui0Language.isSafeObjectExpression(value)
+  if (valueKind === "binding") return genui0Language.isSafeBindingExpression(value)
+  if (valueKind === "state_name") return genui0Language.isStateName(value)
+  return genui0Language.isSafeSimpleExpression(value)
 }
 
 /** Return a data-* attribute only when it belongs to the genui/0 dialect subset. */

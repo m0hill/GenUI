@@ -5,7 +5,7 @@ import {
 } from "./capability-projections.js"
 import { capabilityError } from "./capability-result.js"
 import { genui0Dialect } from "./dialect/genui0.js"
-import { isGenui0CapabilityName } from "./dialect/genui0-language.js"
+import { genui0Language } from "./dialect/genui0-language.js"
 import { parseWithSchema } from "./schema.js"
 import { createSurfaceRuntime } from "./surface-runtime.js"
 import {
@@ -36,7 +36,7 @@ export const createRegistry = <Ctx>(options: CreateRegistryOptions<Ctx>): Regist
   const byName = new Map<string, AnyCapabilityDefinition<Ctx>>()
 
   for (const capability of options.capabilities) {
-    if (!isGenui0CapabilityName(capability.name)) {
+    if (!genui0Language.isCapabilityName(capability.name)) {
       throw new Error(`Invalid capability name: ${capability.name}`)
     }
     if (byName.has(capability.name)) {

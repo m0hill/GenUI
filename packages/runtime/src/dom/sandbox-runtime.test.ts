@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 import type { Window } from "happy-dom"
 import { genui0Dialect } from "../dialect/genui0.js"
-import { createGenui0Language } from "../dialect/genui0-language.js"
+import { genui0Language } from "../dialect/genui0-language.js"
 import { protocolChannel } from "./protocol.js"
 import {
   installSandboxRuntime,
@@ -24,18 +24,7 @@ interface RuntimeHarness {
   readonly instance: SandboxRuntimeInstance
 }
 
-const genui0Language = createGenui0Language()
-
-const language: SandboxRuntimeLanguage = {
-  invalid: genui0Language.invalid,
-  parseObjectLiteral: (source, readState) => genui0Language.parseObjectLiteral(source, readState),
-  evaluateExpression: (source, readState) => genui0Language.evaluateExpression(source, readState),
-  parseCapabilityExpression: (expression, readState) =>
-    genui0Language.parseCapabilityExpression(expression, readState),
-  parseSetExpression: (expression, readState) =>
-    genui0Language.parseSetExpression(expression, readState),
-  defaultResultTarget: (capability) => genui0Language.defaultResultTarget(capability),
-}
+const language: SandboxRuntimeLanguage = genui0Language
 
 const asSandboxGlobal = (window: Window): SandboxRuntimeGlobal => {
   // SAFETY: happy-dom's Window exposes the browser APIs used by the sandbox runtime. Its

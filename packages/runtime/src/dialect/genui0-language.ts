@@ -46,7 +46,7 @@ export interface Genui0Language {
 }
 
 /** Build the genui/0 expression grammar used by sanitizer checks and the sandbox runtime. */
-export const createGenui0Language = (): Genui0Language => {
+const createGenui0Language = (): Genui0Language => {
   const capabilityNamePatternSource = "[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+"
   const bareIdentifierPatternSource = "_?[A-Za-z][A-Za-z0-9_]*"
   const statePathPatternSource = "\\$_?[A-Za-z][A-Za-z0-9_]*(?:\\._?[A-Za-z][A-Za-z0-9_]*)*"
@@ -407,41 +407,5 @@ export const createGenui0Language = (): Genui0Language => {
   }
 }
 
-const genui0Language = createGenui0Language()
-
-/** Return whether a string is a valid genui/0 capability name. */
-export const isGenui0CapabilityName = (value: string): boolean =>
-  genui0Language.isCapabilityName(value)
-
-/** Return whether a string is a valid genui/0 state binding name. */
-export const isGenui0StateName = (value: string): boolean => genui0Language.isStateName(value)
-
-/** Return whether a flat object expression belongs to the genui/0 closed expression subset. */
-export const isSafeGenui0ObjectExpression = (value: string): boolean =>
-  genui0Language.isSafeObjectExpression(value)
-
-/** Return whether an ordinary local expression belongs to the genui/0 subset. */
-export const isSafeGenui0SimpleExpression = (value: string): boolean =>
-  genui0Language.isSafeSimpleExpression(value)
-
-/** Return whether a data-genui-bind expression belongs to the genui/0 subset. */
-export const isSafeGenui0BindingExpression = (value: string): boolean =>
-  genui0Language.isSafeBindingExpression(value)
-
-/** Parse a v0 @capability action only when its input and target syntax are in the dialect. */
-export const parseGenui0CapabilityAction = (value: string): Genui0CapabilityAction | undefined =>
-  genui0Language.parseCapabilityAction(value)
-
-/** Parse a v0 local @set action only when its path and value syntax are in the dialect. */
-export const parseGenui0SetAction = (value: string): Genui0SetAction | undefined =>
-  genui0Language.parseSetAction(value)
-
-/** Convert a capability name into the default genui/0 result state target. */
-export const defaultGenui0ResultTarget = (capability: string): string =>
-  genui0Language.defaultResultTarget(capability)
-
-/** Keep model-authored result target names inside the genui/0 state-name subset. */
-export const normalizeGenui0ResultTarget = (
-  target: string | undefined,
-  capability: string,
-): string => genui0Language.normalizeResultTarget(target, capability)
+/** Shared genui/0 language object used by sanitizer checks and the sandbox runtime. */
+export const genui0Language = createGenui0Language()
