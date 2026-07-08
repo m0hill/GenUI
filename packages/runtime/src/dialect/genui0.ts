@@ -3,6 +3,7 @@ import {
   isSafeStyleProperty,
   isSafeStyleValue,
   normalizeGenuiStylePropertyName,
+  normalizeStylePropertyName,
 } from "../css-style.js"
 import { genuiDialect, type Action, type SanitizationDropReason } from "../types.js"
 
@@ -110,6 +111,7 @@ interface Genui0ApplyDirectiveContext {
   isTruthy(value: unknown): boolean
   shouldRemoveDynamicValue(value: unknown): boolean
   textValue(value: unknown): string
+  updateStyleMapProperties(element: Element, properties: readonly string[]): readonly string[]
 }
 
 interface Genui0DirectiveDefinition {
@@ -176,6 +178,19 @@ const applyStyleValue = (
   }
 
   style.setProperty(property, styleValue)
+}
+
+const clearStaleStyleMapProperties = (
+  element: Element,
+  previousProperties: readonly string[],
+  nextProperties: ReadonlySet<string>,
+): void => {
+  const style = elementStyle(element)
+  if (style === undefined) return
+
+  for (const property of previousProperties) {
+    if (!nextProperties.has(property)) style.removeProperty(property)
+  }
 }
 
 const genui0DirectiveDefinitions = [
@@ -504,8 +519,21 @@ export const applyGenui0RuntimeDirective = (
   }
 
   if (directive.type === "style_map") {
+    const entries = isRecord(value)
+      ? Object.entries(value).map(
+          ([property, propertyValue]) =>
+            [normalizeStylePropertyName(property), propertyValue] as const,
+        )
+      : []
+    const nextProperties = new Set(entries.map(([property]) => property))
+    const previousProperties = context.updateStyleMapProperties(
+      directive.element,
+      Array.from(nextProperties),
+    )
+    clearStaleStyleMapProperties(directive.element, previousProperties, nextProperties)
+
     if (isRecord(value)) {
-      for (const [property, propertyValue] of Object.entries(value)) {
+      for (const [property, propertyValue] of entries) {
         applyStyleValue(directive.element, property, propertyValue, context)
       }
     }

@@ -87,6 +87,7 @@ export const installSandboxRuntime = (
   const inlineEachStates = new WeakMap<Element, EachRenderState>()
   const baseClassNames = new WeakMap<Element, string>()
   const visibleDisplays = new WeakMap<Element, string>()
+  const styleMapProperties = new WeakMap<Element, readonly string[]>()
   const emptyScope: StateScope = {}
 
   const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -180,6 +181,19 @@ export const installSandboxRuntime = (
     if (typeof value === "string") return value
     if (typeof value === "number" || typeof value === "boolean") return String(value)
     return JSON.stringify(value)
+  }
+
+  const updateStyleMapProperties = (
+    element: Element,
+    properties: readonly string[],
+  ): readonly string[] => {
+    const previous = styleMapProperties.get(element) ?? []
+    if (properties.length === 0) {
+      styleMapProperties.delete(element)
+    } else {
+      styleMapProperties.set(element, properties)
+    }
+    return previous
   }
 
   const post = (message: Record<string, unknown>): void => {
@@ -303,6 +317,7 @@ export const installSandboxRuntime = (
         isTruthy,
         shouldRemoveDynamicValue,
         textValue,
+        updateStyleMapProperties,
       })
     }
   }

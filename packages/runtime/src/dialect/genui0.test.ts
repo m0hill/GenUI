@@ -27,6 +27,7 @@ const grantedActionList: readonly Action[] = [
   },
 ]
 const grantedActions = new Map(grantedActionList.map((action) => [action.name, action]))
+const runtimeStyleMapProperties = new WeakMap<Element, readonly string[]>()
 
 const runtimeContext = {
   isTruthy(value: unknown): boolean {
@@ -40,6 +41,15 @@ const runtimeContext = {
     if (typeof value === "string") return value
     if (typeof value === "number" || typeof value === "boolean") return String(value)
     return JSON.stringify(value)
+  },
+  updateStyleMapProperties(element: Element, properties: readonly string[]): readonly string[] {
+    const previous = runtimeStyleMapProperties.get(element) ?? []
+    if (properties.length === 0) {
+      runtimeStyleMapProperties.delete(element)
+    } else {
+      runtimeStyleMapProperties.set(element, properties)
+    }
+    return previous
   },
 }
 

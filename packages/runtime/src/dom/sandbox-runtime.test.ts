@@ -302,6 +302,35 @@ void test("sandbox runtime removes unsafe dynamic style values", () => {
   assert.doesNotMatch(styled?.getAttribute("style") ?? "", /background/)
 })
 
+void test("sandbox runtime removes stale properties from dynamic style maps", () => {
+  const { window } = createHarness(`
+    <p id="styled" data-genui-style="$theme.value.styles"></p>
+  `)
+
+  const setStyles = (styles: Readonly<Record<string, string>>): void => {
+    window.dispatchEvent(
+      new window.MessageEvent("message", {
+        data: {
+          channel: protocolChannel,
+          surfaceId: "surface-test",
+          type: "result",
+          target: "theme",
+          state: { status: "complete", value: { styles } },
+        },
+      }),
+    )
+  }
+
+  const styled = window.document.querySelector("#styled")
+  assert.notEqual(styled, null)
+
+  setStyles({ color: "red" })
+  assert.equal(styled?.getAttribute("style"), "color: red;")
+
+  setStyles({})
+  assert.equal(styled?.getAttribute("style") ?? "", "")
+})
+
 void test("sandbox runtime runs local set actions without posting messages", () => {
   const { window, messages } = createHarness(`
     <section data-genui-state="{ tab: 'summary' }">
@@ -624,7 +653,7 @@ void test("sandbox runtime renders repeated items with scoped capability inputs"
 void test("sandbox runtime preserves keyed repeated rows across reorder", () => {
   const { window } = createHarness(`
     <ul data-genui-each="$orders.value.items" data-genui-as="order" data-genui-key="$order.id">
-      <li class="row" data-genui-class="$order.status">
+      <li class="row" data-genui-class="$order.status" data-genui-style="$order.styles">
         <span class="id" data-genui-text="$order.id"></span>
         <span class="status" data-genui-text="$order.status"></span>
         <input class="draft" value="">
@@ -632,7 +661,7 @@ void test("sandbox runtime preserves keyed repeated rows across reorder", () => 
     </ul>
   `)
 
-  const setOrders = (items: readonly Record<string, string>[]): void => {
+  const setOrders = (items: readonly Record<string, unknown>[]): void => {
     window.dispatchEvent(
       new window.MessageEvent("message", {
         data: {
@@ -647,8 +676,8 @@ void test("sandbox runtime preserves keyed repeated rows across reorder", () => 
   }
 
   setOrders([
-    { id: "order-1", status: "paid" },
-    { id: "order-2", status: "pending" },
+    { id: "order-1", status: "paid", styles: {} },
+    { id: "order-2", status: "pending", styles: { color: "red" } },
   ])
 
   const firstRows = Array.from(window.document.querySelectorAll("li"))
@@ -660,8 +689,8 @@ void test("sandbox runtime preserves keyed repeated rows across reorder", () => 
   if (keptInput !== null) keptInput.value = "draft survives"
 
   setOrders([
-    { id: "order-2", status: "refunded" },
-    { id: "order-1", status: "paid" },
+    { id: "order-2", status: "refunded", styles: {} },
+    { id: "order-1", status: "paid", styles: {} },
   ])
 
   const nextRows = Array.from(window.document.querySelectorAll("li"))
@@ -670,6 +699,7 @@ void test("sandbox runtime preserves keyed repeated rows across reorder", () => 
   assert.equal(nextRows[0]?.querySelector(".id")?.textContent, "order-2")
   assert.equal(nextRows[0]?.querySelector(".status")?.textContent, "refunded")
   assert.equal(nextRows[0]?.className, "row refunded")
+  assert.equal(nextRows[0]?.getAttribute("style") ?? "", "")
   assert.equal(nextRows[0]?.querySelector("input")?.value, "draft survives")
 })
 
