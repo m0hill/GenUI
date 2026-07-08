@@ -1,23 +1,12 @@
 import { parseFragment, serialize, type DefaultTreeAdapterMap } from "parse5"
 import { sanitizeInlineStyle } from "./css-style.js"
-import { genui0HtmlDialectPolicy } from "./dialect/genui0.js"
+import { genui0Dialect } from "./dialect/genui0.js"
+import type { SurfaceDialectSanitizer } from "./dialect/surface-dialect.js"
 
 type ParentNode = DefaultTreeAdapterMap["parentNode"]
 type ChildNode = DefaultTreeAdapterMap["childNode"]
 type ElementNode = DefaultTreeAdapterMap["element"]
 type Attribute = ElementNode["attrs"][number]
-
-interface SanitizerDialectPolicy {
-  allowDataAttribute(input: {
-    readonly name: string
-    readonly value: string | undefined
-    readonly grantedCapabilities: ReadonlySet<string>
-    readonly insideRepeatedTemplate: boolean
-    readonly elementStartsRepeatedTemplate: boolean
-  }): { readonly name: string; readonly value: string } | undefined
-  startsRepeatedTemplate(attributeName: string): boolean
-  forbiddenInRepeatedTemplate(attributeName: string): boolean
-}
 
 const removedElementTags = new Set([
   "base",
@@ -74,7 +63,7 @@ const sanitizeDataAttribute = (
   grantedCapabilities: ReadonlySet<string>,
   insideRepeatedTemplate: boolean,
   elementStartsRepeatedTemplate: boolean,
-  dialect: SanitizerDialectPolicy,
+  dialect: SurfaceDialectSanitizer,
 ): Attribute | undefined => {
   const allowed = dialect.allowDataAttribute({
     name: attribute.name,
@@ -91,7 +80,7 @@ const sanitizeAttribute = (
   attribute: Attribute,
   grantedCapabilities: ReadonlySet<string>,
   insideRepeatedTemplate: boolean,
-  dialect: SanitizerDialectPolicy,
+  dialect: SurfaceDialectSanitizer,
 ): Attribute | undefined => {
   const name = attributeName(attribute).toLowerCase()
 
@@ -127,7 +116,7 @@ const sanitizeAttributes = (
   element: ElementNode,
   grantedCapabilities: ReadonlySet<string>,
   insideRepeatedTemplate: boolean,
-  dialect: SanitizerDialectPolicy,
+  dialect: SurfaceDialectSanitizer,
 ): void => {
   element.attrs = element.attrs.flatMap((attribute) => {
     const safe = sanitizeAttribute(attribute, grantedCapabilities, insideRepeatedTemplate, dialect)
@@ -147,7 +136,7 @@ const sanitizeAttributes = (
 const sanitizeChildren = (
   parent: ParentNode,
   grantedCapabilities: ReadonlySet<string>,
-  dialect: SanitizerDialectPolicy,
+  dialect: SurfaceDialectSanitizer,
   insideRepeatedTemplate = false,
 ): void => {
   const safeChildren: ChildNode[] = []
@@ -182,6 +171,6 @@ export const sanitizeSurfaceHtml = (
   grantedCapabilities: ReadonlySet<string>,
 ): string => {
   const fragment = parseFragment(html)
-  sanitizeChildren(fragment, grantedCapabilities, genui0HtmlDialectPolicy)
+  sanitizeChildren(fragment, grantedCapabilities, genui0Dialect.sanitizer)
   return serialize(fragment)
 }

@@ -1,4 +1,5 @@
 import { createGenui0Language } from "../dialect/genui0-language.js"
+import { genui0Dialect } from "../dialect/genui0.js"
 import {
   installSandboxRuntime,
   type SandboxRuntimeConfig,
@@ -31,5 +32,6 @@ installSandboxRuntime(
       genui0Language.parseSetExpression(expression, readState),
     defaultResultTarget: (capability) => genui0Language.defaultResultTarget(capability),
   },
+  genui0Dialect.runtime,
   sandboxGlobal as unknown as SandboxRuntimeGlobal,
 )

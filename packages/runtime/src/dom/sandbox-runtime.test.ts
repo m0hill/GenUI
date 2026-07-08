@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import type { Window } from "happy-dom"
+import { genui0Dialect } from "../dialect/genui0.js"
 import { createGenui0Language } from "../dialect/genui0-language.js"
 import { protocolChannel } from "./protocol.js"
 import {
@@ -48,6 +49,7 @@ const createHarness = (html: string, surfaceId = "surface-test"): RuntimeHarness
   const instance = installSandboxRuntime(
     { channel: protocolChannel, surfaceId },
     language,
+    genui0Dialect.runtime,
     asSandboxGlobal(window),
   )
 

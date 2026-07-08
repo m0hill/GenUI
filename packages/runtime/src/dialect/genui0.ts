@@ -12,6 +12,15 @@ import {
   normalizeGenuiStylePropertyName,
 } from "../css-style.js"
 import { genuiDialect, type CapabilityDescriptor } from "../types.js"
+import type {
+  SurfaceDialect,
+  SurfaceDialectAllowedDataAttribute,
+  SurfaceDialectApplyDirectiveContext,
+  SurfaceDialectDataAttributeInput,
+  SurfaceDialectRuntime,
+  SurfaceDialectSanitizer,
+  SurfaceRuntimeDirective,
+} from "./surface-dialect.js"
 
 export const genui0AttributeNames = {
   state: "data-genui-state",
@@ -29,18 +38,15 @@ export const genui0AttributeNames = {
   attrPrefix: "data-genui-attr-",
 } as const
 
-interface Genui0DataAttribute {
-  readonly name: string
-  readonly value: string | undefined
-  readonly grantedCapabilities: ReadonlySet<string>
+type Genui0DataAttribute = Omit<
+  SurfaceDialectDataAttributeInput,
+  "insideRepeatedTemplate" | "elementStartsRepeatedTemplate"
+> & {
   readonly insideRepeatedTemplate?: boolean
   readonly elementStartsRepeatedTemplate?: boolean
 }
 
-interface AllowedGenui0DataAttribute {
-  readonly name: string
-  readonly value: string
-}
+type AllowedGenui0DataAttribute = SurfaceDialectAllowedDataAttribute
 
 type Genui0AttributePattern =
   | {
@@ -92,17 +98,14 @@ type Genui0RenderableDirective =
       readonly expression: string
     }
 
-export type Genui0RuntimeDirective = Genui0RenderableDirective & {
-  readonly element: Element
-  readonly visibleDisplay?: string
-  readonly baseClassName?: string
-}
+export type Genui0RuntimeDirective = Genui0RenderableDirective &
+  SurfaceRuntimeDirective & {
+    readonly element: Element
+    readonly visibleDisplay?: string
+    readonly baseClassName?: string
+  }
 
-interface Genui0ApplyDirectiveContext {
-  isTruthy(value: unknown): boolean
-  shouldRemoveDynamicValue(value: unknown): boolean
-  textValue(value: unknown): string
-}
+type Genui0ApplyDirectiveContext = SurfaceDialectApplyDirectiveContext
 
 interface Genui0DirectiveDefinition {
   readonly key: string
@@ -467,7 +470,13 @@ export const genui0HtmlDialectPolicy = {
   allowDataAttribute: allowGenui0DataAttribute,
   startsRepeatedTemplate: genui0AttributeStartsRepeatedTemplate,
   forbiddenInRepeatedTemplate: genui0AttributeForbiddenInRepeatedTemplate,
-} as const
+} as const satisfies SurfaceDialectSanitizer
+
+export const genui0Runtime = {
+  attributeNames: genui0AttributeNames,
+  directiveFromAttribute: genui0RuntimeDirectiveFromAttribute,
+  applyDirective: applyGenui0RuntimeDirective,
+} as const satisfies SurfaceDialectRuntime<Genui0RuntimeDirective>
 
 /** Build the model-facing instruction text for the genui/0 dialect. */
 export const genui0Instructions = (capabilities: readonly CapabilityDescriptor[]): string => {
@@ -497,3 +506,10 @@ export const genui0Instructions = (capabilities: readonly CapabilityDescriptor[]
     capabilityList.length > 0 ? capabilityList : "- none",
   ].join("\n")
 }
+
+export const genui0Dialect = {
+  id: genuiDialect,
+  sanitizer: genui0HtmlDialectPolicy,
+  runtime: genui0Runtime,
+  instructions: genui0Instructions,
+} as const satisfies SurfaceDialect<Genui0RuntimeDirective>

@@ -4,7 +4,7 @@ import {
   publicCapabilityDescriptors,
 } from "./capability-projections.js"
 import { capabilityError } from "./capability-result.js"
-import { genui0Instructions } from "./dialect/genui0.js"
+import { genui0Dialect } from "./dialect/genui0.js"
 import { isGenui0CapabilityName } from "./dialect/genui0-language.js"
 import { parseWithSchema } from "./schema.js"
 import { createSurfaceRuntime } from "./surface-runtime.js"
@@ -100,7 +100,7 @@ export const createRegistry = <Ctx>(options: CreateRegistryOptions<Ctx>): Regist
   const descriptors = (): CapabilityDescriptor[] => publicCapabilityDescriptors(byName.values())
 
   const instructions = (): string => {
-    return genui0Instructions(descriptors())
+    return genui0Dialect.instructions(descriptors())
   }
 
   return { createSurface, execute, descriptors, instructions }

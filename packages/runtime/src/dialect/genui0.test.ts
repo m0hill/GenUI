@@ -4,6 +4,7 @@ import { Window } from "happy-dom"
 import {
   applyGenui0RuntimeDirective,
   allowGenui0DataAttribute,
+  genui0Dialect,
   genui0DirectiveInstructionLines,
   genui0DirectiveUsages,
   genui0Instructions,
@@ -35,6 +36,14 @@ const runtimeDirective = (element: Element, attributeName: string) => {
   if (directive === undefined) throw new Error(`Expected runtime directive: ${attributeName}`)
   return directive
 }
+
+void test("genui/0 exposes one internal dialect object", () => {
+  assert.equal(genui0Dialect.id, "genui/0")
+  assert.equal(genui0Dialect.sanitizer.allowDataAttribute, allowGenui0DataAttribute)
+  assert.equal(genui0Dialect.runtime.directiveFromAttribute, genui0RuntimeDirectiveFromAttribute)
+  assert.equal(genui0Dialect.runtime.applyDirective, applyGenui0RuntimeDirective)
+  assert.equal(genui0Dialect.instructions, genui0Instructions)
+})
 
 void test("genui/0 allows only granted capability actions with v0 object inputs", () => {
   assert.deepEqual(

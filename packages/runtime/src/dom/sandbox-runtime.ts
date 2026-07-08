@@ -1,9 +1,4 @@
-import {
-  applyGenui0RuntimeDirective,
-  genui0AttributeNames,
-  genui0RuntimeDirectiveFromAttribute,
-  type Genui0RuntimeDirective,
-} from "../dialect/genui0.js"
+import type { SurfaceDialectRuntime, SurfaceRuntimeDirective } from "../dialect/surface-dialect.js"
 
 export interface SandboxRuntimeConfig {
   readonly channel: string
@@ -60,12 +55,13 @@ export interface SandboxRuntimeInstance {
 export const installSandboxRuntime = (
   config: SandboxRuntimeConfig,
   language: SandboxRuntimeLanguage,
+  dialect: SurfaceDialectRuntime<SurfaceRuntimeDirective>,
   global: SandboxRuntimeGlobal,
 ): SandboxRuntimeInstance => {
   type StateScope = Readonly<Record<string, unknown>>
   type RenderMode = "static" | "template"
 
-  type Directive = Genui0RuntimeDirective & {
+  type Directive = SurfaceRuntimeDirective & {
     readonly scope: StateScope
   }
 
@@ -274,7 +270,7 @@ export const installSandboxRuntime = (
   }
 
   const isBoundElement = (target: EventTarget | null): target is Element =>
-    target instanceof global.Element && target.hasAttribute(genui0AttributeNames.bind)
+    target instanceof global.Element && target.hasAttribute(dialect.attributeNames.bind)
 
   const currentDirectives = (): readonly Directive[] => [
     ...directives,
@@ -284,7 +280,7 @@ export const installSandboxRuntime = (
   const refreshDirectives = (): void => {
     for (const directive of currentDirectives()) {
       const value = evaluate(directive.expression, directive.scope)
-      applyGenui0RuntimeDirective(directive, value, {
+      dialect.applyDirective(directive, value, {
         isTruthy,
         shouldRemoveDynamicValue,
         textValue,
@@ -360,8 +356,8 @@ export const installSandboxRuntime = (
     runLocalAction(expression, scope) || postCapabilityCall(expression, scope)
 
   const handleClick = (event: MouseEvent): void => {
-    const action = closestWithAttribute(event.target, genui0AttributeNames.onClick)
-    const expression = action?.getAttribute(genui0AttributeNames.onClick) ?? null
+    const action = closestWithAttribute(event.target, dialect.attributeNames.onClick)
+    const expression = action?.getAttribute(dialect.attributeNames.onClick) ?? null
     if (
       action !== null &&
       expression !== null &&
@@ -392,10 +388,10 @@ export const installSandboxRuntime = (
     if (!(target instanceof global.Element)) return
 
     const form = target.closest("form")
-    if (form === null || !form.hasAttribute(genui0AttributeNames.onSubmit)) return
+    if (form === null || !form.hasAttribute(dialect.attributeNames.onSubmit)) return
 
     event.preventDefault()
-    const expression = form.getAttribute(genui0AttributeNames.onSubmit)
+    const expression = form.getAttribute(dialect.attributeNames.onSubmit)
     if (expression !== null) runAuthoredAction(expression, scopeForElement(form))
   }
 
@@ -404,7 +400,7 @@ export const installSandboxRuntime = (
     if (!isBoundElement(target)) return
 
     writePath(
-      statePath(target.getAttribute(genui0AttributeNames.bind) ?? ""),
+      statePath(target.getAttribute(dialect.attributeNames.bind) ?? ""),
       readElementValue(target),
     )
     refresh()
@@ -421,9 +417,9 @@ export const installSandboxRuntime = (
   }
 
   const installInitialState = (): void => {
-    for (const element of global.document.querySelectorAll(`[${genui0AttributeNames.state}]`)) {
+    for (const element of global.document.querySelectorAll(`[${dialect.attributeNames.state}]`)) {
       const parsed = language.parseObjectLiteral(
-        element.getAttribute(genui0AttributeNames.state) ?? "{}",
+        element.getAttribute(dialect.attributeNames.state) ?? "{}",
         readStateFromScope(emptyScope),
       )
       if (!isRecord(parsed)) continue
@@ -432,7 +428,7 @@ export const installSandboxRuntime = (
   }
 
   const installStaticBinding = (element: Element): void => {
-    const binding = element.getAttribute(genui0AttributeNames.bind)
+    const binding = element.getAttribute(dialect.attributeNames.bind)
     if (binding === null) return
 
     const path = statePath(binding)
@@ -451,7 +447,7 @@ export const installSandboxRuntime = (
     scope: StateScope,
     targetDirectives: Directive[],
   ): void => {
-    const directive = genui0RuntimeDirectiveFromAttribute({ element, attribute })
+    const directive = dialect.directiveFromAttribute({ element, attribute })
     if (directive === undefined) return
 
     targetDirectives.push({
@@ -473,7 +469,7 @@ export const installSandboxRuntime = (
 
     if (mode === "static") installStaticBinding(element)
 
-    if (element.hasAttribute(genui0AttributeNames.each)) {
+    if (element.hasAttribute(dialect.attributeNames.each)) {
       if (mode === "static") {
         installEachBlock(element, scope)
       } else {
@@ -486,10 +482,10 @@ export const installSandboxRuntime = (
   }
 
   const installEachBlock = (element: Element, scope: StateScope): void => {
-    const expression = element.getAttribute(genui0AttributeNames.each)
+    const expression = element.getAttribute(dialect.attributeNames.each)
     if (expression === null) return
 
-    const itemName = element.getAttribute(genui0AttributeNames.as) ?? "item"
+    const itemName = element.getAttribute(dialect.attributeNames.as) ?? "item"
     const template = Array.from(element.childNodes).map((node) => node.cloneNode(true))
     element.replaceChildren()
     eachBlocks.push({ element, expression, itemName, scope, template, directives: [] })
@@ -525,10 +521,10 @@ export const installSandboxRuntime = (
     scope: StateScope,
     targetDirectives: Directive[],
   ): void {
-    const expression = element.getAttribute(genui0AttributeNames.each)
+    const expression = element.getAttribute(dialect.attributeNames.each)
     if (expression === null) return
 
-    const itemName = element.getAttribute(genui0AttributeNames.as) ?? "item"
+    const itemName = element.getAttribute(dialect.attributeNames.as) ?? "item"
     const template = Array.from(element.childNodes).map((node) => node.cloneNode(true))
     renderEachTemplate(element, expression, itemName, template, scope, targetDirectives)
   }

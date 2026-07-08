@@ -221,9 +221,19 @@ Supported event actions:
      authoritative denial returned by transport still reaches the surface as
      `approval_denied`.
 
+9. Internal dialect interface.
+   - Done in code: added an internal `SurfaceDialect` contract that owns sanitizer policy,
+     sandbox runtime directive behavior, directive attribute names, and model instructions.
+   - Done in code: `genui/0` now exposes one `genui0Dialect` object implementing that
+     internal contract.
+   - Done in code: the generic sanitizer consumes `genui0Dialect.sanitizer` instead of a
+     local policy shape.
+   - Done in code: the sandbox runtime receives a dialect runtime object, so it no longer
+     imports genui/0 directive functions or attribute names directly.
+   - Done in code: registry instructions route through `genui0Dialect.instructions`.
+
 ## Important Deferred Work
 
-- Internal `SurfaceDialect` interface so future dialect versions have one owner.
 - Prototype-pollution tests around state paths and object literal keys.
 - Model adapters.
 - React wrapper.
