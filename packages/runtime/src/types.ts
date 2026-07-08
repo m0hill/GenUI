@@ -1,6 +1,9 @@
 /** Current generated UI dialect understood by this runtime. */
 export const genuiDialect = "genui/0"
 
+/** Versioned generated UI interaction dialect identifier. */
+export type Dialect = string
+
 /** Coarse effect class used for policy, approval, and product UX. */
 export type Effect = "local" | "read" | "write" | "dangerous"
 
@@ -86,7 +89,7 @@ export interface Surface {
   readonly id: string
   readonly html: string
   readonly grant: Grant
-  readonly dialect: typeof genuiDialect
+  readonly dialect: Dialect
   readonly meta?: Readonly<Record<string, unknown>>
 }
 

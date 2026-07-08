@@ -28,3 +28,10 @@ void test("runtime source stays decoupled from app, agent, and transport package
     assert.doesNotMatch(source, /\bchat\b/i, file)
   }
 })
+
+void test("package root does not re-export internal schema compatibility helpers", async () => {
+  const source = await readFile("src/index.ts", "utf8")
+
+  assert.doesNotMatch(source, /\bStandardSchema/)
+  assert.doesNotMatch(source, /\bStandardTyped/)
+})

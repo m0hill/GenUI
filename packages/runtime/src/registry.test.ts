@@ -6,6 +6,7 @@ import {
   type CapabilityErrorCode,
   type CapabilityResult,
   type StandardSchemaV1,
+  type Surface,
 } from "./types.js"
 import { isRecord, testSchema } from "./test-schema.test-support.js"
 
@@ -115,6 +116,17 @@ void test("registry projects a grant and sanitizes HTML under that grant", () =>
   assert.doesNotMatch(surface.html, /demo\.blocked/)
   assert.doesNotMatch(surface.html, /<script/i)
   assert.deepEqual(JSON.parse(JSON.stringify(surface)), surface)
+})
+
+void test("surface dialect type permits future dialect identifiers", () => {
+  const surface: Surface = {
+    id: "surface-test",
+    html: "",
+    grant: { surfaceId: "surface-test", capabilities: [] },
+    dialect: "genui/future",
+  }
+
+  assert.equal(surface.dialect, "genui/future")
 })
 
 void test("same HTML receives different authority from different grants", async () => {
