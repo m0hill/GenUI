@@ -96,6 +96,8 @@ void test("genui/0 language validates safe expressions", () => {
   assert.equal(isSafeGenui0ObjectExpression("{ nested: { value: 1 } }"), false)
 
   assert.equal(isSafeGenui0SimpleExpression("$count"), true)
+  assert.equal(isSafeGenui0SimpleExpression("$status == 'pending'"), true)
+  assert.equal(isSafeGenui0SimpleExpression("$status != 'error'"), true)
   assert.equal(isSafeGenui0SimpleExpression("{ count: 1 }"), true)
   assert.equal(isSafeGenui0SimpleExpression("$count > 2"), false)
 

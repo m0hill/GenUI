@@ -86,6 +86,7 @@ void test("sanitizer strips unsafe Datastar expressions", () => {
       `<span data-text="window.location">x</span>`,
       `<button data-on:click="@capability('dice.roll', { sides: 6 }); fetch('/x')">Bad</button>`,
       `<span data-signals="{ count: 1 }" data-text="$count">1</span>`,
+      `<span data-show="$status == 'pending'">Loading</span>`,
     ].join(""),
     granted,
   )
@@ -95,6 +96,7 @@ void test("sanitizer strips unsafe Datastar expressions", () => {
   assert.doesNotMatch(safe, /data-on:click/)
   assert.match(safe, /data-signals="\{ count: 1 \}"/)
   assert.match(safe, /data-text="\$count"/)
+  assert.match(safe, /data-show="\$status == 'pending'"/)
 })
 
 void test("sanitizer strips JavaScript-shaped constructor expressions", () => {

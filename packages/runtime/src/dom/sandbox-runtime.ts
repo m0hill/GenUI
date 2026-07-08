@@ -12,16 +12,19 @@ export interface SandboxRuntimeCapabilityAction {
 export interface SandboxRuntimeLanguage {
   readonly invalid: unknown
   parseObjectLiteral(source: string, readSignal: (expression: string) => unknown): unknown
+  evaluateExpression(source: string, readSignal: (expression: string) => unknown): unknown
   parseCapabilityExpression(
     expression: string,
     readSignal: (expression: string) => unknown,
   ): SandboxRuntimeCapabilityAction | undefined
+  defaultResultTarget(capability: string): string
 }
 
 export interface SandboxRuntimeGlobal {
   readonly document: Document
   readonly parent: Pick<Window, "postMessage">
   readonly Element: typeof Element
+  readonly HTMLElement?: typeof HTMLElement
   readonly HTMLAnchorElement?: typeof HTMLAnchorElement
   readonly HTMLInputElement?: typeof HTMLInputElement
   readonly HTMLSelectElement?: typeof HTMLSelectElement
@@ -43,14 +46,127 @@ export const installSandboxRuntime = (
   language: SandboxRuntimeLanguage,
   global: SandboxRuntimeGlobal,
 ): SandboxRuntimeInstance => {
+  type BoundElement = {
+    readonly element: Element
+    readonly path: readonly string[]
+  }
+
+  type Directive =
+    | { readonly type: "text"; readonly element: Element; readonly expression: string }
+    | {
+        readonly type: "show"
+        readonly element: Element
+        readonly expression: string
+        readonly visibleDisplay: string
+      }
+    | {
+        readonly type: "class_toggle"
+        readonly element: Element
+        readonly className: string
+        readonly expression: string
+      }
+    | {
+        readonly type: "class_value"
+        readonly element: Element
+        readonly baseClassName: string
+        readonly expression: string
+      }
+    | {
+        readonly type: "style_property"
+        readonly element: Element
+        readonly property: string
+        readonly expression: string
+      }
+    | { readonly type: "style_map"; readonly element: Element; readonly expression: string }
+    | {
+        readonly type: "attribute"
+        readonly element: Element
+        readonly attribute: string
+        readonly expression: string
+      }
+
   let nextCallId = 1
   let resizeObserver: ResizeObserver | undefined
+  const signals: Record<string, unknown> = {}
+  const boundElements: BoundElement[] = []
+  const directives: Directive[] = []
 
   const isRecord = (value: unknown): value is Record<string, unknown> =>
     typeof value === "object" && value !== null
 
   const hasOwn = (value: object, key: string): boolean =>
     Object.prototype.hasOwnProperty.call(value, key)
+
+  const signalPath = (expression: string): readonly string[] => {
+    const source = expression.startsWith("$") ? expression.slice(1) : expression
+    return source.split(".").filter((part) => part.length > 0)
+  }
+
+  const readPath = (path: readonly string[]): unknown => {
+    const [name, ...rest] = path
+    if (name === undefined) return ""
+
+    let value: unknown = hasOwn(signals, name) ? signals[name] : ""
+    for (const property of rest) {
+      if (!isRecord(value) || !hasOwn(value, property)) return ""
+      value = value[property]
+    }
+    return value
+  }
+
+  const writePath = (path: readonly string[], value: unknown): void => {
+    const [name, ...rest] = path
+    if (name === undefined) return
+
+    if (rest.length === 0) {
+      signals[name] = value
+      return
+    }
+
+    let cursor: Record<string, unknown>
+    const current = signals[name]
+    if (isRecord(current)) {
+      cursor = current
+    } else {
+      cursor = {}
+      signals[name] = cursor
+    }
+
+    for (const property of rest.slice(0, -1)) {
+      const child = cursor[property]
+      if (isRecord(child)) {
+        cursor = child
+        continue
+      }
+
+      const next: Record<string, unknown> = {}
+      cursor[property] = next
+      cursor = next
+    }
+
+    const last = rest.at(-1)
+    if (last !== undefined) cursor[last] = value
+  }
+
+  const readSignal = (expression: string): unknown => readPath(signalPath(expression))
+
+  const evaluate = (expression: string): unknown =>
+    language.evaluateExpression(expression, readSignal)
+
+  const isTruthy = (value: unknown): boolean =>
+    value !== language.invalid &&
+    value !== false &&
+    value !== null &&
+    value !== undefined &&
+    value !== "" &&
+    value !== 0
+
+  const textValue = (value: unknown): string => {
+    if (value === language.invalid || value === null || value === undefined) return ""
+    if (typeof value === "string") return value
+    if (typeof value === "number" || typeof value === "boolean") return String(value)
+    return JSON.stringify(value)
+  }
 
   const post = (message: Record<string, unknown>): void => {
     global.parent.postMessage(
@@ -88,62 +204,46 @@ export const installSandboxRuntime = (
     return element.textContent ?? ""
   }
 
-  const readDataSignal = (name: string): unknown => {
-    for (const element of global.document.querySelectorAll("[data-signals]")) {
-      const signals = language.parseObjectLiteral(
-        element.getAttribute("data-signals") ?? "{}",
-        () => "",
-      )
-      if (signals !== language.invalid && isRecord(signals) && hasOwn(signals, name)) {
-        return signals[name]
+  const writeElementValue = (element: Element, value: unknown): void => {
+    if (global.HTMLInputElement !== undefined && element instanceof global.HTMLInputElement) {
+      const type = element.type.toLowerCase()
+      if (type === "checkbox") {
+        element.checked = Boolean(value)
+        return
       }
-    }
-    return ""
-  }
-
-  const readBoundSignal = (name: string, fullPath: string): unknown => {
-    let rootValue: unknown = language.invalid
-    for (const element of global.document.querySelectorAll("[data-bind]")) {
-      const binding = element.getAttribute("data-bind") ?? ""
-      const bindingPath = binding.startsWith("$") ? binding.slice(1) : binding
-      if (bindingPath === fullPath) return readElementValue(element)
-      if (bindingPath.split(".")[0] === name && rootValue === language.invalid) {
-        rootValue = readElementValue(element)
-      }
-    }
-    return rootValue === language.invalid ? readDataSignal(name) : rootValue
-  }
-
-  const readSignal = (expression: string): unknown => {
-    const fullPath = expression.slice(1)
-    const [name, ...path] = fullPath.split(".")
-    if (name === undefined || name.length === 0) return ""
-
-    let value: unknown =
-      global.__genuiResults !== undefined && hasOwn(global.__genuiResults, name)
-        ? global.__genuiResults[name]
-        : readBoundSignal(name, fullPath)
-
-    for (const property of path) {
-      if (!isRecord(value) || !hasOwn(value, property)) return ""
-      value = value[property]
+      element.value = textValue(value)
+      return
     }
 
-    return value
+    if (global.HTMLSelectElement !== undefined && element instanceof global.HTMLSelectElement) {
+      const values = Array.isArray(value) ? value.map(textValue) : [textValue(value)]
+      for (const option of element.options) option.selected = values.includes(option.value)
+      return
+    }
+
+    if (global.HTMLTextAreaElement !== undefined && element instanceof global.HTMLTextAreaElement) {
+      element.value = textValue(value)
+      return
+    }
   }
 
-  const postCapabilityCall = (expression: string): boolean => {
-    const action = language.parseCapabilityExpression(expression, readSignal)
-    if (action === undefined) return false
+  const hasAuthoredFormValue = (element: Element): boolean => {
+    if (global.HTMLInputElement !== undefined && element instanceof global.HTMLInputElement) {
+      const type = element.type.toLowerCase()
+      return type === "checkbox" || type === "radio"
+        ? element.hasAttribute("checked")
+        : element.hasAttribute("value")
+    }
 
-    post({
-      type: "capability",
-      callId: createCallId(),
-      capability: action.capability,
-      input: action.input,
-      ...(action.target === undefined ? {} : { target: action.target }),
-    })
-    return true
+    if (global.HTMLTextAreaElement !== undefined && element instanceof global.HTMLTextAreaElement) {
+      return element.textContent !== null && element.textContent.length > 0
+    }
+
+    if (global.HTMLSelectElement !== undefined && element instanceof global.HTMLSelectElement) {
+      return Array.from(element.options).some((option) => option.hasAttribute("selected"))
+    }
+
+    return false
   }
 
   const closestWithAttribute = (
@@ -158,10 +258,143 @@ export const installSandboxRuntime = (
     return null
   }
 
+  const isBoundElement = (target: EventTarget | null): target is Element =>
+    target instanceof global.Element && target.hasAttribute("data-bind")
+
+  const safeDynamicAttribute = (attribute: string): boolean => {
+    const name = attribute.toLowerCase()
+    if (name.startsWith("on")) return false
+    if (name.startsWith("aria-")) return true
+    return ["role", "title", "disabled", "checked", "value"].includes(name)
+  }
+
+  const safeDynamicStyleProperty = (property: string): boolean => {
+    const name = property.toLowerCase()
+    return (
+      name.startsWith("--") ||
+      [
+        "color",
+        "background-color",
+        "border-color",
+        "opacity",
+        "display",
+        "visibility",
+        "font-weight",
+        "text-decoration",
+      ].includes(name)
+    )
+  }
+
+  const elementStyle = (element: Element): CSSStyleDeclaration | undefined => {
+    // SAFETY: the sandbox runtime only receives browser DOM elements. Some test DOM
+    // implementations do not type their Element as HTMLElement, but still expose style.
+    return (element as unknown as { readonly style?: CSSStyleDeclaration }).style
+  }
+
+  const applyAttributeValue = (element: Element, attribute: string, value: unknown): void => {
+    if (!safeDynamicAttribute(attribute)) return
+
+    if (value === language.invalid || value === false || value === null || value === undefined) {
+      element.removeAttribute(attribute)
+      return
+    }
+
+    element.setAttribute(attribute, value === true ? "" : textValue(value))
+  }
+
+  const applyStyleValue = (element: Element, property: string, value: unknown): void => {
+    const style = elementStyle(element)
+    if (style === undefined || !safeDynamicStyleProperty(property)) return
+
+    if (value === language.invalid || value === false || value === null || value === undefined) {
+      style.removeProperty(property)
+      return
+    }
+
+    style.setProperty(property, textValue(value))
+  }
+
+  const refreshDirectives = (): void => {
+    for (const directive of directives) {
+      const value = evaluate(directive.expression)
+
+      if (directive.type === "text") {
+        directive.element.textContent = textValue(value)
+        continue
+      }
+
+      if (directive.type === "show") {
+        const style = elementStyle(directive.element)
+        if (style !== undefined) style.display = isTruthy(value) ? directive.visibleDisplay : "none"
+        continue
+      }
+
+      if (directive.type === "class_toggle") {
+        directive.element.classList.toggle(directive.className, isTruthy(value))
+        continue
+      }
+
+      if (directive.type === "class_value") {
+        const dynamicClass = typeof value === "string" ? value.trim() : ""
+        directive.element.className =
+          dynamicClass.length === 0
+            ? directive.baseClassName
+            : [directive.baseClassName, dynamicClass].filter((item) => item.length > 0).join(" ")
+        continue
+      }
+
+      if (directive.type === "style_property") {
+        applyStyleValue(directive.element, directive.property, value)
+        continue
+      }
+
+      if (directive.type === "style_map") {
+        if (isRecord(value)) {
+          for (const [property, propertyValue] of Object.entries(value)) {
+            applyStyleValue(directive.element, property, propertyValue)
+          }
+        }
+        continue
+      }
+
+      applyAttributeValue(directive.element, directive.attribute, value)
+    }
+  }
+
   const reportHeight = (): void => {
     const root = global.document.documentElement
     const body = global.document.body
     post({ type: "resize", height: Math.max(root.scrollHeight, body?.scrollHeight ?? 0) })
+  }
+
+  const refresh = (): void => {
+    refreshDirectives()
+    reportHeight()
+  }
+
+  const resultTargetFor = (action: SandboxRuntimeCapabilityAction): string =>
+    action.target ?? language.defaultResultTarget(action.capability)
+
+  const setResultState = (target: string, state: unknown): void => {
+    global.__genuiResults = global.__genuiResults ?? {}
+    global.__genuiResults[target] = state
+    writePath([target], state)
+  }
+
+  const postCapabilityCall = (expression: string): boolean => {
+    const action = language.parseCapabilityExpression(expression, readSignal)
+    if (action === undefined) return false
+
+    setResultState(resultTargetFor(action), { status: "pending" })
+    refresh()
+    post({
+      type: "capability",
+      callId: createCallId(),
+      capability: action.capability,
+      input: action.input,
+      ...(action.target === undefined ? {} : { target: action.target }),
+    })
+    return true
   }
 
   const handleClick = (event: MouseEvent): void => {
@@ -200,19 +433,123 @@ export const installSandboxRuntime = (
     if (expression !== null) postCapabilityCall(expression)
   }
 
+  const handleBoundInput = (event: Event): void => {
+    const target = event.target
+    if (!isBoundElement(target)) return
+
+    writePath(signalPath(target.getAttribute("data-bind") ?? ""), readElementValue(target))
+    refresh()
+  }
+
   const handleResultMessage = (event: MessageEvent<unknown>): void => {
     const message = event.data
     if (!isRecord(message)) return
     if (message.channel !== config.channel || message.surfaceId !== config.surfaceId) return
     if (message.type !== "result" || typeof message.target !== "string") return
 
-    global.__genuiResults = global.__genuiResults ?? {}
-    global.__genuiResults[message.target] = message.state
+    setResultState(message.target, message.state)
+    refresh()
   }
+
+  const installInitialSignals = (): void => {
+    for (const element of global.document.querySelectorAll("[data-signals]")) {
+      const parsed = language.parseObjectLiteral(
+        element.getAttribute("data-signals") ?? "{}",
+        readSignal,
+      )
+      if (!isRecord(parsed)) continue
+      for (const [name, value] of Object.entries(parsed)) signals[name] = value
+    }
+  }
+
+  const installBindings = (): void => {
+    for (const element of global.document.querySelectorAll("[data-bind]")) {
+      const path = signalPath(element.getAttribute("data-bind") ?? "")
+      if (path.length === 0) continue
+
+      boundElements.push({ element, path })
+      if (hasAuthoredFormValue(element) || readPath(path) === "") {
+        writePath(path, readElementValue(element))
+      } else {
+        writeElementValue(element, readPath(path))
+      }
+    }
+  }
+
+  const installDirective = (element: Element, attribute: Attr): void => {
+    const { name, value } = attribute
+    if (name === "data-text") {
+      directives.push({ type: "text", element, expression: value })
+      return
+    }
+
+    if (name === "data-show") {
+      const visibleDisplay = elementStyle(element)?.display ?? ""
+      directives.push({ type: "show", element, expression: value, visibleDisplay })
+      return
+    }
+
+    if (name === "data-class") {
+      directives.push({
+        type: "class_value",
+        element,
+        baseClassName: element.className,
+        expression: value,
+      })
+      return
+    }
+
+    if (name.startsWith("data-class:")) {
+      directives.push({
+        type: "class_toggle",
+        element,
+        className: name.slice("data-class:".length),
+        expression: value,
+      })
+      return
+    }
+
+    if (name === "data-style") {
+      directives.push({ type: "style_map", element, expression: value })
+      return
+    }
+
+    if (name.startsWith("data-style:")) {
+      directives.push({
+        type: "style_property",
+        element,
+        property: name.slice("data-style:".length),
+        expression: value,
+      })
+      return
+    }
+
+    if (name.startsWith("data-attr:")) {
+      directives.push({
+        type: "attribute",
+        element,
+        attribute: name.slice("data-attr:".length),
+        expression: value,
+      })
+    }
+  }
+
+  const installDirectives = (): void => {
+    for (const element of global.document.querySelectorAll("*")) {
+      for (const attribute of element.attributes) installDirective(element, attribute)
+    }
+  }
+
+  installInitialSignals()
+  installBindings()
+  installDirectives()
+  refreshDirectives()
 
   global.addEventListener("load", reportHeight)
   global.document.addEventListener("click", handleClick)
   global.document.addEventListener("submit", handleSubmit)
+  global.document.addEventListener("input", handleBoundInput)
+  global.document.addEventListener("change", handleBoundInput)
   global.addEventListener("message", handleResultMessage)
 
   if (global.ResizeObserver !== undefined && global.document.body !== null) {
@@ -226,6 +563,8 @@ export const installSandboxRuntime = (
       global.removeEventListener("load", reportHeight)
       global.document.removeEventListener("click", handleClick)
       global.document.removeEventListener("submit", handleSubmit)
+      global.document.removeEventListener("input", handleBoundInput)
+      global.document.removeEventListener("change", handleBoundInput)
       global.removeEventListener("message", handleResultMessage)
     },
   }

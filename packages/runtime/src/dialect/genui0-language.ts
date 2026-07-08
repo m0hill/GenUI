@@ -21,6 +21,7 @@ export interface Genui0Language {
   isSafeBindingExpression(value: string): boolean
   parseCapabilityAction(value: string): Genui0CapabilityAction | undefined
   parseObjectLiteral(source: string, readSignal: (expression: string) => unknown): unknown
+  evaluateExpression(source: string, readSignal: (expression: string) => unknown): unknown
   parseCapabilityExpression(
     expression: string,
     readSignal: (expression: string) => unknown,
@@ -128,6 +129,35 @@ export const createGenui0Language = (): Genui0Language => {
       : undefined
   }
 
+  const splitComparison = (source: string): readonly [string, "==" | "!=", string] | undefined => {
+    let quote: '"' | "'" | undefined
+
+    for (let index = 0; index < source.length - 1; index += 1) {
+      const character = source[index]
+      if (character === undefined) return undefined
+      if (character === "\\") return undefined
+
+      if (quote !== undefined) {
+        if (character === quote) quote = undefined
+        continue
+      }
+
+      if (character === '"' || character === "'") {
+        quote = character
+        continue
+      }
+
+      const operator = source.slice(index, index + 2)
+      if (operator === "==" || operator === "!=") {
+        const left = source.slice(0, index).trim()
+        const right = source.slice(index + 2).trim()
+        return left.length > 0 && right.length > 0 ? [left, operator, right] : undefined
+      }
+    }
+
+    return undefined
+  }
+
   const stringLiteralValue = (value: string): string | typeof invalid => {
     const source = value.trim()
     return stringLiteralPattern.test(source) ? source.slice(1, -1) : invalid
@@ -194,8 +224,27 @@ export const createGenui0Language = (): Genui0Language => {
   const isSafeObjectExpression = (value: string): boolean =>
     parseObjectLiteral(value, () => "") !== invalid
 
+  const evaluateExpression = (
+    source: string,
+    readSignal: (expression: string) => unknown,
+  ): unknown => {
+    const value = source.trim()
+    const comparison = splitComparison(value)
+    if (comparison !== undefined) {
+      const left = parseScalarExpression(comparison[0], readSignal)
+      const right = parseScalarExpression(comparison[2], readSignal)
+      if (left === invalid || right === invalid) return invalid
+      return comparison[1] === "==" ? Object.is(left, right) : !Object.is(left, right)
+    }
+
+    const scalar = parseScalarExpression(value, readSignal)
+    if (scalar !== invalid) return scalar
+
+    return parseObjectLiteral(value, readSignal)
+  }
+
   const isSafeSimpleExpression = (value: string): boolean =>
-    value.length <= 1_200 && (isSafeScalarExpression(value) || isSafeObjectExpression(value))
+    value.length <= 1_200 && evaluateExpression(value, () => "") !== invalid
 
   const isSafeBindingExpression = (value: string): boolean => {
     const source = value.trim()
@@ -293,6 +342,7 @@ export const createGenui0Language = (): Genui0Language => {
     isSafeBindingExpression,
     parseCapabilityAction,
     parseObjectLiteral,
+    evaluateExpression,
     parseCapabilityExpression,
     defaultResultTarget,
     normalizeResultTarget,
@@ -323,6 +373,12 @@ export const isSafeGenui0ObjectExpression = (value: string): boolean =>
 export const isSafeGenui0SimpleExpression = (value: string): boolean =>
   genui0Language.isSafeSimpleExpression(value)
 
+/** Evaluate a genui/0 local expression with the provided signal reader. */
+export const evaluateGenui0Expression = (
+  value: string,
+  readSignal: (expression: string) => unknown,
+): unknown => genui0Language.evaluateExpression(value, readSignal)
+
 /** Return whether a data-bind expression belongs to the genui/0 subset. */
 export const isSafeGenui0BindingExpression = (value: string): boolean =>
   genui0Language.isSafeBindingExpression(value)
@@ -346,5 +402,7 @@ export const genui0SandboxLanguageScript = (): string => `
   const genui0Language = (${createGenui0Language.toString()})();
   const genui0Invalid = genui0Language.invalid;
   const genui0ParseObjectLiteral = genui0Language.parseObjectLiteral;
+  const genui0EvaluateExpression = genui0Language.evaluateExpression;
+  const genui0DefaultResultTarget = genui0Language.defaultResultTarget;
   const parseGenui0CapabilityExpression = genui0Language.parseCapabilityExpression;
 `

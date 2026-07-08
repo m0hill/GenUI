@@ -36,6 +36,13 @@ const capabilityMessage = (messages: readonly unknown[]): Readonly<Record<string
 
 const jsonRoundTrip = (value: unknown): unknown => JSON.parse(JSON.stringify(value))
 
+const displayStyle = (element: unknown): string => {
+  assert.notEqual(element, null)
+  // SAFETY: these fixtures select HTML elements created by happy-dom. Its Element type is not
+  // assignable to lib.dom's HTMLElement even though the runtime exposes the same style API here.
+  return (element as unknown as HTMLElement).style.display
+}
+
 void test("sandbox bridge posts capability calls from click actions", () => {
   const { window, messages } = createHarness(`
     <div data-signals="{ label: 'Fallback' }">
@@ -111,6 +118,42 @@ void test("sandbox bridge exposes result state to later capability inputs", () =
   const message = capabilityMessage(messages)
   assert.equal(message.capability, "notes.create")
   assert.deepEqual(jsonRoundTrip(message.input), { total: 6 })
+})
+
+void test("sandbox bridge renders pending and result state directives", () => {
+  const { window, messages } = createHarness(`
+    <button data-on:click="@capability('dice.roll', { sides: 6 }, { target: 'rollResult' })">
+      Roll
+    </button>
+    <p id="pending" data-show="$rollResult.status == 'pending'">Loading</p>
+    <p id="success" data-show="$rollResult.status == 'complete'" data-text="$rollResult.value.total"></p>
+  `)
+  const pending = window.document.querySelector("#pending")
+  const success = window.document.querySelector("#success")
+
+  window.document
+    .querySelector("button")
+    ?.dispatchEvent(new window.Event("click", { bubbles: true, cancelable: true }))
+
+  assert.equal(capabilityMessage(messages).target, "rollResult")
+  assert.equal(displayStyle(pending), "")
+  assert.equal(displayStyle(success), "none")
+
+  window.dispatchEvent(
+    new window.MessageEvent("message", {
+      data: {
+        channel: protocolChannel,
+        surfaceId: "surface-test",
+        type: "result",
+        target: "rollResult",
+        state: { status: "complete", value: { total: 6 } },
+      },
+    }),
+  )
+
+  assert.equal(displayStyle(pending), "none")
+  assert.equal(displayStyle(success), "")
+  assert.equal(success?.textContent, "6")
 })
 
 void test("sandbox bridge rejects unsupported capability expressions", () => {

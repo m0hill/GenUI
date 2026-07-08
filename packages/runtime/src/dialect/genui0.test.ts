@@ -69,6 +69,14 @@ void test("genui/0 allows simple local state expressions", () => {
     }),
     { name: "data-bind", value: "count" },
   )
+  assert.deepEqual(
+    allowGenui0DataAttribute({
+      name: "data-show",
+      value: "$status == 'pending'",
+      grantedCapabilities,
+    }),
+    { name: "data-show", value: "$status == 'pending'" },
+  )
 })
 
 void test("genui/0 rejects general JavaScript expressions", () => {
