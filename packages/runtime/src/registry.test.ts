@@ -197,6 +197,41 @@ void test("registry executes surfaces restored from a shared store", async () =>
   )
 })
 
+void test("registry returns a structured result when the surface store is unavailable", async () => {
+  const registry = createRegistry<TestCtx>({
+    capabilities: [
+      defineCapability({
+        name: "dice.roll",
+        description: "Roll a die.",
+        effect: "read",
+        input: rollInput,
+        output: rollOutput,
+        execute: (_ctx, input) => ({ total: input.sides }),
+      }),
+    ],
+    surfaces: {
+      get: async () => {
+        throw new Error("database is offline")
+      },
+      set: () => undefined,
+    },
+  })
+
+  assert.deepEqual(
+    await registry.execute(
+      { surfaceId: "surface-1", callId: "call-1", capability: "dice.roll", input: { sides: 6 } },
+      { userId: "u1" },
+    ),
+    {
+      ok: false,
+      error: {
+        code: "storage_unavailable",
+        message: "Surface store is unavailable.",
+      },
+    },
+  )
+})
+
 void test("returned surface mutations cannot change registry authority", async () => {
   const registry = createRegistry<TestCtx>({
     capabilities: [

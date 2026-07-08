@@ -109,6 +109,7 @@ export type CapabilityErrorCode =
   | "invalid_input"
   | "invalid_output"
   | "approval_denied"
+  | "storage_unavailable"
   | "execution_failed"
 
 /** Capability execution result envelope. */

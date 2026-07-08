@@ -55,7 +55,13 @@ export const createRegistry = <Ctx>(options: CreateRegistryOptions<Ctx>): Regist
     ctx: Ctx,
     options?: ExecuteOptions,
   ): Promise<CapabilityResult> => {
-    const record = await surfaceRuntime.getRecord(call.surfaceId)
+    let record: Awaited<ReturnType<typeof surfaceRuntime.getRecord>>
+    try {
+      record = await surfaceRuntime.getRecord(call.surfaceId)
+    } catch {
+      return capabilityError("storage_unavailable", "Surface store is unavailable.")
+    }
+
     if (record === undefined) {
       return capabilityError("unknown_surface", "Surface is not available.")
     }
