@@ -434,6 +434,17 @@ Bindings are reactive in both directions for installed static controls:
       Hosts can opt into `imagePolicy: "data"`, `"https"`, or `"https-and-data"` at
       mount time.
 
+24. Sanitizer allowlist posture.
+    - Done in code: the HTML sanitizer now keeps only explicitly allowlisted elements
+      instead of removing only a denylist of known-active elements.
+    - Done in code: normal HTML attributes are allowlisted by element and by global
+      attribute policy. Unknown non-`data-*` attributes are dropped with
+      `unsupported_attribute`; unknown `data-*` attributes still flow through the GenUI
+      directive diagnostics.
+    - Done in code: direct form-submission override attributes are stripped before the
+      general attribute allowlist, including `form`, `formenctype`, `formmethod`, and
+      `formtarget`.
+
 ## Important Deferred Work
 
 - Model adapters.

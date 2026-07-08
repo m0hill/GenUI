@@ -151,6 +151,7 @@ export interface DroppedAction {
 /** Reason the HTML sanitizer removed or rewrote an authored node or attribute. */
 export type SanitizationDropReason =
   | "unsupported_node"
+  | "unsupported_attribute"
   | "forbidden_element"
   | "event_handler"
   | "unsafe_style"

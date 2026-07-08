@@ -25,6 +25,10 @@ and `genui.diagnostics(surfaceId)` to inspect requested, granted, and dropped ac
 names plus sanitized HTML drops such as stripped elements, attributes, and invalid
 directives.
 
+The sanitizer is allowlist-based. It keeps known HTML elements, a conservative set of
+static attributes, safe inline style declarations, and `genui/0` directives. Unsupported
+elements or attributes are removed and reported through diagnostics.
+
 `Surface.dialect` is a versioned protocol identifier, not a plugin interface. This
 package currently ships the concrete `genui/0` sanitizer, instructions, and sandbox
 asset. A future dialect should ship as its own concrete module and sandbox asset selected

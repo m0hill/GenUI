@@ -51,6 +51,70 @@ void test("sanitizer strips dangerous tags, event handlers, and URL schemes", ()
   ])
 })
 
+void test("sanitizer keeps only allowlisted elements and static attributes", () => {
+  const sanitized = sanitizeSurfaceHtml(
+    [
+      `<blink>Unsupported</blink>`,
+      `<div id="panel" class="card" aria-label="Panel" title="Details" unknown="bad" popover>`,
+      `<label for="email">Email</label>`,
+      `<input id="email" type="email" list="domains" placeholder="you@example.com" value="draft" data-test-id="bad">`,
+      `<datalist id="domains"><option value="example.com"></option></datalist>`,
+      `<select><optgroup label="Priority" disabled><option value="high">High</option></optgroup></select>`,
+      `<ins>Inserted</ins>`,
+      `<button type="button" disabled form="external">Save</button>`,
+      `</div>`,
+    ].join(""),
+    granted,
+  )
+  const safe = sanitized.html
+
+  assert.doesNotMatch(safe, /blink/i)
+  assert.doesNotMatch(safe, /Unsupported/)
+  assert.match(safe, /id="panel"/)
+  assert.match(safe, /class="card"/)
+  assert.match(safe, /aria-label="Panel"/)
+  assert.match(safe, /title="Details"/)
+  assert.match(safe, /for="email"/)
+  assert.match(safe, /type="email"/)
+  assert.match(safe, /list="domains"/)
+  assert.match(safe, /placeholder="you@example.com"/)
+  assert.match(safe, /<datalist id="domains">/)
+  assert.match(safe, /<optgroup label="Priority" disabled/)
+  assert.match(safe, /<ins>Inserted<\/ins>/)
+  assert.match(safe, /disabled/)
+  assert.doesNotMatch(safe, /unknown=/)
+  assert.doesNotMatch(safe, /popover/)
+  assert.doesNotMatch(safe, /data-test-id/)
+  assert.doesNotMatch(safe, /form=/)
+  assert.deepEqual(sanitized.dropped, [
+    { node: "blink", reason: "forbidden_element" },
+    {
+      node: "div",
+      attribute: "unknown",
+      value: "bad",
+      reason: "unsupported_attribute",
+    },
+    {
+      node: "div",
+      attribute: "popover",
+      value: "",
+      reason: "unsupported_attribute",
+    },
+    {
+      node: "input",
+      attribute: "data-test-id",
+      value: "bad",
+      reason: "unknown_genui_attribute",
+    },
+    {
+      node: "button",
+      attribute: "form",
+      value: "external",
+      reason: "form_submission_attribute",
+    },
+  ])
+})
+
 void test("sanitizer strips direct form submission attributes", () => {
   const safe = sanitize(
     [
@@ -73,7 +137,7 @@ void test("sanitizer strips direct form submission attributes", () => {
 void test("sanitizer strips indirect URL-bearing attributes and unsafe inline styles", () => {
   const sanitized = sanitizeSurfaceHtml(
     [
-      `<svg><a xlink:href="javascript:alert(1)">bad</a></svg>`,
+      `<a xlink:href="javascript:alert(1)">bad</a>`,
       `<img srcset="javascript:alert(1) 1x, https://example.com/a.png 2x">`,
       `<div style="color: #111827; background-image:url(https://example.com/track.png); unknown: 1">x</div>`,
     ].join(""),

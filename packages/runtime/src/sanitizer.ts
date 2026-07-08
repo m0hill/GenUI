@@ -35,32 +35,181 @@ type SanitizedAttribute =
       readonly value?: string
     }
 
-const removedElementTags = new Set([
-  "base",
-  "embed",
-  "iframe",
-  "link",
-  "meta",
-  "noscript",
-  "object",
-  "script",
-  "style",
-  "template",
+const allowedElementTags = new Set([
+  "a",
+  "abbr",
+  "article",
+  "aside",
+  "b",
+  "blockquote",
+  "br",
+  "button",
+  "caption",
+  "cite",
+  "code",
+  "col",
+  "colgroup",
+  "datalist",
+  "dd",
+  "del",
+  "details",
+  "dfn",
+  "div",
+  "dl",
+  "dt",
+  "em",
+  "fieldset",
+  "figcaption",
+  "figure",
+  "footer",
+  "form",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "header",
+  "hr",
+  "i",
+  "img",
+  "input",
+  "ins",
+  "kbd",
+  "label",
+  "legend",
+  "li",
+  "main",
+  "mark",
+  "meter",
+  "nav",
+  "ol",
+  "optgroup",
+  "option",
+  "p",
+  "pre",
+  "progress",
+  "s",
+  "samp",
+  "section",
+  "select",
+  "small",
+  "span",
+  "strong",
+  "sub",
+  "summary",
+  "sup",
+  "table",
+  "tbody",
+  "td",
+  "textarea",
+  "tfoot",
+  "th",
+  "thead",
+  "time",
+  "tr",
+  "u",
+  "ul",
+  "var",
+  "wbr",
+])
+
+const globalAttributeNames = new Set([
+  "class",
+  "dir",
+  "hidden",
+  "id",
+  "inert",
+  "lang",
+  "role",
+  "tabindex",
+  "title",
+])
+
+const tagSpecificAttributeNames = new Map<string, ReadonlySet<string>>([
+  ["a", new Set(["rel"])],
+  ["button", new Set(["autofocus", "disabled", "name", "type", "value"])],
+  ["col", new Set(["span"])],
+  ["colgroup", new Set(["span"])],
+  ["details", new Set(["open"])],
+  ["fieldset", new Set(["disabled", "name"])],
+  ["img", new Set(["alt", "decoding", "height", "loading", "width"])],
+  [
+    "input",
+    new Set([
+      "accept",
+      "autocomplete",
+      "autofocus",
+      "checked",
+      "disabled",
+      "inputmode",
+      "list",
+      "max",
+      "maxlength",
+      "min",
+      "minlength",
+      "multiple",
+      "name",
+      "pattern",
+      "placeholder",
+      "readonly",
+      "required",
+      "size",
+      "step",
+      "type",
+      "value",
+    ]),
+  ],
+  ["label", new Set(["for"])],
+  ["li", new Set(["value"])],
+  ["meter", new Set(["high", "low", "max", "min", "optimum", "value"])],
+  ["ol", new Set(["reversed", "start", "type"])],
+  ["optgroup", new Set(["disabled", "label"])],
+  ["option", new Set(["disabled", "label", "selected", "value"])],
+  ["progress", new Set(["max", "value"])],
+  ["select", new Set(["autofocus", "disabled", "multiple", "name", "required", "size"])],
+  ["td", new Set(["colspan", "headers", "rowspan"])],
+  [
+    "textarea",
+    new Set([
+      "autocomplete",
+      "autofocus",
+      "cols",
+      "disabled",
+      "maxlength",
+      "minlength",
+      "name",
+      "placeholder",
+      "readonly",
+      "required",
+      "rows",
+      "spellcheck",
+    ]),
+  ],
+  ["th", new Set(["colspan", "headers", "rowspan", "scope"])],
+  ["time", new Set(["datetime"])],
 ])
 
 const directSubmissionAttributeNames = new Set([
   "action",
   "download",
   "enctype",
+  "form",
   "formaction",
+  "formenctype",
+  "formmethod",
   "formnovalidate",
+  "formtarget",
   "method",
   "ping",
   "srcdoc",
   "target",
 ])
 
-const allowedUrlAttributeNames = new Set(["href", "src"])
+const allowedUrlAttributeNamesByTag = new Map<string, ReadonlySet<string>>([
+  ["a", new Set(["href"])],
+  ["img", new Set(["src"])],
+])
 
 const removedUrlAttributeNames = new Set([
   "archive",
@@ -84,6 +233,14 @@ const attributeName = (attribute: Attribute): string =>
 const isElementNode = (node: ChildNode): node is ElementNode => "tagName" in node
 
 const isSafeHttpsUrl = (value: string): boolean => /^https:\/\//i.test(value.trim())
+
+const isAllowedStaticAttribute = (tagName: string, name: string): boolean =>
+  name.startsWith("aria-") ||
+  globalAttributeNames.has(name) ||
+  (tagSpecificAttributeNames.get(tagName)?.has(name) ?? false)
+
+const isAllowedUrlAttribute = (tagName: string, name: string): boolean =>
+  allowedUrlAttributeNamesByTag.get(tagName)?.has(name) ?? false
 
 const sanitizationDropValue = (value: string): string =>
   value.length <= 200 ? value : `${value.slice(0, 197)}...`
@@ -143,6 +300,7 @@ const sanitizeDataAttribute = (
 }
 
 const sanitizeAttribute = (
+  tagName: string,
   attribute: Attribute,
   grantedActions: ReadonlyMap<string, Action>,
   insideRepeatedTemplate: boolean,
@@ -177,17 +335,21 @@ const sanitizeAttribute = (
     )
   }
 
-  if (allowedUrlAttributeNames.has(name)) {
+  if (removedUrlAttributeNames.has(name) || name.endsWith(":href")) {
+    return dropAttribute("url_attribute", attribute.value)
+  }
+
+  if (isAllowedUrlAttribute(tagName, name)) {
     return isSafeHttpsUrl(attribute.value)
       ? keepAttribute({ ...attribute, value: attribute.value.trim() })
       : dropAttribute("unsafe_url", attribute.value)
   }
 
-  if (removedUrlAttributeNames.has(name) || name.endsWith(":href")) {
-    return dropAttribute("url_attribute", attribute.value)
+  if (isAllowedStaticAttribute(tagName, name)) {
+    return keepAttribute(attribute)
   }
 
-  return keepAttribute(attribute)
+  return dropAttribute("unsupported_attribute", attribute.value)
 }
 
 const sanitizeAttributes = (
@@ -202,6 +364,7 @@ const sanitizeAttributes = (
 
   element.attrs = element.attrs.flatMap((attribute) => {
     const safe = sanitizeAttribute(
+      element.tagName.toLowerCase(),
       attribute,
       context.grantedActions,
       insideRepeatedTemplate,
@@ -269,7 +432,7 @@ const sanitizeChildren = (
       continue
     }
 
-    if (removedElementTags.has(child.tagName.toLowerCase())) {
+    if (!allowedElementTags.has(child.tagName.toLowerCase())) {
       recordDrop(context.dropped, child.tagName, "forbidden_element")
       continue
     }
