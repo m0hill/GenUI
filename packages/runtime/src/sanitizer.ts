@@ -1,67 +1,53 @@
+import { parseFragment, serialize, type DefaultTreeAdapterMap } from "parse5"
 import { allowGenui0DataAttribute } from "./dialect/genui0.js"
 
-const voidTags = new Set([
-  "area",
+type ParentNode = DefaultTreeAdapterMap["parentNode"]
+type ChildNode = DefaultTreeAdapterMap["childNode"]
+type ElementNode = DefaultTreeAdapterMap["element"]
+type Attribute = ElementNode["attrs"][number]
+
+const removedElementTags = new Set([
   "base",
-  "br",
-  "col",
   "embed",
-  "hr",
-  "img",
-  "input",
+  "iframe",
   "link",
   "meta",
-  "param",
-  "source",
-  "track",
-  "wbr",
+  "noscript",
+  "object",
+  "script",
+  "style",
+  "template",
 ])
 
-const removeElementWithBody = (html: string, tag: string): string =>
-  html
-    .replace(new RegExp(`<${tag}\\b[\\s\\S]*?<\\/${tag}>`, "gi"), "")
-    .replace(new RegExp(`<${tag}\\b[\\s\\S]*$`, "gi"), "")
+const directSubmissionAttributeNames = new Set([
+  "action",
+  "download",
+  "enctype",
+  "formaction",
+  "formnovalidate",
+  "method",
+  "ping",
+  "srcdoc",
+  "target",
+])
 
-const removeElement = (html: string, tag: string): string =>
-  html.replace(new RegExp(`</?${tag}\\b[^>]*>`, "gi"), "")
+const allowedUrlAttributeNames = new Set(["href", "src"])
 
-const escapeAttribute = (value: string): string =>
-  value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;")
-
-const sanitizeDatastarAttributes = (
-  html: string,
-  grantedCapabilities: ReadonlySet<string>,
-): string =>
-  html.replace(
-    /\s(data-[^\s=<>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/gi,
-    (_source, name: string, doubleQuoted: string, singleQuoted: string, bare: string) => {
-      const attribute = allowGenui0DataAttribute({
-        name,
-        value: doubleQuoted ?? singleQuoted ?? bare,
-        grantedCapabilities,
-      })
-      return attribute === undefined
-        ? ""
-        : ` ${attribute.name}="${escapeAttribute(attribute.value)}"`
-    },
-  )
-
-const sanitizeUrls = (html: string): string =>
-  html.replace(
-    /\s(href|src)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi,
-    (_source, name: string, doubleQuoted: string, singleQuoted: string, bare: string) => {
-      const value = (doubleQuoted ?? singleQuoted ?? bare ?? "").trim()
-      return /^https:\/\//i.test(value) ? ` ${name}="${escapeAttribute(value)}"` : ""
-    },
-  )
-
-const stripDirectSubmissionAttributes = (html: string): string =>
-  html
-    .replace(
-      /\s(?:action|formaction|method|enctype|target|ping|srcdoc)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi,
-      "",
-    )
-    .replace(/\s(?:download|formnovalidate)(?=[\s>])/gi, "")
+const removedUrlAttributeNames = new Set([
+  "archive",
+  "background",
+  "cite",
+  "classid",
+  "codebase",
+  "data",
+  "longdesc",
+  "manifest",
+  "poster",
+  "profile",
+  "srcset",
+  "usemap",
+  "xlink:href",
+])
 
 const trimDanglingTag = (html: string): string => {
   const lastOpen = html.lastIndexOf("<")
@@ -69,47 +55,83 @@ const trimDanglingTag = (html: string): string => {
   return lastOpen > lastClose ? html.slice(0, lastOpen) : html
 }
 
-const closeOpenTags = (html: string): string => {
-  const stack: string[] = []
+const attributeName = (attribute: Attribute): string =>
+  attribute.prefix === undefined ? attribute.name : `${attribute.prefix}:${attribute.name}`
 
-  for (const match of html.matchAll(/<\/?([a-z][a-z0-9-]*)\b[^>]*>/gi)) {
-    const source = match[0]
-    const tag = match[1]?.toLowerCase()
-    if (tag === undefined || source.startsWith("<!") || source.startsWith("<?")) continue
-    if (voidTags.has(tag) || source.endsWith("/>")) continue
+const isElementNode = (node: ChildNode): node is ElementNode => "tagName" in node
 
-    if (!source.startsWith("</")) {
-      stack.push(tag)
+const isSafeHttpsUrl = (value: string): boolean => /^https:\/\//i.test(value.trim())
+
+const sanitizeDataAttribute = (
+  attribute: Attribute,
+  grantedCapabilities: ReadonlySet<string>,
+): Attribute | undefined => {
+  const allowed = allowGenui0DataAttribute({
+    name: attribute.name,
+    value: attribute.value,
+    grantedCapabilities,
+  })
+
+  return allowed === undefined ? undefined : { name: allowed.name, value: allowed.value }
+}
+
+const sanitizeAttribute = (
+  attribute: Attribute,
+  grantedCapabilities: ReadonlySet<string>,
+): Attribute | undefined => {
+  const name = attributeName(attribute).toLowerCase()
+
+  if (name.startsWith("on")) return undefined
+  if (name === "style") return undefined
+  if (directSubmissionAttributeNames.has(name)) return undefined
+  if (name.startsWith("data-")) return sanitizeDataAttribute(attribute, grantedCapabilities)
+
+  if (allowedUrlAttributeNames.has(name)) {
+    return isSafeHttpsUrl(attribute.value)
+      ? { ...attribute, value: attribute.value.trim() }
+      : undefined
+  }
+
+  if (removedUrlAttributeNames.has(name) || name.endsWith(":href")) return undefined
+
+  return attribute
+}
+
+const sanitizeAttributes = (
+  element: ElementNode,
+  grantedCapabilities: ReadonlySet<string>,
+): void => {
+  element.attrs = element.attrs.flatMap((attribute) => {
+    const safe = sanitizeAttribute(attribute, grantedCapabilities)
+    return safe === undefined ? [] : [safe]
+  })
+}
+
+const sanitizeChildren = (parent: ParentNode, grantedCapabilities: ReadonlySet<string>): void => {
+  const safeChildren: ChildNode[] = []
+
+  for (const child of parent.childNodes) {
+    if (child.nodeName === "#comment" || child.nodeName === "#documentType") continue
+    if (!isElementNode(child)) {
+      safeChildren.push(child)
       continue
     }
 
-    const index = stack.lastIndexOf(tag)
-    if (index !== -1) stack.splice(index)
+    if (removedElementTags.has(child.tagName.toLowerCase())) continue
+
+    sanitizeAttributes(child, grantedCapabilities)
+    sanitizeChildren(child, grantedCapabilities)
+    safeChildren.push(child)
   }
 
-  return html + stack.reduceRight((result, tag) => `${result}</${tag}>`, "")
+  parent.childNodes = safeChildren
 }
 
 export const sanitizeSurfaceHtml = (
   html: string,
   grantedCapabilities: ReadonlySet<string>,
 ): string => {
-  let safe = html.replace(/<!--[\s\S]*?-->/g, "")
-
-  for (const tag of ["script", "style", "iframe", "object", "embed", "template", "noscript"]) {
-    safe = removeElementWithBody(safe, tag)
-  }
-
-  for (const tag of ["link", "meta", "base"]) {
-    safe = removeElement(safe, tag)
-  }
-
-  safe = sanitizeUrls(safe)
-  safe = stripDirectSubmissionAttributes(safe)
-  safe = sanitizeDatastarAttributes(safe, grantedCapabilities)
-  safe = safe
-    .replace(/\s(?:on[a-z][\w:-]*)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/\s(?:on[a-z][\w:-]*)(?=[\s>])/gi, "")
-  safe = trimDanglingTag(safe)
-  return closeOpenTags(safe)
+  const fragment = parseFragment(trimDanglingTag(html))
+  sanitizeChildren(fragment, grantedCapabilities)
+  return serialize(fragment)
 }

@@ -155,6 +155,45 @@ void test("same HTML receives different authority from different grants", async 
   )
 })
 
+void test("returned surface mutations cannot change registry authority", async () => {
+  const registry = createRegistry<TestCtx>({
+    capabilities: [
+      defineCapability({
+        name: "dice.roll",
+        description: "Roll a die.",
+        effect: "read",
+        input: emptyInput,
+        execute: () => ({ total: 6 }),
+      }),
+    ],
+  })
+  const surface = registry.createSurface({
+    html: `<button data-on:click="@capability('dice.roll', {})">Roll</button>`,
+    requested: [],
+  })
+  const forgedDescriptor = {
+    name: "dice.roll",
+    description: "Forged descriptor.",
+    effect: "read",
+    requiresApproval: false,
+  } as const
+
+  try {
+    Reflect.set(surface.grant.capabilities, "0", forgedDescriptor)
+    Object.defineProperty(surface.grant, "capabilities", { value: [forgedDescriptor] })
+  } catch {
+    // Frozen public surface values are also acceptable; execution must stay denied either way.
+  }
+
+  assertErrorCode(
+    await registry.execute(
+      { surfaceId: surface.id, callId: "call-1", capability: "dice.roll", input: {} },
+      { userId: "u1" },
+    ),
+    "not_granted",
+  )
+})
+
 void test("descriptors expose only the public capability projection", () => {
   const registry = createRegistry<TestCtx>({
     capabilities: [

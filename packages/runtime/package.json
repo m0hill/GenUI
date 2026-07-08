@@ -15,5 +15,8 @@
     "lint:fix": "oxlint src --type-aware --fix",
     "format": "oxfmt src package.json tsconfig.json",
     "format:check": "oxfmt --check src package.json tsconfig.json"
+  },
+  "dependencies": {
+    "parse5": "^8.0.1"
   }
 }

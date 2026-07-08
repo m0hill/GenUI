@@ -47,6 +47,23 @@ void test("sanitizer strips direct form submission attributes", () => {
   assert.match(safe, /href="https:\/\/example\.com"/)
 })
 
+void test("sanitizer strips indirect URL-bearing attributes and inline styles", () => {
+  const safe = sanitizeSurfaceHtml(
+    [
+      `<svg><a xlink:href="javascript:alert(1)">bad</a></svg>`,
+      `<img srcset="javascript:alert(1) 1x, https://example.com/a.png 2x">`,
+      `<div style="background-image:url(https://example.com/track.png)">x</div>`,
+    ].join(""),
+    granted,
+  )
+
+  assert.doesNotMatch(safe, /xlink:href/i)
+  assert.doesNotMatch(safe, /srcset/i)
+  assert.doesNotMatch(safe, /\sstyle=/i)
+  assert.doesNotMatch(safe, /javascript:/i)
+  assert.doesNotMatch(safe, /url\(/i)
+})
+
 void test("sanitizer preserves only granted capability calls", () => {
   const safe = sanitizeSurfaceHtml(
     [
