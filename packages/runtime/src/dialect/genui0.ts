@@ -258,7 +258,7 @@ const genui0DirectiveDefinitions = [
     pattern: { type: "exact", name: genui0AttributeNames.onChange },
     usage: genui0AttributeNames.onChange,
     instruction:
-      "Use data-genui-on-change on form controls to run @action(...) or @set(...) when the native change event fires.",
+      "Use data-genui-on-change on controls bound with data-genui-bind; read the bound state in the action input.",
     valueKind: "action",
   },
   {
