@@ -118,3 +118,9 @@ void test("sanitizer repairs truncated HTML and is idempotent", () => {
   assert.equal(safe, `<section><div><span data-text="$label">Hi</span></div></section>`)
   assert.equal(sanitizeSurfaceHtml(safe, granted), safe)
 })
+
+void test("sanitizer preserves text that contains a literal less-than character", () => {
+  const safe = sanitizeSurfaceHtml(`<p>2 < 3`, granted)
+
+  assert.equal(safe, `<p>2 &lt; 3</p>`)
+})

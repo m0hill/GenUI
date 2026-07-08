@@ -49,12 +49,6 @@ const removedUrlAttributeNames = new Set([
   "xlink:href",
 ])
 
-const trimDanglingTag = (html: string): string => {
-  const lastOpen = html.lastIndexOf("<")
-  const lastClose = html.lastIndexOf(">")
-  return lastOpen > lastClose ? html.slice(0, lastOpen) : html
-}
-
 const attributeName = (attribute: Attribute): string =>
   attribute.prefix === undefined ? attribute.name : `${attribute.prefix}:${attribute.name}`
 
@@ -131,7 +125,7 @@ export const sanitizeSurfaceHtml = (
   html: string,
   grantedCapabilities: ReadonlySet<string>,
 ): string => {
-  const fragment = parseFragment(trimDanglingTag(html))
+  const fragment = parseFragment(html)
   sanitizeChildren(fragment, grantedCapabilities)
   return serialize(fragment)
 }

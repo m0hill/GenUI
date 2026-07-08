@@ -194,6 +194,27 @@ void test("surface broker emits protocol, resize, link, and mismatch effects", (
   )
 })
 
+void test("surface broker refuses unsafe forged link messages", () => {
+  const current = surface([diceDescriptor])
+  const broker = createSurfaceBroker(current, {
+    transport: async (): Promise<CapabilityResult> => ({ ok: true, value: {} }),
+  })
+
+  for (const href of ["javascript:alert(1)", "data:text/html,evil", "/internal", "http://x.test"]) {
+    assert.deepEqual(
+      emittedEvents(
+        broker.handleSandboxMessage({
+          channel: protocolChannel,
+          type: "link",
+          surfaceId: current.id,
+          href,
+        }).effects,
+      ),
+      [{ type: "violation", reason: "unsafe_link", detail: "Blocked unsafe link URL." }],
+    )
+  }
+})
+
 void test("surface broker drops pending results after update or dispose", async () => {
   let resolveResult: ((result: CapabilityResult) => void) | undefined
   const result = new Promise<CapabilityResult>((resolve) => {

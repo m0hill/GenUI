@@ -19,6 +19,7 @@ export type SurfaceViolationReason =
   | "bad_message"
   | "surface_mismatch"
   | "ungranted_call"
+  | "unsafe_link"
 
 export type SurfaceEvent =
   | { readonly type: "call"; readonly call: CapabilityCall; readonly target: string }
@@ -157,6 +158,15 @@ const capabilityError = (code: CapabilityErrorCode, message: string): Capability
 
 const clampHeight = (height: number, maxHeight: number): number =>
   Math.max(0, Math.min(Math.ceil(height), maxHeight))
+
+const safeLinkHref = (href: string): string | undefined => {
+  try {
+    const url = new URL(href.trim())
+    return url.protocol === "https:" ? url.href : undefined
+  } catch {
+    return undefined
+  }
+}
 
 const emit = (event: SurfaceEvent): SurfaceBrokerEffect => ({ type: "emit", event })
 
@@ -300,7 +310,16 @@ export const createSurfaceBroker = (
     }
 
     if (message.type === "link") {
-      return task([emit({ type: "link", href: message.href })])
+      const href = safeLinkHref(message.href)
+      return href === undefined
+        ? task([
+            emit({
+              type: "violation",
+              reason: "unsafe_link",
+              detail: "Blocked unsafe link URL.",
+            }),
+          ])
+        : task([emit({ type: "link", href })])
     }
 
     return handleCapability(message)
