@@ -6,13 +6,13 @@ import type {
   Surface,
 } from "../types.js"
 import { capabilityError } from "../capability-result.js"
-import { isRecord } from "../record.js"
 import { protocolChannel } from "./protocol.js"
 import {
   normalizeResultTarget,
   resultStateFromCapabilityResult,
   type ResultState,
 } from "./result-routing.js"
+import { parseSandboxMessage, type CapabilitySandboxMessage } from "./sandbox-message-schema.js"
 
 const defaultMaxHeight = 1_200
 
@@ -74,71 +74,10 @@ export interface SurfaceBroker {
   dispose(): void
 }
 
-interface CapabilitySandboxMessage extends CapabilityCall {
-  readonly channel: string
-  readonly type: "capability"
-  readonly target?: string
-}
-
-interface ResizeSandboxMessage {
-  readonly channel: string
-  readonly surfaceId: string
-  readonly type: "resize"
-  readonly height: number
-}
-
-interface LinkSandboxMessage {
-  readonly channel: string
-  readonly surfaceId: string
-  readonly type: "link"
-  readonly href: string
-}
-
-type SandboxMessage = CapabilitySandboxMessage | ResizeSandboxMessage | LinkSandboxMessage
-
 interface BrokerCapabilityRequest {
   readonly target: string
   readonly descriptor: CapabilityDescriptor
   readonly call: CapabilityCall
-}
-
-const parseSandboxMessage = (value: unknown): SandboxMessage | undefined => {
-  if (!isRecord(value)) return undefined
-  if (value.channel !== protocolChannel) return undefined
-  if (typeof value.surfaceId !== "string" || typeof value.type !== "string") return undefined
-
-  if (value.type === "resize") {
-    return typeof value.height === "number"
-      ? {
-          channel: protocolChannel,
-          type: "resize",
-          surfaceId: value.surfaceId,
-          height: value.height,
-        }
-      : undefined
-  }
-
-  if (value.type === "link") {
-    return typeof value.href === "string"
-      ? { channel: protocolChannel, type: "link", surfaceId: value.surfaceId, href: value.href }
-      : undefined
-  }
-
-  if (value.type === "capability") {
-    return typeof value.callId === "string" && typeof value.capability === "string"
-      ? {
-          channel: protocolChannel,
-          type: "capability",
-          surfaceId: value.surfaceId,
-          callId: value.callId,
-          capability: value.capability,
-          input: value.input,
-          target: typeof value.target === "string" ? value.target : undefined,
-        }
-      : undefined
-  }
-
-  return undefined
 }
 
 const clampHeight = (height: number, maxHeight: number): number =>
@@ -273,14 +212,11 @@ export const createSurfaceBroker = (
   const handleSandboxMessage = (data: unknown): SurfaceBrokerTask => {
     if (disposed) return task([])
 
-    if (isRecord(data) && data.channel !== protocolChannel) {
-      return task([emit({ type: "violation", reason: "unknown_channel" })])
+    const parsed = parseSandboxMessage(data)
+    if (!parsed.ok) {
+      return task([emit({ type: "violation", reason: parsed.reason })])
     }
-
-    const message = parseSandboxMessage(data)
-    if (message === undefined) {
-      return task([emit({ type: "violation", reason: "bad_message" })])
-    }
+    const message = parsed.value
 
     if (message.surfaceId !== currentSurface.id) {
       return task([emit({ type: "violation", reason: "surface_mismatch" })])
