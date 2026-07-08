@@ -15,7 +15,7 @@ import {
   testSurface,
 } from "./test-support.test-support.js"
 
-void test("mountSurface renders a sandboxed iframe and updates/disposes it", () => {
+void test("mountSurface renders a sandboxed iframe and replaces/disposes it", () => {
   const { element } = createMountTarget()
   const first = testSurface([diceDescriptor], `<button>Roll</button>`)
   const second = testSurface([diceDescriptor], `<button>Roll</button>`)
@@ -28,7 +28,7 @@ void test("mountSurface renders a sandboxed iframe and updates/disposes it", () 
   assert.equal(iframe.getAttribute("sandbox"), "allow-scripts allow-forms")
   assert.match(iframe.srcdoc, /<button>Roll<\/button>/)
 
-  instance.update(second)
+  instance.replace(second)
   assert.equal(instance.surface, second)
   assert.match(iframe.srcdoc, new RegExp(second.id))
 
@@ -130,20 +130,27 @@ void test("mountSurface emits link, resize, and protocol violation events", () =
   ])
 })
 
-void test("mountSurface drops pending results after updating to a different surface", async () => {
+void test("mountSurface aborts and drops pending results after replacing a surface", async () => {
   const { window, element } = createMountTarget()
   const first = testSurface([diceDescriptor], `<button>Roll</button>`)
   const second = testSurface([diceDescriptor], `<button>Roll</button>`)
   const result = deferred<CapabilityResult>()
   const events: SurfaceEvent[] = []
+  let signal: AbortSignal | undefined
   const instance = mountSurface(asDomElement(element), first, {
-    transport: async () => result.promise,
+    transport: async (_call, options) => {
+      signal = options.signal
+      return result.promise
+    },
     onEvent: (event) => events.push(event),
   })
   const iframe = mountedIframe(element)
 
   dispatchSandboxMessage(window, iframe, sandboxCapabilityMessage(first))
-  instance.update(second)
+  await flushAsync()
+  assert.equal(signal?.aborted, false)
+  instance.replace(second)
+  assert.equal(signal?.aborted, true)
   result.resolve({ ok: true, value: { total: 6 } })
   await flushAsync()
 
@@ -159,14 +166,21 @@ void test("mountSurface drops pending results after dispose", async () => {
   const current = testSurface([diceDescriptor], `<button>Roll</button>`)
   const result = deferred<CapabilityResult>()
   const events: SurfaceEvent[] = []
+  let signal: AbortSignal | undefined
   const instance = mountSurface(asDomElement(element), current, {
-    transport: async () => result.promise,
+    transport: async (_call, options) => {
+      signal = options.signal
+      return result.promise
+    },
     onEvent: (event) => events.push(event),
   })
   const iframe = mountedIframe(element)
 
   dispatchSandboxMessage(window, iframe, sandboxCapabilityMessage(current))
+  await flushAsync()
+  assert.equal(signal?.aborted, false)
   instance.dispose()
+  assert.equal(signal?.aborted, true)
   result.resolve({ ok: true, value: { total: 6 } })
   await flushAsync()
 

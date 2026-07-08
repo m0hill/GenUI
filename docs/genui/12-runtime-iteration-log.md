@@ -171,10 +171,16 @@ Supported event actions:
    - Done in code: execution can run from another registry instance using the same store,
      which makes `Surface` serialization honest across process boundaries.
 
+6. DOM API hardening.
+   - Done in code: browser transport receives `{ signal }` so app transports can cancel
+     capability work when a mounted surface is replaced or disposed.
+   - Done in code: pending capability results are aborted and dropped on replacement,
+     including same-surface-id replacement.
+   - Done in code: `SurfaceInstance.update()` has been renamed to `replace()` because it
+     recreates the sandbox document and destroys sandbox state.
+
 ## Important Deferred Work
 
-- `AbortSignal` in `mountSurface` transport.
-- `SurfaceInstance.update()` rename to `replace()`.
 - Clear approval lifecycle documentation and tests.
 - Internal `SurfaceDialect` interface so future dialect versions have one owner.
 - Prototype-pollution tests around state paths and object literal keys.

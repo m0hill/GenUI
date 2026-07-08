@@ -28,9 +28,11 @@ const resultPost = (effects: readonly SurfaceBrokerEffect[]): SurfaceBrokerEffec
 void test("surface broker runs granted capability calls through transport", async () => {
   const current = testSurface([diceDescriptor])
   const calls: CapabilityCall[] = []
+  const signals: AbortSignal[] = []
   const broker = createSurfaceBroker(current, {
-    transport: async (call): Promise<CapabilityResult> => {
+    transport: async (call, options): Promise<CapabilityResult> => {
       calls.push(call)
+      signals.push(options.signal)
       return { ok: true, value: { total: 6 } }
     },
   })
@@ -54,6 +56,7 @@ void test("surface broker runs granted capability calls through transport", asyn
   assert.deepEqual(calls, [
     { surfaceId: current.id, callId: "call-1", capability: "dice.roll", input: { sides: 6 } },
   ])
+  assert.equal(signals[0]?.aborted, false)
   assert.equal(resultPost(effects)?.type, "post_result")
   assert.deepEqual(emittedEvents(effects), [
     {
@@ -184,29 +187,48 @@ void test("surface broker refuses unsafe forged link messages", () => {
   }
 })
 
-void test("surface broker drops pending results after update or dispose", async () => {
+void test("surface broker aborts and drops pending results after replace or dispose", async () => {
   let resolveResult: ((result: CapabilityResult) => void) | undefined
   const result = new Promise<CapabilityResult>((resolve) => {
     resolveResult = resolve
   })
   const current = testSurface([diceDescriptor])
   const next = testSurface([diceDescriptor])
+  let replaceSignal: AbortSignal | undefined
   const broker = createSurfaceBroker(current, {
-    transport: async () => result,
+    transport: async (_call, options) => {
+      replaceSignal = options.signal
+      return result
+    },
   })
 
   const task = broker.handleSandboxMessage(sandboxCapabilityMessage(current))
-  broker.update(next)
+  await Promise.resolve()
+  assert.equal(replaceSignal?.aborted, false)
+  broker.replace(next)
+  assert.equal(replaceSignal?.aborted, true)
   resolveResult?.({ ok: true, value: { total: 6 } })
 
   assert.deepEqual(await pendingEffects(task), [])
 
+  let disposeSignal: AbortSignal | undefined
+  let resolveDisposedResult: ((result: CapabilityResult) => void) | undefined
+  const disposedResult = new Promise<CapabilityResult>((resolve) => {
+    resolveDisposedResult = resolve
+  })
   const disposed = testSurface([diceDescriptor])
   const disposedBroker = createSurfaceBroker(disposed, {
-    transport: async (): Promise<CapabilityResult> => ({ ok: true, value: { total: 6 } }),
+    transport: async (_call, options): Promise<CapabilityResult> => {
+      disposeSignal = options.signal
+      return disposedResult
+    },
   })
   const disposedTask = disposedBroker.handleSandboxMessage(sandboxCapabilityMessage(disposed))
+  await Promise.resolve()
+  assert.equal(disposeSignal?.aborted, false)
   disposedBroker.dispose()
+  assert.equal(disposeSignal?.aborted, true)
+  resolveDisposedResult?.({ ok: true, value: { total: 6 } })
 
   assert.deepEqual(await pendingEffects(disposedTask), [])
 })

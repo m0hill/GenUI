@@ -14,7 +14,11 @@ export {
   type ResultState,
   type ResultStatus,
 } from "./result-routing.js"
-export type { SurfaceEvent, SurfaceViolationReason } from "./surface-broker.js"
+export type {
+  SurfaceEvent,
+  SurfaceTransportOptions,
+  SurfaceViolationReason,
+} from "./surface-broker.js"
 
 export interface MountSurfaceOptions extends SurfaceBrokerOptions {
   readonly onEvent?: (event: SurfaceEvent) => void
@@ -22,7 +26,7 @@ export interface MountSurfaceOptions extends SurfaceBrokerOptions {
 
 export interface SurfaceInstance {
   readonly surface: Surface
-  update(surface: Surface): void
+  replace(surface: Surface): void
   dispose(): void
 }
 
@@ -94,8 +98,8 @@ export const mountSurface = (
     get surface() {
       return broker.surface
     },
-    update(nextSurface) {
-      broker.update(nextSurface)
+    replace(nextSurface) {
+      broker.replace(nextSurface)
       iframe.srcdoc = surfaceDocument(broker.surface)
     },
     dispose() {

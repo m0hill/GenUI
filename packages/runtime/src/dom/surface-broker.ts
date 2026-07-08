@@ -40,8 +40,15 @@ export type SurfaceEvent =
       readonly detail?: string
     }
 
+export interface SurfaceTransportOptions {
+  readonly signal: AbortSignal
+}
+
 export interface SurfaceBrokerOptions {
-  readonly transport: (call: CapabilityCall) => Promise<CapabilityResult>
+  readonly transport: (
+    call: CapabilityCall,
+    options: SurfaceTransportOptions,
+  ) => Promise<CapabilityResult>
   readonly approve?: NonNullable<ExecuteOptions["approve"]>
   readonly maxHeight?: number
 }
@@ -70,7 +77,7 @@ export interface SurfaceBrokerTask {
 export interface SurfaceBroker {
   readonly surface: Surface
   handleSandboxMessage(data: unknown): SurfaceBrokerTask
-  update(surface: Surface): void
+  replace(surface: Surface): void
   dispose(): void
 }
 
@@ -78,6 +85,8 @@ interface BrokerCapabilityRequest {
   readonly target: string
   readonly descriptor: CapabilityDescriptor
   readonly call: CapabilityCall
+  readonly controller: AbortController
+  readonly surfaceRevision: number
 }
 
 const clampHeight = (height: number, maxHeight: number): number =>
@@ -106,15 +115,18 @@ export const createSurfaceBroker = (
 ): SurfaceBroker => {
   let currentSurface = initialSurface
   let disposed = false
+  let surfaceRevision = 0
+  const pendingControllers = new Set<AbortController>()
 
   const resultEffects = (
     surfaceId: string,
+    revision: number,
     callId: string,
     capability: string,
     target: string,
     result: CapabilityResult,
   ): readonly SurfaceBrokerEffect[] => {
-    if (disposed || currentSurface.id !== surfaceId) return []
+    if (disposed || surfaceRevision !== revision || currentSurface.id !== surfaceId) return []
 
     return [
       {
@@ -137,12 +149,15 @@ export const createSurfaceBroker = (
   const executeCapability = async (
     request: BrokerCapabilityRequest,
   ): Promise<readonly SurfaceBrokerEffect[]> => {
+    pendingControllers.add(request.controller)
     try {
       if (request.descriptor.requiresApproval) {
         const approved = await options.approve?.(request.descriptor, request.call)
+        if (request.controller.signal.aborted) return []
         if (approved !== true) {
           return resultEffects(
             request.call.surfaceId,
+            request.surfaceRevision,
             request.call.callId,
             request.call.capability,
             request.target,
@@ -153,20 +168,29 @@ export const createSurfaceBroker = (
 
       return resultEffects(
         request.call.surfaceId,
+        request.surfaceRevision,
         request.call.callId,
         request.call.capability,
         request.target,
-        await options.transport(request.call),
+        await options.transport(request.call, { signal: request.controller.signal }),
       )
     } catch {
       return resultEffects(
         request.call.surfaceId,
+        request.surfaceRevision,
         request.call.callId,
         request.call.capability,
         request.target,
         capabilityError("execution_failed", "Capability failed."),
       )
+    } finally {
+      pendingControllers.delete(request.controller)
     }
+  }
+
+  const abortPending = (): void => {
+    for (const controller of pendingControllers) controller.abort()
+    pendingControllers.clear()
   }
 
   const handleCapability = (message: CapabilitySandboxMessage): SurfaceBrokerTask => {
@@ -191,6 +215,7 @@ export const createSurfaceBroker = (
         }),
         ...resultEffects(
           surfaceId,
+          surfaceRevision,
           message.callId,
           message.capability,
           target,
@@ -205,6 +230,8 @@ export const createSurfaceBroker = (
         target,
         descriptor,
         call,
+        controller: new AbortController(),
+        surfaceRevision,
       }),
     )
   }
@@ -248,11 +275,14 @@ export const createSurfaceBroker = (
       return currentSurface
     },
     handleSandboxMessage,
-    update(surface) {
+    replace(surface) {
+      abortPending()
+      surfaceRevision += 1
       currentSurface = surface
     },
     dispose() {
       disposed = true
+      abortPending()
     },
   }
 }

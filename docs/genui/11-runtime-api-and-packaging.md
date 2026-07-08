@@ -132,6 +132,12 @@ Framework wrappers can exist, but they should wrap the same primitive:
 
 All wrappers should produce the same reality: a sandboxed surface with the same bridge, broker protocol, grant behavior, and lifecycle. Wrappers should manage lifecycle, not fork runtime behavior.
 
+The mounted instance should use `replace(surface)` rather than `update(surface)`.
+Replacement recreates the sandbox document and therefore destroys sandbox-local state.
+The name should make that cost explicit. Browser transports should receive an
+`AbortSignal` so app code can cancel capability work when the instance is replaced or
+disposed.
+
 ## Capability Execution
 
 Capability execution should be transport-neutral.
