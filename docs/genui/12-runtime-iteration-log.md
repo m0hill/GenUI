@@ -131,7 +131,10 @@ Expression scope is intentionally small:
 - state reads: `$name`, `$name.path`;
 - array own-property reads such as `$orders.value.items.length`;
 - primitive literals;
-- equality and inequality comparisons;
+- equality, inequality, and ordering comparisons;
+- unary `!`, `&&`, `||`, and parenthesized grouping;
+- closed display formatters: `formatNumber`, `formatCurrency`, `formatPercent`, and
+  `formatDate`;
 - flat object literals for action inputs and initial state.
 
 Action result state is stale-while-pending: when a target with an existing `value`
@@ -144,6 +147,13 @@ Supported event actions:
 - `@action('name', input, { target: 'resultName' })`;
 - `@capability('name', input)` and target variants are accepted as legacy spellings;
 - `@set('state.path', value)`.
+
+Bindings are reactive in both directions for installed static controls:
+
+- user input writes into surface state;
+- state changes from `@set` actions or action results write back into bound controls;
+- the source control of an `input` or `change` refresh is not rewritten, so partial
+  typing states are not clobbered by normalization.
 
 ## Next Commits
 
@@ -316,6 +326,14 @@ Supported event actions:
       fraction and that ordering comparisons require matching types.
     - Done in code: sanitizer validation, sandbox evaluation, generated sandbox asset,
       and model-facing `genui/0` instructions were updated together.
+
+17. Reactive binding.
+    - Done in code: refresh now syncs state back into installed `data-genui-bind`
+      controls, including text inputs, checkboxes, selects, and textareas.
+    - Done in code: input/change-origin refreshes skip only the source bound control;
+      authored actions and action results still sync focused controls.
+    - Done in code: repeated-template bindings remain inactive because editable row
+      semantics are still deferred.
 
 ## Important Deferred Work
 

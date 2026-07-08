@@ -298,6 +298,145 @@ void test("sandbox runtime runs local set actions without posting messages", () 
   )
 })
 
+void test("sandbox runtime syncs state changes back into bound form controls", () => {
+  const { window } = createHarness(`
+    <section data-genui-state="{ query: 'Acme', enabled: true, status: 'open', note: 'Ready', choice: 'b' }">
+      <input id="query" data-genui-bind="query">
+      <input id="enabled" type="checkbox" data-genui-bind="enabled">
+      <input id="choice-a" type="radio" name="choice" value="a" data-genui-bind="choice">
+      <input id="choice-b" type="radio" name="choice" value="b" data-genui-bind="choice">
+      <select id="status" data-genui-bind="status">
+        <option value="open">Open</option>
+        <option value="closed">Closed</option>
+      </select>
+      <textarea id="note" data-genui-bind="note"></textarea>
+      <button id="clear" data-genui-on-click="@set('query', '')">Clear</button>
+      <button id="disable" data-genui-on-click="@set('enabled', false)">Disable</button>
+      <button id="choose-a" data-genui-on-click="@set('choice', 'a')">Choose A</button>
+      <button id="close" data-genui-on-click="@set('status', 'closed')">Close</button>
+      <button id="blank" data-genui-on-click="@set('note', '')">Blank</button>
+    </section>
+  `)
+
+  const query = window.document.querySelector("#query")
+  const enabled = window.document.querySelector("#enabled")
+  const choiceA = window.document.querySelector("#choice-a")
+  const choiceB = window.document.querySelector("#choice-b")
+  const status = window.document.querySelector("#status")
+  const note = window.document.querySelector("#note")
+  assert.ok(query instanceof window.HTMLInputElement)
+  assert.ok(enabled instanceof window.HTMLInputElement)
+  assert.ok(choiceA instanceof window.HTMLInputElement)
+  assert.ok(choiceB instanceof window.HTMLInputElement)
+  assert.ok(status instanceof window.HTMLSelectElement)
+  assert.ok(note instanceof window.HTMLTextAreaElement)
+
+  assert.equal(query?.value, "Acme")
+  assert.equal(enabled?.checked, true)
+  assert.equal(choiceA?.checked, false)
+  assert.equal(choiceB?.checked, true)
+  assert.equal(status?.value, "open")
+  assert.equal(note?.value, "Ready")
+
+  window.document
+    .querySelector("#clear")
+    ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }))
+  window.document
+    .querySelector("#disable")
+    ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }))
+  window.document
+    .querySelector("#choose-a")
+    ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }))
+  window.document
+    .querySelector("#close")
+    ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }))
+  window.document
+    .querySelector("#blank")
+    ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }))
+
+  assert.equal(query?.value, "")
+  assert.equal(enabled?.checked, false)
+  assert.equal(choiceA?.checked, true)
+  assert.equal(choiceB?.checked, false)
+  assert.equal(status?.value, "closed")
+  assert.equal(note?.value, "")
+})
+
+void test("sandbox runtime does not resync the source control during input refresh", () => {
+  const { window } = createHarness(`
+    <input id="quantity" type="number" data-genui-bind="quantity" value="1">
+    <p id="state" data-genui-text="$quantity"></p>
+  `)
+
+  const quantity = window.document.querySelector("#quantity")
+  const stateText = window.document.querySelector("#state")
+  assert.ok(quantity instanceof window.HTMLInputElement)
+
+  quantity.value = "01"
+  quantity.focus()
+  quantity.dispatchEvent(new window.Event("input", { bubbles: true }))
+
+  assert.equal(quantity.value, "01")
+  assert.equal(stateText?.textContent, "1")
+})
+
+void test("sandbox runtime syncs focused controls after authored actions", () => {
+  const { window } = createHarness(`
+    <form data-genui-on-submit="@set('query', '')">
+      <input id="query" data-genui-bind="query" value="initial">
+      <p id="state" data-genui-text="$query"></p>
+    </form>
+  `)
+
+  const query = window.document.querySelector("#query")
+  const form = window.document.querySelector("form")
+  const stateText = window.document.querySelector("#state")
+  assert.ok(query instanceof window.HTMLInputElement)
+
+  query.focus()
+  query.value = "draft"
+  query.dispatchEvent(new window.Event("input", { bubbles: true }))
+  assert.equal(query.value, "draft")
+  assert.equal(stateText?.textContent, "draft")
+
+  const defaultAllowed = form?.dispatchEvent(
+    new window.Event("submit", { bubbles: true, cancelable: true }),
+  )
+
+  assert.equal(defaultAllowed, false)
+  assert.equal(query.value, "")
+  assert.equal(stateText?.textContent, "")
+})
+
+void test("sandbox runtime syncs focused controls after result messages", () => {
+  const { window } = createHarness(`
+    <input id="query" data-genui-bind="query" value="initial">
+    <p id="state" data-genui-text="$query"></p>
+  `)
+
+  const query = window.document.querySelector("#query")
+  const stateText = window.document.querySelector("#state")
+  assert.ok(query instanceof window.HTMLInputElement)
+
+  query.focus()
+  query.value = "draft"
+
+  window.dispatchEvent(
+    new window.MessageEvent("message", {
+      data: {
+        channel: protocolChannel,
+        surfaceId: "surface-test",
+        type: "result",
+        target: "query",
+        state: "server",
+      },
+    }),
+  )
+
+  assert.equal(query.value, "server")
+  assert.equal(stateText?.textContent, "server")
+})
+
 void test("sandbox runtime keeps prototype-shaped state paths as own data", () => {
   const pollutionKey = "genuiPolluted"
   Reflect.deleteProperty(Object.prototype, pollutionKey)

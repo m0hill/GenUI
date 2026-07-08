@@ -38,6 +38,9 @@ export const installSandboxRuntime = (
 ): SandboxRuntimeInstance => {
   type StateScope = Readonly<Record<string, unknown>>
   type RenderMode = "static" | "template"
+  type RefreshOptions = {
+    readonly skipBoundElement?: Element
+  }
 
   type Directive = Genui0RuntimeDirective & {
     readonly scope: StateScope
@@ -62,6 +65,7 @@ export const installSandboxRuntime = (
   const state: Record<string, unknown> = {}
   const directives: Directive[] = []
   const eachBlocks: EachBlock[] = []
+  const boundElements = new Map<Element, readonly string[]>()
   const elementScopes = new WeakMap<Element, StateScope>()
   const emptyScope: StateScope = {}
 
@@ -201,6 +205,10 @@ export const installSandboxRuntime = (
         element.checked = Boolean(value)
         return
       }
+      if (type === "radio") {
+        element.checked = element.value === textValue(value)
+        return
+      }
       element.value = textValue(value)
       return
     }
@@ -256,6 +264,18 @@ export const installSandboxRuntime = (
     ...eachBlocks.flatMap((block) => block.directives),
   ]
 
+  const syncBoundElements = (skipElement: Element | undefined): void => {
+    for (const [element, path] of boundElements) {
+      if (!element.isConnected) {
+        boundElements.delete(element)
+        continue
+      }
+
+      if (element === skipElement) continue
+      writeElementValue(element, readPath(path))
+    }
+  }
+
   const refreshDirectives = (): void => {
     for (const directive of currentDirectives()) {
       const value = evaluate(directive.expression, directive.scope)
@@ -273,8 +293,9 @@ export const installSandboxRuntime = (
     post({ type: "resize", height: Math.max(root.scrollHeight, body?.scrollHeight ?? 0) })
   }
 
-  const refresh = (): void => {
+  const refresh = (options: RefreshOptions = {}): void => {
     renderEachBlocks()
+    syncBoundElements(options.skipBoundElement)
     refreshDirectives()
     reportHeight()
   }
@@ -375,7 +396,7 @@ export const installSandboxRuntime = (
       statePath(target.getAttribute(genui0AttributeNames.bind) ?? ""),
       readElementValue(target),
     )
-    refresh()
+    refresh({ skipBoundElement: target })
   }
 
   const handleResultMessage = (event: MessageEvent<unknown>): void => {
@@ -405,6 +426,8 @@ export const installSandboxRuntime = (
 
     const path = statePath(binding)
     if (path.length === 0) return
+
+    boundElements.set(element, path)
 
     if (hasAuthoredFormValue(element) || readPath(path) === "") {
       writePath(path, readElementValue(element))
