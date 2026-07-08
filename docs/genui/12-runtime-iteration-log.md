@@ -214,9 +214,15 @@ Supported event actions:
    - Done in docs: broker approval is host-side UX; registry approval is authoritative
      application policy.
 
+8. Approval lifecycle hardening.
+   - Done in code: registry tests now assert approval-gated capabilities do not execute
+     unless the authoritative registry approval callback returns `true`.
+   - Done in code: broker tests now assert broker approval only gates forwarding, and an
+     authoritative denial returned by transport still reaches the surface as
+     `approval_denied`.
+
 ## Important Deferred Work
 
-- Approval lifecycle tests beyond the current broker/registry approval checks.
 - Internal `SurfaceDialect` interface so future dialect versions have one owner.
 - Prototype-pollution tests around state paths and object literal keys.
 - Model adapters.

@@ -363,6 +363,50 @@ void test("registry executes granted capabilities and validates inputs and outpu
   )
 })
 
+void test("registry approval is the authoritative execution gate", async () => {
+  let executed = 0
+  const registry = createRegistry<TestCtx>({
+    capabilities: [
+      defineCapability({
+        name: "notes.create",
+        description: "Create a note.",
+        effect: "write",
+        policy: "require_approval",
+        input: textInput,
+        execute: (_ctx, input) => {
+          executed += 1
+          return { accepted: input.text }
+        },
+      }),
+    ],
+  })
+  const surface = await registry.createSurface({
+    html: `<button data-genui-on-click="@capability('notes.create', { text: 'hi' })">Create</button>`,
+    requested: ["notes.create"],
+  })
+  const call = {
+    surfaceId: surface.id,
+    callId: "call-1",
+    capability: "notes.create",
+    input: { text: "hi" },
+  }
+
+  assertErrorCode(await registry.execute(call, { userId: "u1" }), "approval_denied")
+  assert.equal(executed, 0)
+
+  assertErrorCode(
+    await registry.execute(call, { userId: "u1" }, { approve: () => false }),
+    "approval_denied",
+  )
+  assert.equal(executed, 0)
+
+  assert.deepEqual(await registry.execute(call, { userId: "u1" }, { approve: () => true }), {
+    ok: true,
+    value: { accepted: "hi" },
+  })
+  assert.equal(executed, 1)
+})
+
 void test("registry returns every expected capability error as a value", async () => {
   const registry = createRegistry<TestCtx>({
     capabilities: [

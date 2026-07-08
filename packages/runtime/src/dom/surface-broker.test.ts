@@ -117,6 +117,45 @@ void test("surface broker denies approval-gated calls without approval", async (
   )
 })
 
+void test("surface broker approval is UX and authoritative transport denial still wins", async () => {
+  const current = testSurface([approvedDescriptor])
+  const brokerApprovals: CapabilityCall[] = []
+  const transportCalls: CapabilityCall[] = []
+  const broker = createSurfaceBroker(current, {
+    approve: (_descriptor, call) => {
+      brokerApprovals.push(call)
+      return true
+    },
+    transport: async (call): Promise<CapabilityResult> => {
+      transportCalls.push(call)
+      return {
+        ok: false,
+        error: { code: "approval_denied", message: "Capability was denied." },
+      }
+    },
+  })
+
+  const effects = await pendingEffects(
+    broker.handleSandboxMessage(sandboxCapabilityMessage(current, "notes.create")),
+  )
+  const post = resultPost(effects)
+
+  assert.deepEqual(
+    brokerApprovals.map((call) => call.callId),
+    ["call-1"],
+  )
+  assert.deepEqual(
+    transportCalls.map((call) => call.callId),
+    ["call-1"],
+  )
+  assert.equal(
+    post?.type === "post_result" && !post.message.result.ok
+      ? post.message.result.error.code
+      : undefined,
+    "approval_denied",
+  )
+})
+
 void test("surface broker emits protocol, resize, link, and mismatch effects", () => {
   const current = testSurface([diceDescriptor])
   const broker = createSurfaceBroker(current, {
