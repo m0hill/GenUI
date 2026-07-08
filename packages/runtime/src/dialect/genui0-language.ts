@@ -445,14 +445,3 @@ export const normalizeGenui0ResultTarget = (
   target: string | undefined,
   capability: string,
 ): string => genui0Language.normalizeResultTarget(target, capability)
-
-/** Build the sandbox-language parser source used by the injected genui/0 bridge. */
-export const genui0SandboxLanguageScript = (): string => `
-  const genui0Language = (${createGenui0Language.toString()})();
-  const genui0Invalid = genui0Language.invalid;
-  const genui0ParseObjectLiteral = genui0Language.parseObjectLiteral;
-  const genui0EvaluateExpression = genui0Language.evaluateExpression;
-  const genui0DefaultResultTarget = genui0Language.defaultResultTarget;
-  const parseGenui0CapabilityExpression = genui0Language.parseCapabilityExpression;
-  const parseGenui0SetExpression = genui0Language.parseSetExpression;
-`

@@ -1,31 +1,13 @@
-import { cssStylePolicyScript } from "../css-style.js"
-import { genui0SandboxLanguageScript } from "../dialect/genui0-language.js"
 import { protocolChannel } from "./protocol.js"
-import { installSandboxRuntime } from "./sandbox-runtime.js"
+import { sandboxRuntimeAsset } from "./sandbox-asset.generated.js"
 
-const escapeScriptJson = (value: string): string =>
-  JSON.stringify(value).replaceAll("</script", "<\\/script")
-
-const runtimeSource = (): string => installSandboxRuntime.toString()
+const serializedConfig = (surfaceId: string): string =>
+  JSON.stringify({ channel: protocolChannel, surfaceId }).replaceAll("</script", "<\\/script")
 
 /** Build the sandbox-side runtime asset injected into a generated surface document. */
 export const sandboxBridgeScript = (surfaceId: string): string => `
 (() => {
-  ${cssStylePolicyScript()}
-  ${genui0SandboxLanguageScript()}
-  const language = {
-    invalid: genui0Invalid,
-    parseObjectLiteral: genui0ParseObjectLiteral,
-    evaluateExpression: genui0EvaluateExpression,
-    parseCapabilityExpression: parseGenui0CapabilityExpression,
-    parseSetExpression: parseGenui0SetExpression,
-    defaultResultTarget: genui0DefaultResultTarget,
-  };
-
-  (${runtimeSource()})(
-    { channel: ${escapeScriptJson(protocolChannel)}, surfaceId: ${escapeScriptJson(surfaceId)} },
-    language,
-    globalThis
-  );
+  globalThis.__genuiSandboxConfig = ${serializedConfig(surfaceId)};
+  ${sandboxRuntimeAsset}
 })();
 `

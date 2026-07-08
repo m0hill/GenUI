@@ -241,14 +241,3 @@ export const sanitizeInlineStyle = (source: string): string | undefined => {
 
   return safe.length === 0 ? undefined : safe.join(" ")
 }
-
-export const cssStylePolicyScript = (): string => `
-const allowedStyleProperties = new Set(${JSON.stringify(allowedStylePropertyList)});
-const propertyPattern = ${propertyPattern.toString()};
-const unsafeValuePattern = ${unsafeValuePattern.toString()};
-const hasUnsafeStyleCharacter = ${hasUnsafeStyleCharacter.toString()};
-const normalizeStylePropertyName = ${normalizeStylePropertyName.toString()};
-const normalizeGenuiStylePropertyName = ${normalizeGenuiStylePropertyName.toString()};
-const isSafeStyleProperty = ${isSafeStyleProperty.toString()};
-const isSafeStyleValue = ${isSafeStyleValue.toString()};
-`

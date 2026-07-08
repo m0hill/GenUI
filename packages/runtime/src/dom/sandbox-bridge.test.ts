@@ -19,6 +19,17 @@ const createHarness = (html: string, surfaceId = "surface-test"): BridgeHarness 
   return { window, messages }
 }
 
+void test("sandbox bridge evaluates the bundled runtime asset", () => {
+  const script = sandboxBridgeScript("surface-test")
+  assert.doesNotMatch(script, /\.toString\(/)
+  assert.doesNotMatch(script, /genui0SandboxLanguageScript/)
+  assert.doesNotMatch(script, /cssStylePolicyScript/)
+
+  const { window } = createHarness(`<p id="ready">Ready</p>`)
+
+  assert.equal(window.document.querySelector("#ready")?.textContent, "Ready")
+})
+
 void test("sandbox bridge posts capability calls from click actions", () => {
   const { window, messages } = createHarness(`
     <div data-genui-state="{ label: 'Fallback' }">
