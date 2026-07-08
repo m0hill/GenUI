@@ -16,6 +16,7 @@ This folder is intentionally conceptual. It avoids implementation-shaped code so
 8. [Reconstruction Guide](08-reconstruction-guide.md) gives a concise build order for recreating the system from scratch.
 9. [Surface Runtime Model](09-surface-runtime-model.md) defines surface identity, grants, manifests, and request lifecycle.
 10. [Expression Model](10-expression-model.md) captures the Datastar-vs-closed-DSL decision the framework must make.
+11. [Framework API And Packaging](11-framework-api-and-packaging.md) describes the public developer surface and runtime bundling model.
 
 ## One-Sentence Version
 

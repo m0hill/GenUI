@@ -76,17 +76,17 @@ Quality bar for create_ui:
 `.trim()
 
 const createUiParameters = Type.Object({
-  html: Type.String({
-    minLength: 1,
-    description:
-      "A self-contained HTML fragment. Inline styles, safe HTTPS images/links, and the documented Datastar subset are allowed. Scripts and external CSS are not.",
-  }),
   capabilities: Type.Optional(
     Type.Array(Type.String(), {
       description:
         "Exact generated UI capability names used by the HTML, e.g. chat.follow_up or demo.weather.lookup.",
     }),
   ),
+  html: Type.String({
+    minLength: 1,
+    description:
+      "A self-contained HTML fragment. Inline styles, safe HTTPS images/links, and the documented Datastar subset are allowed. Scripts and external CSS are not.",
+  }),
 })
 
 type CreateUiInput = Static<typeof createUiParameters>
