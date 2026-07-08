@@ -67,13 +67,16 @@ void test("sanitizer strips indirect URL-bearing attributes and inline styles", 
 void test("sanitizer preserves only granted capability calls", () => {
   const safe = sanitizeSurfaceHtml(
     [
-      `<button data-on:click="@capability('dice.roll', { sides: 6 })">Roll</button>`,
+      `<button data-on:click="@capability('dice.roll', { sides: 6 }, { target: 'rollResult' })">Roll</button>`,
       `<button data-on:click="@capability('demo.secret', {})">Secret</button>`,
     ].join(""),
     granted,
   )
 
-  assert.match(safe, /data-on:click="@capability\('dice\.roll', \{ sides: 6 \}\)"/)
+  assert.match(
+    safe,
+    /data-on:click="@capability\('dice\.roll', \{ sides: 6 \}, \{ target: 'rollResult' \}\)"/,
+  )
   assert.doesNotMatch(safe, /demo\.secret/)
 })
 

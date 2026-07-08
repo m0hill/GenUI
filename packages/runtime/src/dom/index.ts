@@ -5,7 +5,9 @@ import type {
   CapabilityResult,
   Surface,
 } from "../types.js"
+import { protocolChannel } from "./protocol.js"
 import { normalizeResultTarget, resultStateFromCapabilityResult } from "./result-routing.js"
+import { sandboxBridgeScript } from "./sandbox-bridge.js"
 export {
   defaultResultTarget,
   normalizeResultTarget,
@@ -14,7 +16,6 @@ export {
   type ResultStatus,
 } from "./result-routing.js"
 
-const protocolChannel = "genui/dom/0"
 const defaultMaxHeight = 1_200
 
 export type SurfaceViolationReason =
@@ -130,43 +131,6 @@ const capabilityError = (code: CapabilityErrorCode, message: string): Capability
 
 const clampHeight = (height: number, maxHeight: number): number =>
   Math.max(0, Math.min(Math.ceil(height), maxHeight))
-
-const escapeScriptJson = (value: string): string =>
-  JSON.stringify(value).replaceAll("</script", "<\\/script")
-
-const sandboxBridgeScript = (surfaceId: string): string => `
-(() => {
-  const channel = ${escapeScriptJson(protocolChannel)};
-  const surfaceId = ${escapeScriptJson(surfaceId)};
-  const post = (message) => parent.postMessage({ channel, surfaceId, ...message }, "*");
-
-  const reportHeight = () => {
-    const root = document.documentElement;
-    const body = document.body;
-    post({ type: "resize", height: Math.max(root.scrollHeight, body ? body.scrollHeight : 0) });
-  };
-
-  addEventListener("load", reportHeight);
-  if ("ResizeObserver" in window) new ResizeObserver(reportHeight).observe(document.body);
-
-  document.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    const link = target.closest("a[href]");
-    if (link === null) return;
-    event.preventDefault();
-    post({ type: "link", href: link.href });
-  });
-
-  addEventListener("message", (event) => {
-    const message = event.data;
-    if (message?.channel !== channel || message?.surfaceId !== surfaceId) return;
-    if (message.type !== "result") return;
-    window.__genuiResults = window.__genuiResults || {};
-    window.__genuiResults[message.target] = message.state;
-  });
-})();
-`
 
 const surfaceDocument = (surface: Surface): string => `<!doctype html>
 <html>

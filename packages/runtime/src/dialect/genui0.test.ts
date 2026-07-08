@@ -8,12 +8,12 @@ void test("genui/0 allows only granted capability actions with v0 object inputs"
   assert.deepEqual(
     allowGenui0DataAttribute({
       name: "data-on:click",
-      value: "@capability('dice.roll', { sides: 6, label: $label })",
+      value: "@capability('dice.roll', { sides: 6, label: $label }, { target: 'rollResult' })",
       grantedCapabilities,
     }),
     {
       name: "data-on:click",
-      value: "@capability('dice.roll', { sides: 6, label: $label })",
+      value: "@capability('dice.roll', { sides: 6, label: $label }, { target: 'rollResult' })",
     },
   )
 
@@ -30,6 +30,14 @@ void test("genui/0 allows only granted capability actions with v0 object inputs"
       name: "data-on:click",
       value:
         "@capability('dice.roll', { sides: this['constructor']['constructor']('return 6')() })",
+      grantedCapabilities,
+    }),
+    undefined,
+  )
+  assert.equal(
+    allowGenui0DataAttribute({
+      name: "data-on:click",
+      value: "@capability('dice.roll', { sides: 6 }, { target: window.location })",
       grantedCapabilities,
     }),
     undefined,
@@ -94,5 +102,6 @@ void test("genui/0 instructions describe dialect and capability descriptors", ()
 
   assert.match(instructions, /Generated UI dialect: genui\/0/)
   assert.match(instructions, /dice\.roll: Roll a die\./)
+  assert.match(instructions, /target: 'resultName'/)
   assert.match(instructions, /simple v0 expressions/)
 })

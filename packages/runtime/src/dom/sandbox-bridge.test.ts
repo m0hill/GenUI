@@ -1,0 +1,134 @@
+import assert from "node:assert/strict"
+import { test } from "node:test"
+import { Window } from "happy-dom"
+import { protocolChannel } from "./protocol.js"
+import { sandboxBridgeScript } from "./sandbox-bridge.js"
+
+interface BridgeHarness {
+  readonly window: Window
+  readonly messages: unknown[]
+}
+
+const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
+  typeof value === "object" && value !== null
+
+const createHarness = (html: string, surfaceId = "surface-test"): BridgeHarness => {
+  const window = new Window()
+  const messages: unknown[] = []
+
+  window.document.body.innerHTML = html
+  window.parent.postMessage = (message: unknown): void => {
+    messages.push(message)
+  }
+  window.eval(sandboxBridgeScript(surfaceId))
+
+  return { window, messages }
+}
+
+const capabilityMessage = (messages: readonly unknown[]): Readonly<Record<string, unknown>> => {
+  const message = messages.find(
+    (candidate) => isRecord(candidate) && candidate.type === "capability",
+  )
+  assert.notEqual(message, undefined)
+  assert.ok(isRecord(message))
+  return message
+}
+
+const jsonRoundTrip = (value: unknown): unknown => JSON.parse(JSON.stringify(value))
+
+void test("sandbox bridge posts capability calls from click actions", () => {
+  const { window, messages } = createHarness(`
+    <div data-signals="{ label: 'Fallback' }">
+      <input data-bind="label" value="Lucky">
+      <input data-bind="sides" type="number" value="6">
+      <button data-on:click="@capability('dice.roll', { sides: $sides, label: $label, lucky: true, note: 'ok' }, { target: 'rollResult' })">
+        Roll
+      </button>
+    </div>
+  `)
+
+  window.document
+    .querySelector("button")
+    ?.dispatchEvent(new window.Event("click", { bubbles: true, cancelable: true }))
+
+  const message = capabilityMessage(messages)
+  assert.equal(message.channel, protocolChannel)
+  assert.equal(message.surfaceId, "surface-test")
+  assert.equal(message.capability, "dice.roll")
+  assert.equal(typeof message.callId, "string")
+  assert.equal(message.target, "rollResult")
+  assert.deepEqual(jsonRoundTrip(message.input), {
+    sides: 6,
+    label: "Lucky",
+    lucky: true,
+    note: "ok",
+  })
+})
+
+void test("sandbox bridge posts capability calls from prevented submit actions", () => {
+  const { window, messages } = createHarness(`
+    <form data-on:submit__prevent="@capability('weather.lookup', { city: $city })">
+      <input data-bind="city" value="Tokyo">
+      <button>Search</button>
+    </form>
+  `)
+  const form = window.document.querySelector("form")
+  assert.notEqual(form, null)
+
+  const defaultAllowed = form?.dispatchEvent(
+    new window.Event("submit", { bubbles: true, cancelable: true }),
+  )
+
+  assert.equal(defaultAllowed, false)
+  const message = capabilityMessage(messages)
+  assert.equal(message.capability, "weather.lookup")
+  assert.deepEqual(jsonRoundTrip(message.input), { city: "Tokyo" })
+  assert.equal(message.target, undefined)
+})
+
+void test("sandbox bridge exposes result state to later capability inputs", () => {
+  const { window, messages } = createHarness(`
+    <button data-on:click="@capability('notes.create', { total: $rollResult.value.total })">
+      Save
+    </button>
+  `)
+
+  window.dispatchEvent(
+    new window.MessageEvent("message", {
+      data: {
+        channel: protocolChannel,
+        surfaceId: "surface-test",
+        type: "result",
+        target: "rollResult",
+        state: { status: "complete", value: { total: 6 } },
+      },
+    }),
+  )
+  window.document
+    .querySelector("button")
+    ?.dispatchEvent(new window.Event("click", { bubbles: true, cancelable: true }))
+
+  const message = capabilityMessage(messages)
+  assert.equal(message.capability, "notes.create")
+  assert.deepEqual(jsonRoundTrip(message.input), { total: 6 })
+})
+
+void test("sandbox bridge rejects unsupported capability expressions", () => {
+  const { window, messages } = createHarness(`
+    <input data-bind="target" value="rollResult">
+    <button id="bad-input" data-on:click="@capability('dice.roll', { sides: window.location })">Bad</button>
+    <button id="bad-target" data-on:click="@capability('dice.roll', { sides: 6 }, { target: $target })">Bad target</button>
+  `)
+
+  window.document
+    .querySelector("#bad-input")
+    ?.dispatchEvent(new window.Event("click", { bubbles: true, cancelable: true }))
+  window.document
+    .querySelector("#bad-target")
+    ?.dispatchEvent(new window.Event("click", { bubbles: true, cancelable: true }))
+
+  assert.equal(
+    messages.some((message) => isRecord(message) && message.type === "capability"),
+    false,
+  )
+})

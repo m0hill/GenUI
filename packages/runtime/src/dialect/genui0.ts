@@ -22,6 +22,7 @@ const signalPathPattern = /^\$_?[A-Za-z][A-Za-z0-9_]*(?:\._?[A-Za-z][A-Za-z0-9_]
 const numberLiteralPattern = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/
 const stringLiteralPattern = /^(?:"[^"\\<>]*"|'[^'\\<>]*')$/
 const primitiveLiteralPattern = /^(?:true|false|null)$/
+const resultTargetPattern = /^_?[A-Za-z][A-Za-z0-9_]*$/
 
 const splitOutsideQuotes = (source: string, separator: string): string[] | undefined => {
   const parts: string[] = []
@@ -55,6 +56,49 @@ const splitOutsideQuotes = (source: string, separator: string): string[] | undef
   return parts.every((part) => part.length > 0) ? parts : undefined
 }
 
+const splitTopLevel = (source: string, separator: string): string[] | undefined => {
+  const parts: string[] = []
+  let quote: '"' | "'" | undefined
+  let depth = 0
+  let start = 0
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index]
+    if (character === undefined) return undefined
+    if (character === "\\") return undefined
+
+    if (quote !== undefined) {
+      if (character === quote) quote = undefined
+      continue
+    }
+
+    if (character === '"' || character === "'") {
+      quote = character
+      continue
+    }
+
+    if (character === "(" || character === "[" || character === "{") {
+      depth += 1
+      continue
+    }
+
+    if (character === ")" || character === "]" || character === "}") {
+      depth -= 1
+      if (depth < 0) return undefined
+      continue
+    }
+
+    if (character === separator && depth === 0) {
+      parts.push(source.slice(start, index).trim())
+      start = index + 1
+    }
+  }
+
+  if (quote !== undefined || depth !== 0) return undefined
+  parts.push(source.slice(start).trim())
+  return parts.every((part) => part.length > 0) ? parts : undefined
+}
+
 const splitKeyValue = (entry: string): readonly [string, string] | undefined => {
   const parts = splitOutsideQuotes(entry, ":")
   return parts?.length === 2 && parts[0] !== undefined && parts[1] !== undefined
@@ -64,6 +108,17 @@ const splitKeyValue = (entry: string): readonly [string, string] | undefined => 
 
 const isSafeObjectKey = (value: string): boolean =>
   bareIdentifierPattern.test(value) || stringLiteralPattern.test(value)
+
+const stringLiteralValue = (value: string): string | undefined =>
+  stringLiteralPattern.test(value.trim()) ? value.trim().slice(1, -1) : undefined
+
+const objectKeyName = (value: string): string | undefined => {
+  const source = value.trim()
+  if (bareIdentifierPattern.test(source)) return source
+
+  const literal = stringLiteralValue(source)
+  return literal !== undefined && bareIdentifierPattern.test(literal) ? literal : undefined
+}
 
 const isSafeScalarExpression = (value: string): boolean => {
   const source = value.trim()
@@ -103,14 +158,45 @@ const isSafeBindingExpression = (value: string): boolean => {
   )
 }
 
-const parseCapabilityAction = (value: string): CapabilityAction | undefined => {
-  const match = /^@capability\(\s*(["'])([^"']+)\1\s*,\s*([\s\S]+)\s*\)$/.exec(value.trim())
-  const name = match?.[2]
-  const input = match?.[3]
+const isSafeTargetOptions = (value: string): boolean => {
+  const source = value.trim()
+  if (!source.startsWith("{") || !source.endsWith("}")) return false
 
-  return name !== undefined && input !== undefined && capabilityNamePattern.test(name)
-    ? { name, input }
-    : undefined
+  const body = source.slice(1, -1).trim()
+  if (body.length === 0) return false
+
+  const entries = splitOutsideQuotes(body, ",")
+  if (entries === undefined || entries.length !== 1) return false
+
+  const keyValue = splitKeyValue(entries[0])
+  if (keyValue === undefined) return false
+
+  const [key, target] = keyValue
+  const targetValue = stringLiteralValue(target)
+  return (
+    objectKeyName(key) === "target" &&
+    targetValue !== undefined &&
+    resultTargetPattern.test(targetValue)
+  )
+}
+
+const parseCapabilityAction = (value: string): CapabilityAction | undefined => {
+  const source = value.trim()
+  const prefix = "@capability("
+  if (!source.startsWith(prefix) || !source.endsWith(")")) return undefined
+
+  const args = splitTopLevel(source.slice(prefix.length, -1), ",")
+  if (args === undefined || (args.length !== 2 && args.length !== 3)) return undefined
+
+  const name = stringLiteralValue(args[0])
+  const input = args[1]
+
+  if (name === undefined || input === undefined || !capabilityNamePattern.test(name)) {
+    return undefined
+  }
+
+  if (args[2] !== undefined && !isSafeTargetOptions(args[2])) return undefined
+  return { name, input }
 }
 
 /** Return a data-* attribute only when it belongs to the genui/0 dialect subset. */
@@ -167,6 +253,7 @@ export const genui0Instructions = (capabilities: readonly CapabilityDescriptor[]
     `Generated UI dialect: ${genuiDialect}.`,
     "Create fragment HTML only. Do not include scripts, iframes, external styles, or document tags.",
     "Use @capability('name', input) only for capabilities granted to the surface.",
+    "Use @capability('name', input, { target: 'resultName' }) when multiple calls need separate result state.",
     "Use only simple v0 expressions: signal reads, primitive literals, and flat object literals.",
     "Available capabilities:",
     capabilityList.length > 0 ? capabilityList : "- none",
