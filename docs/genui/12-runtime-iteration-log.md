@@ -207,7 +207,7 @@ Supported event actions:
    - Done in code: `Effect` includes `local`, `read`, `write`, and `dangerous`.
    - Done in code: `MountOptions` now states the public DOM contract directly
      instead of extending the internal broker option shape.
-   - Done in code: `@hono-ai/genui/dom` no longer re-exports result-routing
+   - Done in code: `@genui/genui/dom` no longer re-exports result-routing
      helpers as public API.
    - Done in code: `Genui` exposes `reproject(surfaceId)` so stored source can be
      re-sanitized under current action policy without changing the surface id.

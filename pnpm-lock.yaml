@@ -38,7 +38,7 @@ importers:
       '@earendil-works/pi-ai':
         specifier: ^0.79.0
         version: 0.79.9(ws@8.21.0)(zod@4.4.3)
-      '@hono-ai/genui':
+      '@genui/genui':
         specifier: workspace:*
         version: link:../../packages/runtime
       '@hono/node-server':

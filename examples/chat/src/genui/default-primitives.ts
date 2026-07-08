@@ -1,4 +1,4 @@
-import { action, Genui, type Surface } from "@hono-ai/genui"
+import { action, Genui, type Surface } from "@genui/genui"
 import { z } from "zod"
 
 export interface GenuiActionContext {

@@ -9,7 +9,7 @@ import {
   type ToolCall,
   type ToolResultMessage,
 } from "@earendil-works/pi-ai"
-import type { Surface } from "@hono-ai/genui"
+import type { Surface } from "@genui/genui"
 import { aiModel, getAiApiKey } from "./provider.js"
 import { executeWebSearchTool, webSearchTool, type WebSearchState } from "./web-search-tool.js"
 import { createGeneratedSurface, genuiPromptActions } from "../genui/default-primitives.js"

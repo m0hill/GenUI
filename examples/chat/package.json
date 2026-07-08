@@ -1,5 +1,5 @@
 {
-  "name": "@hono-ai/example-chat",
+  "name": "@genui/example-chat",
   "private": true,
   "type": "module",
   "scripts": {
@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.79.0",
-    "@hono-ai/genui": "workspace:*",
+    "@genui/genui": "workspace:*",
     "@hono/node-server": "^1.19.6",
     "datastar-kit": "^0.4.0",
     "hono": "^4.12.19",

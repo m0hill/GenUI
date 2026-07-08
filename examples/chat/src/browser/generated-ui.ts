@@ -1,5 +1,5 @@
-import { mount, type TransportOptions } from "@hono-ai/genui/dom"
-import type { ActionCall, Action, ActionErrorCode, ActionResult, Surface } from "@hono-ai/genui"
+import { mount, type TransportOptions } from "@genui/genui/dom"
+import type { ActionCall, Action, ActionErrorCode, ActionResult, Surface } from "@genui/genui"
 
 const surfaceSelector = "[data-genui-surface]"
 const startupPollMs = 1_000

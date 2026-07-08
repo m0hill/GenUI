@@ -1,4 +1,4 @@
-# @hono-ai/genui
+# @genui/genui
 
 Provider-independent generated UI runtime.
 

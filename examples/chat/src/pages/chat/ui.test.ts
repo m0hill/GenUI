@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai"
-import type { Surface } from "@hono-ai/genui"
+import type { Surface } from "@genui/genui"
 import { renderToString } from "datastar-kit"
 import type { AssistantTurn } from "../../session/chat-session.js"
 import { AssistantTurnItem } from "./ui.js"
