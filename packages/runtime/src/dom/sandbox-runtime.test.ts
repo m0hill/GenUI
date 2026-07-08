@@ -1,14 +1,11 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import type { Window } from "happy-dom"
-import { genui0Dialect } from "../dialect/genui0.js"
-import { genui0Language } from "../dialect/genui0-language.js"
 import { protocolChannel } from "./protocol.js"
 import {
   installSandboxRuntime,
   type SandboxRuntimeGlobal,
   type SandboxRuntimeInstance,
-  type SandboxRuntimeLanguage,
 } from "./sandbox-runtime.js"
 import {
   capabilityPostMessage,
@@ -24,8 +21,6 @@ interface RuntimeHarness {
   readonly instance: SandboxRuntimeInstance
 }
 
-const language: SandboxRuntimeLanguage = genui0Language
-
 const asSandboxGlobal = (window: Window): SandboxRuntimeGlobal => {
   // SAFETY: happy-dom's Window exposes the browser APIs used by the sandbox runtime. Its
   // TypeScript classes are separate from lib.dom classes even though the runtime API matches here.
@@ -37,8 +32,6 @@ const createHarness = (html: string, surfaceId = "surface-test"): RuntimeHarness
 
   const instance = installSandboxRuntime(
     { channel: protocolChannel, surfaceId },
-    language,
-    genui0Dialect.runtime,
     asSandboxGlobal(window),
   )
 

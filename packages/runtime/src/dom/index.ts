@@ -1,4 +1,10 @@
-import type { CapabilityCall, CapabilityResult, ExecuteOptions, Surface } from "../types.js"
+import {
+  genuiDialect,
+  type CapabilityCall,
+  type CapabilityResult,
+  type ExecuteOptions,
+  type Surface,
+} from "../types.js"
 import { sandboxBridgeScript } from "./sandbox-bridge.js"
 import {
   createSurfaceBroker,
@@ -38,12 +44,20 @@ const surfaceDocument = (surface: Surface): string => `<!doctype html>
 <body>${surface.html}<script>${sandboxBridgeScript(surface.id)}</script></body>
 </html>`
 
+const assertSupportedSurfaceDialect = (surface: Surface): void => {
+  if (surface.dialect !== genuiDialect) {
+    throw new Error(`Unsupported generated UI dialect: ${surface.dialect}`)
+  }
+}
+
 /** Mount a generated surface into a sandboxed iframe and broker its capability calls. */
 export const mountSurface = (
   element: Element,
   surface: Surface,
   options: MountSurfaceOptions,
 ): SurfaceInstance => {
+  assertSupportedSurfaceDialect(surface)
+
   const ownerDocument = element.ownerDocument
   let disposed = false
   const broker = createSurfaceBroker(surface, {
@@ -98,6 +112,7 @@ export const mountSurface = (
       return broker.surface
     },
     replace(nextSurface) {
+      assertSupportedSurfaceDialect(nextSurface)
       broker.replace(nextSurface)
       iframe.srcdoc = surfaceDocument(broker.surface)
     },

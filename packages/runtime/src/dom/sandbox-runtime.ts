@@ -1,20 +1,14 @@
-import type { SurfaceDialectRuntime, SurfaceRuntimeDirective } from "../dialect/surface-dialect.js"
-import type { Genui0Language } from "../dialect/genui0-language.js"
+import {
+  genui0AttributeNames,
+  genui0Runtime,
+  type Genui0RuntimeDirective,
+} from "../dialect/genui0.js"
+import { genui0Language } from "../dialect/genui0-language.js"
 
 export interface SandboxRuntimeConfig {
   readonly channel: string
   readonly surfaceId: string
 }
-
-export type SandboxRuntimeLanguage = Pick<
-  Genui0Language,
-  | "invalid"
-  | "parseObjectLiteral"
-  | "evaluateExpression"
-  | "parseCapabilityExpression"
-  | "parseSetExpression"
-  | "defaultResultTarget"
->
 
 export interface SandboxRuntimeGlobal {
   readonly document: Document
@@ -39,14 +33,12 @@ export interface SandboxRuntimeInstance {
 /** Install the sandbox-side generated UI runtime into a browser global. */
 export const installSandboxRuntime = (
   config: SandboxRuntimeConfig,
-  language: SandboxRuntimeLanguage,
-  dialect: SurfaceDialectRuntime<SurfaceRuntimeDirective>,
   global: SandboxRuntimeGlobal,
 ): SandboxRuntimeInstance => {
   type StateScope = Readonly<Record<string, unknown>>
   type RenderMode = "static" | "template"
 
-  type Directive = SurfaceRuntimeDirective & {
+  type Directive = Genui0RuntimeDirective & {
     readonly scope: StateScope
   }
 
@@ -62,9 +54,7 @@ export const installSandboxRuntime = (
   type OwnPropertyRead =
     | { readonly found: false }
     | { readonly found: true; readonly value: unknown }
-  type CapabilityAction = NonNullable<
-    ReturnType<SandboxRuntimeLanguage["parseCapabilityExpression"]>
-  >
+  type CapabilityAction = NonNullable<ReturnType<typeof genui0Language.parseCapabilityExpression>>
 
   let nextCallId = 1
   let resizeObserver: ResizeObserver | undefined
@@ -147,10 +137,10 @@ export const installSandboxRuntime = (
       readPath(statePath(expression), scope)
 
   const evaluate = (expression: string, scope: StateScope = emptyScope): unknown =>
-    language.evaluateExpression(expression, readStateFromScope(scope))
+    genui0Language.evaluateExpression(expression, readStateFromScope(scope))
 
   const isTruthy = (value: unknown): boolean =>
-    value !== language.invalid &&
+    value !== genui0Language.invalid &&
     value !== false &&
     value !== null &&
     value !== undefined &&
@@ -158,10 +148,10 @@ export const installSandboxRuntime = (
     value !== 0
 
   const shouldRemoveDynamicValue = (value: unknown): boolean =>
-    value === language.invalid || value === false || value === null || value === undefined
+    value === genui0Language.invalid || value === false || value === null || value === undefined
 
   const textValue = (value: unknown): string => {
-    if (value === language.invalid || value === null || value === undefined) return ""
+    if (value === genui0Language.invalid || value === null || value === undefined) return ""
     if (typeof value === "string") return value
     if (typeof value === "number" || typeof value === "boolean") return String(value)
     return JSON.stringify(value)
@@ -258,7 +248,7 @@ export const installSandboxRuntime = (
   }
 
   const isBoundElement = (target: EventTarget | null): target is Element =>
-    target instanceof global.Element && target.hasAttribute(dialect.attributeNames.bind)
+    target instanceof global.Element && target.hasAttribute(genui0AttributeNames.bind)
 
   const currentDirectives = (): readonly Directive[] => [
     ...directives,
@@ -268,7 +258,7 @@ export const installSandboxRuntime = (
   const refreshDirectives = (): void => {
     for (const directive of currentDirectives()) {
       const value = evaluate(directive.expression, directive.scope)
-      dialect.applyDirective(directive, value, {
+      genui0Runtime.applyDirective(directive, value, {
         isTruthy,
         shouldRemoveDynamicValue,
         textValue,
@@ -289,7 +279,7 @@ export const installSandboxRuntime = (
   }
 
   const resultTargetFor = (action: CapabilityAction): string =>
-    action.target ?? language.defaultResultTarget(action.capability)
+    action.target ?? genui0Language.defaultResultTarget(action.capability)
 
   const setResultState = (target: string, state: unknown): void => {
     global.__genuiResults = global.__genuiResults ?? {}
@@ -305,7 +295,7 @@ export const installSandboxRuntime = (
   }
 
   const postCapabilityCall = (expression: string, scope: StateScope): boolean => {
-    const action = language.parseCapabilityExpression(expression, readStateFromScope(scope))
+    const action = genui0Language.parseCapabilityExpression(expression, readStateFromScope(scope))
     if (action === undefined) return false
 
     const target = resultTargetFor(action)
@@ -322,7 +312,7 @@ export const installSandboxRuntime = (
   }
 
   const runLocalAction = (expression: string, scope: StateScope): boolean => {
-    const action = language.parseSetExpression(expression, readStateFromScope(scope))
+    const action = genui0Language.parseSetExpression(expression, readStateFromScope(scope))
     if (action === undefined) return false
 
     writePath(action.path, action.value)
@@ -344,8 +334,8 @@ export const installSandboxRuntime = (
     runLocalAction(expression, scope) || postCapabilityCall(expression, scope)
 
   const handleClick = (event: MouseEvent): void => {
-    const action = closestWithAttribute(event.target, dialect.attributeNames.onClick)
-    const expression = action?.getAttribute(dialect.attributeNames.onClick) ?? null
+    const action = closestWithAttribute(event.target, genui0AttributeNames.onClick)
+    const expression = action?.getAttribute(genui0AttributeNames.onClick) ?? null
     if (
       action !== null &&
       expression !== null &&
@@ -376,10 +366,10 @@ export const installSandboxRuntime = (
     if (!(target instanceof global.Element)) return
 
     const form = target.closest("form")
-    if (form === null || !form.hasAttribute(dialect.attributeNames.onSubmit)) return
+    if (form === null || !form.hasAttribute(genui0AttributeNames.onSubmit)) return
 
     event.preventDefault()
-    const expression = form.getAttribute(dialect.attributeNames.onSubmit)
+    const expression = form.getAttribute(genui0AttributeNames.onSubmit)
     if (expression !== null) runAuthoredAction(expression, scopeForElement(form))
   }
 
@@ -388,7 +378,7 @@ export const installSandboxRuntime = (
     if (!isBoundElement(target)) return
 
     writePath(
-      statePath(target.getAttribute(dialect.attributeNames.bind) ?? ""),
+      statePath(target.getAttribute(genui0AttributeNames.bind) ?? ""),
       readElementValue(target),
     )
     refresh()
@@ -405,9 +395,9 @@ export const installSandboxRuntime = (
   }
 
   const installInitialState = (): void => {
-    for (const element of global.document.querySelectorAll(`[${dialect.attributeNames.state}]`)) {
-      const parsed = language.parseObjectLiteral(
-        element.getAttribute(dialect.attributeNames.state) ?? "{}",
+    for (const element of global.document.querySelectorAll(`[${genui0AttributeNames.state}]`)) {
+      const parsed = genui0Language.parseObjectLiteral(
+        element.getAttribute(genui0AttributeNames.state) ?? "{}",
         readStateFromScope(emptyScope),
       )
       if (!isRecord(parsed)) continue
@@ -416,7 +406,7 @@ export const installSandboxRuntime = (
   }
 
   const installStaticBinding = (element: Element): void => {
-    const binding = element.getAttribute(dialect.attributeNames.bind)
+    const binding = element.getAttribute(genui0AttributeNames.bind)
     if (binding === null) return
 
     const path = statePath(binding)
@@ -435,7 +425,7 @@ export const installSandboxRuntime = (
     scope: StateScope,
     targetDirectives: Directive[],
   ): void => {
-    const directive = dialect.directiveFromAttribute({ element, attribute })
+    const directive = genui0Runtime.directiveFromAttribute({ element, attribute })
     if (directive === undefined) return
 
     targetDirectives.push({
@@ -457,7 +447,7 @@ export const installSandboxRuntime = (
 
     if (mode === "static") installStaticBinding(element)
 
-    if (element.hasAttribute(dialect.attributeNames.each)) {
+    if (element.hasAttribute(genui0AttributeNames.each)) {
       if (mode === "static") {
         installEachBlock(element, scope)
       } else {
@@ -470,10 +460,10 @@ export const installSandboxRuntime = (
   }
 
   const installEachBlock = (element: Element, scope: StateScope): void => {
-    const expression = element.getAttribute(dialect.attributeNames.each)
+    const expression = element.getAttribute(genui0AttributeNames.each)
     if (expression === null) return
 
-    const itemName = element.getAttribute(dialect.attributeNames.as) ?? "item"
+    const itemName = element.getAttribute(genui0AttributeNames.as) ?? "item"
     const template = Array.from(element.childNodes).map((node) => node.cloneNode(true))
     element.replaceChildren()
     eachBlocks.push({ element, expression, itemName, scope, template, directives: [] })
@@ -509,10 +499,10 @@ export const installSandboxRuntime = (
     scope: StateScope,
     targetDirectives: Directive[],
   ): void {
-    const expression = element.getAttribute(dialect.attributeNames.each)
+    const expression = element.getAttribute(genui0AttributeNames.each)
     if (expression === null) return
 
-    const itemName = element.getAttribute(dialect.attributeNames.as) ?? "item"
+    const itemName = element.getAttribute(genui0AttributeNames.as) ?? "item"
     const template = Array.from(element.childNodes).map((node) => node.cloneNode(true))
     renderEachTemplate(element, expression, itemName, template, scope, targetDirectives)
   }

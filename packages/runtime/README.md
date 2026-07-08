@@ -14,3 +14,8 @@ Approval can be checked in two places. `mountSurface({ approve })` is host-side 
 can ask before forwarding a request from the iframe. `registry.execute(..., { approve })`
 is authoritative application policy and must be used for any approval-gated capability
 when the transport reaches the server or trusted app boundary.
+
+`Surface.dialect` is a versioned protocol identifier, not a plugin interface. This
+package currently ships the concrete `genui/0` sanitizer, instructions, and sandbox
+asset. A future dialect should ship as its own concrete module and sandbox asset selected
+by dialect id.

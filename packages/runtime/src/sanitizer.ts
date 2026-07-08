@@ -1,7 +1,10 @@
 import { parseFragment, serialize, type DefaultTreeAdapterMap } from "parse5"
 import { sanitizeInlineStyle } from "./css-style.js"
-import { genui0Dialect } from "./dialect/genui0.js"
-import type { SurfaceDialectSanitizer } from "./dialect/surface-dialect.js"
+import {
+  allowGenui0DataAttribute,
+  genui0AttributeForbiddenInRepeatedTemplate,
+  genui0AttributeStartsRepeatedTemplate,
+} from "./dialect/genui0.js"
 
 type ParentNode = DefaultTreeAdapterMap["parentNode"]
 type ChildNode = DefaultTreeAdapterMap["childNode"]
@@ -63,9 +66,8 @@ const sanitizeDataAttribute = (
   grantedCapabilities: ReadonlySet<string>,
   insideRepeatedTemplate: boolean,
   elementStartsRepeatedTemplate: boolean,
-  dialect: SurfaceDialectSanitizer,
 ): Attribute | undefined => {
-  const allowed = dialect.allowDataAttribute({
+  const allowed = allowGenui0DataAttribute({
     name: attribute.name,
     value: attribute.value,
     grantedCapabilities,
@@ -80,7 +82,6 @@ const sanitizeAttribute = (
   attribute: Attribute,
   grantedCapabilities: ReadonlySet<string>,
   insideRepeatedTemplate: boolean,
-  dialect: SurfaceDialectSanitizer,
 ): Attribute | undefined => {
   const name = attributeName(attribute).toLowerCase()
 
@@ -89,16 +90,10 @@ const sanitizeAttribute = (
     const style = sanitizeInlineStyle(attribute.value)
     return style === undefined ? undefined : { ...attribute, value: style }
   }
-  if (insideRepeatedTemplate && dialect.forbiddenInRepeatedTemplate(name)) return undefined
+  if (insideRepeatedTemplate && genui0AttributeForbiddenInRepeatedTemplate(name)) return undefined
   if (directSubmissionAttributeNames.has(name)) return undefined
   if (name.startsWith("data-")) {
-    return sanitizeDataAttribute(
-      attribute,
-      grantedCapabilities,
-      insideRepeatedTemplate,
-      false,
-      dialect,
-    )
+    return sanitizeDataAttribute(attribute, grantedCapabilities, insideRepeatedTemplate, false)
   }
 
   if (allowedUrlAttributeNames.has(name)) {
@@ -116,19 +111,18 @@ const sanitizeAttributes = (
   element: ElementNode,
   grantedCapabilities: ReadonlySet<string>,
   insideRepeatedTemplate: boolean,
-  dialect: SurfaceDialectSanitizer,
 ): void => {
   element.attrs = element.attrs.flatMap((attribute) => {
-    const safe = sanitizeAttribute(attribute, grantedCapabilities, insideRepeatedTemplate, dialect)
+    const safe = sanitizeAttribute(attribute, grantedCapabilities, insideRepeatedTemplate)
     return safe === undefined ? [] : [safe]
   })
 
   const startsRepeatedTemplate = element.attrs.some((attribute) =>
-    dialect.startsRepeatedTemplate(attributeName(attribute)),
+    genui0AttributeStartsRepeatedTemplate(attributeName(attribute)),
   )
   if (startsRepeatedTemplate) {
     element.attrs = element.attrs.filter(
-      (attribute) => !dialect.forbiddenInRepeatedTemplate(attributeName(attribute)),
+      (attribute) => !genui0AttributeForbiddenInRepeatedTemplate(attributeName(attribute)),
     )
   }
 }
@@ -136,7 +130,6 @@ const sanitizeAttributes = (
 const sanitizeChildren = (
   parent: ParentNode,
   grantedCapabilities: ReadonlySet<string>,
-  dialect: SurfaceDialectSanitizer,
   insideRepeatedTemplate = false,
 ): void => {
   const safeChildren: ChildNode[] = []
@@ -150,14 +143,13 @@ const sanitizeChildren = (
 
     if (removedElementTags.has(child.tagName.toLowerCase())) continue
 
-    sanitizeAttributes(child, grantedCapabilities, insideRepeatedTemplate, dialect)
+    sanitizeAttributes(child, grantedCapabilities, insideRepeatedTemplate)
     const childStartsRepeatedTemplate = child.attrs.some((attribute) =>
-      dialect.startsRepeatedTemplate(attributeName(attribute)),
+      genui0AttributeStartsRepeatedTemplate(attributeName(attribute)),
     )
     sanitizeChildren(
       child,
       grantedCapabilities,
-      dialect,
       insideRepeatedTemplate || childStartsRepeatedTemplate,
     )
     safeChildren.push(child)
@@ -171,6 +163,6 @@ export const sanitizeSurfaceHtml = (
   grantedCapabilities: ReadonlySet<string>,
 ): string => {
   const fragment = parseFragment(html)
-  sanitizeChildren(fragment, grantedCapabilities, genui0Dialect.sanitizer)
+  sanitizeChildren(fragment, grantedCapabilities)
   return serialize(fragment)
 }

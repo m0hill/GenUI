@@ -36,6 +36,32 @@ void test("mountSurface renders a sandboxed iframe and replaces/disposes it", ()
   assert.equal(element.querySelector("iframe"), null)
 })
 
+void test("mountSurface refuses unsupported surface dialects", () => {
+  const { element } = createMountTarget()
+  const current = testSurface([diceDescriptor], `<button>Roll</button>`)
+  const unsupported = {
+    ...testSurface([diceDescriptor], `<button>Roll</button>`),
+    dialect: "genui/1",
+  }
+
+  assert.throws(
+    () =>
+      mountSurface(asDomElement(element), unsupported, {
+        transport: async (): Promise<CapabilityResult> => ({ ok: true, value: {} }),
+      }),
+    /Unsupported generated UI dialect: genui\/1/,
+  )
+  assert.equal(element.querySelector("iframe"), null)
+
+  const instance = mountSurface(asDomElement(element), current, {
+    transport: async (): Promise<CapabilityResult> => ({ ok: true, value: {} }),
+  })
+  assert.throws(() => instance.replace(unsupported), /Unsupported generated UI dialect: genui\/1/)
+  assert.equal(instance.surface, current)
+
+  instance.dispose()
+})
+
 void test("mountSurface brokers granted capability calls through transport", async () => {
   const { window, element } = createMountTarget()
   const current = testSurface([diceDescriptor], `<button>Roll</button>`)

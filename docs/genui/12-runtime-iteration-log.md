@@ -221,22 +221,29 @@ Supported event actions:
      authoritative denial returned by transport still reaches the surface as
      `approval_denied`.
 
-9. Internal dialect interface.
-   - Done in code: added an internal `SurfaceDialect` contract that owns sanitizer policy,
-     sandbox runtime directive behavior, directive attribute names, and model instructions.
-   - Done in code: `genui/0` now exposes one `genui0Dialect` object implementing that
-     internal contract.
-   - Done in code: the generic sanitizer consumes `genui0Dialect.sanitizer` instead of a
-     local policy shape.
-   - Done in code: the sandbox runtime receives a dialect runtime object, so it no longer
-     imports genui/0 directive functions or attribute names directly.
-   - Done in code: registry instructions route through `genui0Dialect.instructions`.
+9. Concrete dialect module.
+   - Done in code: `genui/0` exposes one concrete `genui0Dialect` object for sanitizer
+     policy, sandbox directive behavior, directive attribute names, and model
+     instructions.
+   - Done in code: removed the speculative generic `SurfaceDialect` interface. There is
+     only one dialect implementation, and `genui/0` semantics still co-vary with the
+     bundled sandbox asset.
+   - Done in code: the generic sanitizer no longer threads a dialect parameter through
+     recursive walks; it calls concrete genui/0 policy functions directly.
+   - Done in code: the sandbox runtime imports the concrete genui/0 language and directive
+     renderer directly instead of accepting a pretend-pluggable dialect object.
+   - Done in code: `mountSurface` refuses surfaces whose `Surface.dialect` is not
+     `genui/0`, which is the honest hook where a future dialect-id-to-asset lookup would
+     live.
+   - Done in docs: `Surface.dialect` is documented as a versioned protocol id, not a
+     plugin interface. A future dialect should ship as a concrete module and sandbox asset
+     selected by id.
 
 10. Language interface unification.
     - Done in code: `genui0-language` now exports one shared `genui0Language` object
       instead of module-level wrapper aliases around a private singleton.
-    - Done in code: the sandbox runtime language type is derived as a `Pick` of
-      `Genui0Language`, so action/result types are no longer restated in the DOM module.
+    - Done in code: the sandbox runtime imports `genui0Language` directly, so
+      action/result types are no longer restated in the DOM module.
     - Done in code: the sandbox entry passes `genui0Language` directly instead of wrapping
       identical methods in adapter lambdas.
     - Done in code: sanitizer/dialect checks, result routing, and registry capability-name
