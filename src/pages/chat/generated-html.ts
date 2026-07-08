@@ -80,6 +80,8 @@ const datastarAttributePattern = /\s(data-[^\s=<>]+)(?:\s*=\s*(?:"([^"]*)"|'([^'
 const htmlAttributePattern = /\s([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g
 
 const signalNamePattern = /^_?[A-Za-z][A-Za-z0-9_]*(\._?[A-Za-z][A-Za-z0-9_]*)*$/
+const actionNamePattern = /^[A-Za-z_$][\w$]*$/
+const capabilityNamePattern = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/i
 
 const unsafeExpressionPattern =
   /[;]|url\s*\(|javascript\s*:|\b(?:window|document|globalThis|fetch|XMLHttpRequest|eval|Function|import|location|cookie|localStorage|sessionStorage|alert|setTimeout|setInterval|navigator|history)\b/i
@@ -103,10 +105,50 @@ const isChatPostAction = (value: string): boolean => {
   )
 }
 
+export interface GeneratedHtmlOptions {
+  readonly allowedCapabilities?: ReadonlySet<string>
+  readonly allowedActions?: ReadonlySet<string>
+  readonly allowedPluginAttributes?: ReadonlySet<string>
+}
+
+const defaultAllowedCapabilities = new Set(["chat.follow_up"])
+const emptyAllowedActions = new Set<string>()
+const emptyAllowedPluginAttributes = new Set<string>()
+
+const capabilityNameFromAction = (value: string): string | undefined => {
+  const source = value.trim()
+  const match = /^@capability\(\s*(["'])([^"']+)\1\s*,/.exec(source)
+  const capability = match?.[2]
+  return capability !== undefined && capabilityNamePattern.test(capability) ? capability : undefined
+}
+
+const isCapabilityAction = (value: string, allowedCapabilities: ReadonlySet<string>): boolean => {
+  const source = value.trim()
+  const capability = capabilityNameFromAction(source)
+  return (
+    capability !== undefined &&
+    allowedCapabilities.has(capability) &&
+    isSafeDatastarExpression(source)
+  )
+}
+
+const isAllowedActionCall = (value: string, allowedActions: ReadonlySet<string>): boolean => {
+  const source = value.trim()
+  const match = /^@([A-Za-z_$][\w$]*)\(/.exec(source)
+  const name = match?.[1]
+  return (
+    name !== undefined &&
+    actionNamePattern.test(name) &&
+    allowedActions.has(name) &&
+    isSafeDatastarExpression(source)
+  )
+}
+
 const renderDatastarAttribute = (name: string, value: string | undefined): string =>
   value === undefined ? ` ${name}` : ` ${name}="${escapeAttribute(value)}"`
 
 const sanitizeDatastarAttribute = (
+  options: Required<GeneratedHtmlOptions>,
   match: string,
   name: string,
   doubleQuoted: string | undefined,
@@ -115,6 +157,7 @@ const sanitizeDatastarAttribute = (
 ): string => {
   const normalizedName = name.toLowerCase()
   const value = doubleQuoted ?? singleQuoted ?? bare
+  const allowedPluginAttributes = options.allowedPluginAttributes
 
   if (normalizedName === "data-bind") {
     return value !== undefined && signalNamePattern.test(value)
@@ -127,6 +170,12 @@ const sanitizeDatastarAttribute = (
     return signalNamePattern.test(signalName) ? match : ""
   }
 
+  if (allowedPluginAttributes.has(normalizedName)) {
+    return value !== undefined && isSafeDatastarExpression(value)
+      ? renderDatastarAttribute(name, value)
+      : ""
+  }
+
   if (normalizedName === "data-signals") {
     return value !== undefined && isSafeDatastarExpression(value)
       ? renderDatastarAttribute(name, value)
@@ -134,13 +183,24 @@ const sanitizeDatastarAttribute = (
   }
 
   if (normalizedName === "data-on:submit__prevent") {
-    return value !== undefined && isChatPostAction(value)
+    return value !== undefined &&
+      (isChatPostAction(value) || isCapabilityAction(value, options.allowedCapabilities))
       ? renderDatastarAttribute(name, value)
       : ""
   }
 
   if (normalizedName === "data-on:click") {
-    return value !== undefined && (isChatPostAction(value) || isLocalSignalAssignment(value))
+    return value !== undefined &&
+      (isChatPostAction(value) ||
+        isCapabilityAction(value, options.allowedCapabilities) ||
+        isAllowedActionCall(value, options.allowedActions) ||
+        isLocalSignalAssignment(value))
+      ? renderDatastarAttribute(name, value)
+      : ""
+  }
+
+  if (normalizedName === "data-effect") {
+    return value !== undefined && isAllowedActionCall(value, options.allowedActions)
       ? renderDatastarAttribute(name, value)
       : ""
   }
@@ -246,9 +306,18 @@ const sanitizeUrlAttributes = (html: string): string =>
     return `<${tagName}${output}>`
   })
 
-const removeDangerousAttributes = (html: string): string =>
+const removeDangerousAttributes = (html: string, options: Required<GeneratedHtmlOptions>): string =>
   html
-    .replace(datastarAttributePattern, sanitizeDatastarAttribute)
+    .replace(datastarAttributePattern, (...args) =>
+      sanitizeDatastarAttribute(
+        options,
+        args[0] as string,
+        args[1] as string,
+        args[2] as string | undefined,
+        args[3] as string | undefined,
+        args[4] as string | undefined,
+      ),
+    )
     .replace(
       /\s(?:on[a-z][\w:-]*|srcset|action|formaction|poster)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi,
       "",
@@ -283,7 +352,16 @@ const closeOpenTags = (html: string): string => {
   return html + stack.reduceRight((closingTags, tag) => `${closingTags}</${tag}>`, "")
 }
 
-export const renderGeneratedHtml = (html: string): string => {
+const normalizeOptions = (
+  options: GeneratedHtmlOptions | undefined,
+): Required<GeneratedHtmlOptions> => ({
+  allowedCapabilities: options?.allowedCapabilities ?? defaultAllowedCapabilities,
+  allowedActions: options?.allowedActions ?? emptyAllowedActions,
+  allowedPluginAttributes: options?.allowedPluginAttributes ?? emptyAllowedPluginAttributes,
+})
+
+export const renderGeneratedHtml = (html: string, options?: GeneratedHtmlOptions): string => {
+  const normalizedOptions = normalizeOptions(options)
   let safe = html.replace(/<!--[\s\S]*?-->/g, "")
 
   for (const tag of ["script", "style", "iframe", "object", "embed", "template", "noscript"]) {
@@ -295,7 +373,7 @@ export const renderGeneratedHtml = (html: string): string => {
   }
 
   safe = sanitizeUrlAttributes(safe)
-  safe = removeDangerousAttributes(safe)
+  safe = removeDangerousAttributes(safe, normalizedOptions)
   safe = sanitizeStyleAttributes(safe)
   safe = trimDanglingTag(safe)
   return closeOpenTags(safe)

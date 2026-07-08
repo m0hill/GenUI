@@ -1,5 +1,10 @@
 import type { AssistantMessage, Message, ToolCall, ToolResultMessage } from "@earendil-works/pi-ai"
-import { streamAiTurn, type AssistantToolState, type CreateUiState } from "../ai/index.js"
+import {
+  createUiManifestFromToolArguments,
+  streamAiTurn,
+  type AssistantToolState,
+  type CreateUiState,
+} from "../ai/index.js"
 import {
   appendSessionMessage,
   createSession,
@@ -76,16 +81,18 @@ const createUiStateFromHistory = (
   result: ToolResultMessage | undefined,
 ): CreateUiState => {
   const html = typeof toolCall.arguments.html === "string" ? toolCall.arguments.html : ""
+  const manifest = createUiManifestFromToolArguments(toolCall.arguments)
 
   if (result?.isError === true) {
     return {
       status: "error",
       html,
+      manifest,
       error: textFromToolResult(result) || "The model called create_ui with invalid arguments.",
     }
   }
 
-  return { status: "complete", html }
+  return { status: "complete", html, manifest }
 }
 
 const webSearchStateFromHistory = (

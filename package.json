@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n css,server \"nub run css:watch\" \"nub watch src/index.tsx\"",
+    "test": "nub --test $(find src -name '*.test.ts' -print)",
     "build": "nub run css:build",
     "start": "nub src/index.tsx",
     "check": "nub run lint && nub run format:check && nub run typecheck && nub run build",

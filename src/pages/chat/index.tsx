@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto"
 import type { Message } from "@earendil-works/pi-ai"
 import { Hono } from "hono"
 import { z } from "zod"
-import { event, get, mod, read, reply } from "datastar-kit"
+import { event, get, mod, read, reply, unsafeHtml } from "datastar-kit"
 import { streamAiTurn } from "../../ai/index.js"
+import { genuiCapabilities } from "../../genui/default-primitives.js"
 import {
   appendAiMessage,
   createChat,
@@ -16,11 +17,19 @@ import {
 import { chatInvalidations } from "../../session/invalidation-bus.js"
 import { pageHead } from "../../ui/head.js"
 import { NewChatButton, PageHeader, SessionsLink } from "../../ui/layout.js"
+import { generatedUiHostScript } from "./generated-ui-host.js"
 import { AssistantTurnItem, ComposerBar, MessagesList, UserMessageItem, chatForm } from "./ui.js"
 
 const ChatSignals = z.object({
   chatId: z.string(),
   prompt: z.string().trim().min(1, "Type a message before sending."),
+})
+
+const GenuiCapabilityRequest = z.object({
+  capability: z.string(),
+  input: z.unknown().optional(),
+  chatId: z.string().optional(),
+  approved: z.boolean().default(false),
 })
 
 const sessionUrl = (chatId: string): string => `/?chatId=${encodeURIComponent(chatId)}`
@@ -32,6 +41,7 @@ const isGenerating = (chat: ChatSession): boolean =>
 const ChatApp = (props: { chat: ChatSession | undefined }) => (
   <div
     class="min-h-dvh"
+    data-chat-session-id={props.chat?.id ?? ""}
     data-init={props.chat === undefined ? undefined : get(liveUrl(props.chat.id))}
     data-signals={mod(
       chatForm.reset({
@@ -161,7 +171,10 @@ const chat = new Hono()
 chat.get("/", async (c) => {
   const chatId = c.req.query("chatId")
   const session = chatId === undefined ? undefined : await loadChat(chatId)
-  return reply.page(<ChatApp chat={session} />, { title: "Hono AI chat", head: pageHead })
+  return reply.page(<ChatApp chat={session} />, {
+    title: "Hono AI chat",
+    head: [...pageHead, <script>{unsafeHtml(generatedUiHostScript)}</script>],
+  })
 })
 
 chat.get("/live", async (c) => {
@@ -205,6 +218,30 @@ chat.post("/chat", async (c) => {
   return reply.stream(chatEvents(session, prompt, c.req.raw.signal, isNew), {
     heartbeat: { intervalMs: 15_000, comment: "ai-chat" },
   })
+})
+
+chat.post("/genui/capability", async (c) => {
+  let body: unknown
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ ok: false, error: "Capability request must be JSON." }, 400)
+  }
+
+  const request = GenuiCapabilityRequest.safeParse(body)
+  if (!request.success) {
+    return c.json({ ok: false, error: "Capability request is invalid." }, 400)
+  }
+
+  const result = await genuiCapabilities.execute({
+    capability: request.data.capability,
+    input: request.data.input ?? {},
+    approved: request.data.approved,
+    chatId: request.data.chatId,
+    signal: c.req.raw.signal,
+  })
+
+  return c.json(result, result.ok ? 200 : 400)
 })
 
 export default chat

@@ -14,6 +14,10 @@ The page sends the prompt as Datastar signals. The server first appends the user
 - normal chat responses plus a `create_ui` tool for generated HTML UI fragments;
 - generated forms/buttons that post follow-up prompts back through Datastar;
 - rendering tool-generated HTML with a small sanitize/repair pass;
+- sandboxing generated UI in an `allow-scripts` iframe with a capability bridge;
+- brokered generated UI actions such as `chat.follow_up` instead of direct app access;
+- a manifest-based generated UI lease: the model chooses capability names in `create_ui.capabilities`, the sanitizer keeps only leased `@capability(...)` calls, and the host broker enforces the same lease before invoking server tools;
+- trusted local Datastar primitives such as `@toast(...)`, `@setSignal(...)`, and `data-focus-when`, plus demo capabilities for palette generation, weather lookup, and approval-gated notes;
 - static CSS served from `public/` through Hono static assets;
 - a stable element-id patch contract for streaming assistant content.
 

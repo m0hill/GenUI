@@ -638,20 +638,15 @@ body {
   overflow-wrap: anywhere;
 }
 
-.generated-ui > :first-child {
-  margin-top: 0;
-}
-
-.generated-ui > :last-child {
-  margin-bottom: 0;
-}
-
-.generated-ui * {
-  max-width: 100%;
-}
-
-.generated-ui svg {
-  height: auto;
+.generated-ui-frame {
+  display: block;
+  width: 100%;
+  min-height: 180px;
+  border: 0;
+  background: transparent;
+  transition:
+    height 0.18s ease,
+    opacity 0.15s ease;
 }
 
 ::view-transition-old(root),

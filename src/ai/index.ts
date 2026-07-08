@@ -11,6 +11,11 @@ import {
 } from "@earendil-works/pi-ai"
 import { aiModel, getAiApiKey } from "./provider.js"
 import { executeWebSearchTool, webSearchTool, type WebSearchState } from "./web-search-tool.js"
+import {
+  createGenuiManifest,
+  genuiPromptCapabilities,
+  type GenuiRuntimeManifest,
+} from "../genui/default-primitives.js"
 
 const chatPrompt = `
 You are a concise assistant that can answer normally or create polished server-rendered interactive UI.
@@ -45,14 +50,23 @@ Allowed Datastar subset in generated UI:
 - State/display: data-signals, data-bind, data-show, data-text.
 - Styling: data-class, data-class:*, data-style, data-style:*.
 - Attributes: data-attr:disabled, data-attr:title, data-attr:aria-label, data-attr:aria-expanded, data-attr:aria-pressed, data-attr:aria-selected.
-- Events: data-on:click for local underscore-signal assignments or safe @post('/chat', ...); data-on:submit__prevent for safe @post('/chat', ...).
+- Events: data-on:click for local underscore-signal assignments, registered local actions, or safe @capability('name', input) calls from the capability list; data-on:submit__prevent for safe @capability('name', input) calls.
 - Use local underscore signals for UI-only state, e.g. data-signals="{ _ui_seat: '', _ui_tab: 'overview' }".
-- Forms/buttons that ask follow-up questions must post to @post('/chat', { payload: { chatId: $chatId, prompt: '...' } }).
+- Forms/buttons that ask follow-up questions must call @capability('chat.follow_up', { prompt: '...' }). The host validates and submits the prompt; the generated UI cannot call app routes directly.
+- If you use any @capability call, include the exact capability names in create_ui.capabilities. This is the UI's permission lease; unlisted capability calls are stripped or rejected.
+- Local browser actions available without capability lease: @toast({ message: 'Saved' }) and @setSignal('_ui_name', value).
+- Local plugin attribute available: data-focus-when="expression".
+- You may show bridge state with $_capabilityStatus, $_capabilityError, and $_capabilityResult.
+
+Available generated UI capabilities:
+${genuiPromptCapabilities()}
 
 Datastar examples:
 - Local selection: <button type="button" data-on:click="$_ui_seat = 'A1'" data-style:background-color="$_ui_seat === 'A1' ? '#22c55e' : '#334155'">A1</button>
-- Reactive disabled submit: <button type="button" data-attr:disabled="!$_ui_seat" data-on:click="@post('/chat', { payload: { chatId: $chatId, prompt: \`Cinema seat selected: \${$_ui_seat}\` } })">Confirm seat</button>
-- Form follow-up: <section data-signals="{ _ui_city: '', _ui_days: '3' }"><form data-on:submit__prevent="@post('/chat', { payload: { chatId: $chatId, prompt: \`Make a weather UI for \${$_ui_city} for \${$_ui_days} days\` } })"><input data-bind="_ui_city" placeholder="City"><input data-bind="_ui_days" placeholder="Days"><button type="submit">Generate</button></form></section>
+- Reactive disabled submit: <button type="button" data-attr:disabled="!$_ui_seat" data-on:click="@capability('chat.follow_up', { prompt: \`Cinema seat selected: \${$_ui_seat}\` })">Confirm seat</button>
+- Form follow-up: <section data-signals="{ _ui_city: '', _ui_days: '3' }"><form data-on:submit__prevent="@capability('chat.follow_up', { prompt: \`Make a weather UI for \${$_ui_city} for \${$_ui_days} days\` })"><input data-bind="_ui_city" placeholder="City"><input data-bind="_ui_days" placeholder="Days"><button type="submit">Generate</button><p data-show="$_capabilityError" data-text="$_capabilityError"></p></form></section>
+- Server weather lookup: <section data-signals="{ _ui_city: 'Tokyo' }"><input data-bind="_ui_city"><button type="button" data-on:click="@capability('demo.weather.lookup', { city: $_ui_city, days: 3 })">Check weather</button><pre data-text="JSON.stringify($_capabilityResult, null, 2)"></pre></section>
+- Local toast: <button type="button" data-on:click="@toast({ message: 'Saved locally' })">Save</button>
 - Tabs: <section data-signals="{ _ui_tab: 'summary' }"><button data-on:click="$_ui_tab = 'summary'" data-attr:aria-selected="$_ui_tab === 'summary'">Summary</button><button data-on:click="$_ui_tab = 'details'" data-attr:aria-selected="$_ui_tab === 'details'">Details</button><div data-show="$_ui_tab === 'summary'">...</div><div data-show="$_ui_tab === 'details'">...</div></section>
 
 Quality bar for create_ui:
@@ -67,6 +81,12 @@ const createUiParameters = Type.Object({
     description:
       "A self-contained HTML fragment. Inline styles, safe HTTPS images/links, and the documented Datastar subset are allowed. Scripts and external CSS are not.",
   }),
+  capabilities: Type.Optional(
+    Type.Array(Type.String(), {
+      description:
+        "Exact generated UI capability names used by the HTML, e.g. chat.follow_up or demo.weather.lookup.",
+    }),
+  ),
 })
 
 type CreateUiInput = Static<typeof createUiParameters>
@@ -78,10 +98,10 @@ const createUiTool = {
 } satisfies Tool<typeof createUiParameters>
 
 export type CreateUiState =
-  | { status: "pending"; html: string }
-  | { status: "streaming"; html: string }
-  | { status: "complete"; html: string }
-  | { status: "error"; html: string; error: string }
+  | { status: "pending"; html: string; manifest: GenuiRuntimeManifest }
+  | { status: "streaming"; html: string; manifest: GenuiRuntimeManifest }
+  | { status: "complete"; html: string; manifest: GenuiRuntimeManifest }
+  | { status: "error"; html: string; manifest: GenuiRuntimeManifest; error: string }
 
 export type AssistantToolState = CreateUiState | WebSearchState
 
@@ -90,6 +110,20 @@ type StreamAiOptions = { sessionId: string; signal: AbortSignal }
 type StreamAiTurnUpdate =
   | { type: "assistant_update"; messageIndex: number; message: AssistantMessage }
   | { type: "tool_update"; toolCall: ToolCall; state: AssistantToolState }
+
+const capabilityNamesFromArguments = (argumentsValue: unknown): string[] | undefined => {
+  if (typeof argumentsValue !== "object" || argumentsValue === null) return undefined
+  const capabilities = (argumentsValue as { readonly capabilities?: unknown }).capabilities
+  if (!Array.isArray(capabilities)) return undefined
+
+  const names = capabilities.filter(
+    (capability): capability is string => typeof capability === "string",
+  )
+  return names.length > 0 ? names : undefined
+}
+
+export const createUiManifestFromToolArguments = (argumentsValue: unknown): GenuiRuntimeManifest =>
+  createGenuiManifest(capabilityNamesFromArguments(argumentsValue))
 
 export async function* streamAiTurn(
   messages: Message[],
@@ -104,7 +138,7 @@ export async function* streamAiTurn(
       { systemPrompt: chatPrompt, messages, tools: [createUiTool, webSearchTool] },
       {
         apiKey: await getAiApiKey(),
-        reasoningEffort: "high",
+        reasoningEffort: "low",
         reasoningSummary: "auto",
         sessionId: options.sessionId,
         signal: options.signal,
@@ -121,10 +155,14 @@ export async function* streamAiTurn(
         const toolCall = aiEvent.partial.content[aiEvent.contentIndex]
         if (toolCall?.type === "toolCall" && toolCall.name === createUiTool.name) {
           const html = typeof toolCall.arguments.html === "string" ? toolCall.arguments.html : ""
+          const manifest = createUiManifestFromToolArguments(toolCall.arguments)
           yield {
             type: "tool_update",
             toolCall,
-            state: html.length === 0 ? { status: "pending", html } : { status: "streaming", html },
+            state:
+              html.length === 0
+                ? { status: "pending", html, manifest }
+                : { status: "streaming", html, manifest },
           }
         }
 
@@ -139,7 +177,11 @@ export async function* streamAiTurn(
         let state: CreateUiState
         try {
           const input: CreateUiInput = validateToolArguments(createUiTool, aiEvent.toolCall)
-          state = { status: "complete", html: input.html }
+          state = {
+            status: "complete",
+            html: input.html,
+            manifest: createGenuiManifest(input.capabilities),
+          }
         } catch {
           state = {
             status: "error",
@@ -147,6 +189,7 @@ export async function* streamAiTurn(
               typeof aiEvent.toolCall.arguments.html === "string"
                 ? aiEvent.toolCall.arguments.html
                 : "",
+            manifest: createUiManifestFromToolArguments(aiEvent.toolCall.arguments),
             error: "The model called create_ui with invalid arguments.",
           }
         }

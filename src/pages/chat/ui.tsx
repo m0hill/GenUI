@@ -11,9 +11,10 @@ import {
 } from "datastar-kit"
 import type { CreateUiState } from "../../ai/index.js"
 import type { WebSearchState } from "../../ai/web-search-tool.js"
+import { createGenuiManifest } from "../../genui/default-primitives.js"
 import { Icons } from "../../ui/icons.js"
 import type { AssistantTurn, UserChatMessage } from "../../session/chat-session.js"
-import { renderGeneratedHtml } from "./generated-html.js"
+import { renderGeneratedUiSandboxDocument } from "./generated-ui-sandbox.js"
 import { renderMarkdown } from "./markdown.js"
 
 export const chatForm = signalState({
@@ -71,7 +72,11 @@ const AssistantThinking = (props: { text: string }) =>
     </details>
   )
 
-const pendingCreateUiState: CreateUiState = { status: "pending", html: "" }
+const pendingCreateUiState: CreateUiState = {
+  status: "pending",
+  html: "",
+  manifest: createGenuiManifest(undefined),
+}
 
 const chatBusy = js<boolean>`(${chatForm.refs._sending} || ${chatForm.refs._generating})`
 
@@ -95,7 +100,14 @@ const CreateUiToolView = (props: { toolCall: ToolCall; state: CreateUiState | un
           data-style:pointer-events={js`${chatBusy} ? 'none' : 'auto'`}
           data-style:opacity={js`${chatBusy} ? '0.62' : '1'`}
         >
-          {unsafeHtml(renderGeneratedHtml(state.html))}
+          <iframe
+            class="generated-ui-frame"
+            data-generated-ui-frame
+            data-genui-manifest={JSON.stringify(state.manifest)}
+            title="Generated interactive UI"
+            sandbox="allow-scripts"
+            srcdoc={renderGeneratedUiSandboxDocument(state.html, state.manifest)}
+          ></iframe>
         </div>
       ) : null}
       {state.status === "error" ? (
@@ -202,6 +214,7 @@ export const ComposerBar = () => (
   <div class="pointer-events-none fixed inset-x-0 bottom-0 z-40 bg-linear-to-t from-bg via-bg/92 to-transparent pt-14 pb-5">
     <form
       class="shell pointer-events-auto"
+      data-chat-composer-form
       data-indicator={chatForm.refs._sending}
       data-on:submit={mod(
         post("/chat", { filterSignals: { include: regex("^(chatId|prompt)$") } }),
@@ -214,6 +227,7 @@ export const ComposerBar = () => (
           rows={1}
           placeholder="Ask anything, or ask for a visual UI…"
           aria-label="Message"
+          data-chat-prompt-input
           data-bind={chatForm.refs.prompt}
           data-attr:disabled={chatBusy}
           data-on:keydown="evt.key === 'Enter' && !evt.shiftKey && (evt.preventDefault(), evt.currentTarget.form.requestSubmit())"
