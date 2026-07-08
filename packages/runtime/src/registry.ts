@@ -58,7 +58,7 @@ export const createRegistry = <Ctx>(options: CreateRegistryOptions<Ctx>): Regist
     return surfaceRecords.create({
       html,
       capabilities: grantProjection.capabilities,
-      meta: input.meta,
+      source: input,
     })
   }
 
@@ -67,8 +67,8 @@ export const createRegistry = <Ctx>(options: CreateRegistryOptions<Ctx>): Regist
     ctx: Ctx,
     options?: ExecuteOptions,
   ): Promise<CapabilityResult> => {
-    const surface = surfaceRecords.get(call.surfaceId)
-    if (surface === undefined) {
+    const record = surfaceRecords.get(call.surfaceId)
+    if (record === undefined) {
       return capabilityError("unknown_surface", "Surface is not available.")
     }
 
@@ -77,7 +77,7 @@ export const createRegistry = <Ctx>(options: CreateRegistryOptions<Ctx>): Regist
       return capabilityError("blocked", "Capability is blocked.")
     }
 
-    const descriptor = findGrantedCapability(surface.grant, call.capability)
+    const descriptor = findGrantedCapability(record.surface.grant, call.capability)
     if (descriptor === undefined || capability === undefined) {
       return capabilityError("not_granted", "Capability is not granted to this surface.")
     }

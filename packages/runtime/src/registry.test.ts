@@ -105,6 +105,7 @@ void test("registry projects a grant and sanitizes HTML under that grant", () =>
   })
 
   assert.equal(surface.dialect, genuiDialect)
+  assert.doesNotMatch(surface.id, /^surface-\d+$/)
   assert.equal(surface.grant.surfaceId, surface.id)
   assert.deepEqual(
     surface.grant.capabilities.map((capability) => capability.name),
