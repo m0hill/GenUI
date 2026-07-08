@@ -1,8 +1,8 @@
 import { genui0Instructions } from "./dialect/genui0.js"
 import { sanitizeSurfaceHtml } from "./sanitizer.js"
 import { parseWithSchema } from "./schema.js"
+import { createSurfaceRecords } from "./surface-records.js"
 import {
-  genuiDialect,
   type AnyCapabilityDefinition,
   type CapabilityCall,
   type CapabilityDefinition,
@@ -11,7 +11,6 @@ import {
   type CapabilityResult,
   type CreateSurfaceInput,
   type ExecuteOptions,
-  type Grant,
   type Policy,
   type Registry,
   type Surface,
@@ -75,8 +74,7 @@ export const defineCapability = <Ctx, Input, Output>(
 /** Create an isolated registry that owns capability definitions and per-surface grants. */
 export const createRegistry = <Ctx>(options: CreateRegistryOptions<Ctx>): Registry<Ctx> => {
   const byName = new Map<string, AnyCapabilityDefinition<Ctx>>()
-  const surfaces = new Map<string, Surface>()
-  let nextSurfaceId = 1
+  const surfaceRecords = createSurfaceRecords()
 
   for (const capability of options.capabilities) {
     if (!capabilityNamePattern.test(capability.name)) {
@@ -89,20 +87,10 @@ export const createRegistry = <Ctx>(options: CreateRegistryOptions<Ctx>): Regist
   }
 
   const createSurface = (input: CreateSurfaceInput): Surface => {
-    const id = `surface-${nextSurfaceId}`
-    nextSurfaceId += 1
-
     const capabilities = grantedCapabilities(input.requested, byName)
-    const grant: Grant = { surfaceId: id, capabilities }
     const grantedNames = new Set(capabilities.map((capability) => capability.name))
     const html = sanitizeSurfaceHtml(input.html, grantedNames)
-    const surface: Surface =
-      input.meta === undefined
-        ? { id, html, grant, dialect: genuiDialect }
-        : { id, html, grant, dialect: genuiDialect, meta: input.meta }
-
-    surfaces.set(surface.id, surface)
-    return surface
+    return surfaceRecords.create({ html, capabilities, meta: input.meta })
   }
 
   const execute = async (
@@ -110,7 +98,7 @@ export const createRegistry = <Ctx>(options: CreateRegistryOptions<Ctx>): Regist
     ctx: Ctx,
     options?: ExecuteOptions,
   ): Promise<CapabilityResult> => {
-    const surface = surfaces.get(call.surfaceId)
+    const surface = surfaceRecords.get(call.surfaceId)
     if (surface === undefined) {
       return capabilityError("unknown_surface", "Surface is not available.")
     }

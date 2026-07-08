@@ -105,6 +105,7 @@ void test("registry projects a grant and sanitizes HTML under that grant", () =>
   })
 
   assert.equal(surface.dialect, genuiDialect)
+  assert.equal(surface.grant.surfaceId, surface.id)
   assert.deepEqual(
     surface.grant.capabilities.map((capability) => capability.name),
     ["dice.roll"],
@@ -132,6 +133,9 @@ void test("same HTML receives different authority from different grants", async 
   const armed = registry.createSurface({ html, requested: ["dice.roll"] })
   const defanged = registry.createSurface({ html, requested: [] })
 
+  assert.notEqual(armed.id, defanged.id)
+  assert.equal(armed.grant.surfaceId, armed.id)
+  assert.equal(defanged.grant.surfaceId, defanged.id)
   assert.match(armed.html, /data-on:click/)
   assert.doesNotMatch(defanged.html, /data-on:click/)
 
