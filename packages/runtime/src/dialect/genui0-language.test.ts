@@ -1,14 +1,54 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
+import { Window } from "happy-dom"
 import {
+  createGenui0Language,
   defaultGenui0ResultTarget,
+  genui0SandboxLanguageScript,
   isGenui0CapabilityName,
   isSafeGenui0BindingExpression,
   isSafeGenui0ObjectExpression,
   isSafeGenui0SimpleExpression,
   normalizeGenui0ResultTarget,
   parseGenui0CapabilityAction,
+  type Genui0Language,
 } from "./genui0-language.js"
+
+interface SandboxLanguageGlobal {
+  __genui0LanguageForTest?: Pick<
+    Genui0Language,
+    "invalid" | "parseObjectLiteral" | "parseCapabilityExpression"
+  >
+}
+
+const sandboxLanguageFromGeneratedScript = (): NonNullable<
+  SandboxLanguageGlobal["__genui0LanguageForTest"]
+> => {
+  const window = new Window()
+  const global = window as unknown as SandboxLanguageGlobal
+
+  window.eval(`
+    ${genui0SandboxLanguageScript()}
+    globalThis.__genui0LanguageForTest = {
+      invalid: genui0Invalid,
+      parseObjectLiteral: genui0ParseObjectLiteral,
+      parseCapabilityExpression: parseGenui0CapabilityExpression,
+    };
+  `)
+
+  const language = global.__genui0LanguageForTest
+  if (language === undefined) throw new Error("Generated genui/0 language was not installed.")
+  return language
+}
+
+const readSignal = (expression: string): unknown => {
+  if (expression === "$label") return "Lucky"
+  if (expression === "$sides") return 6
+  return ""
+}
+
+const jsonRoundTrip = (value: unknown): unknown =>
+  value === undefined ? undefined : JSON.parse(JSON.stringify(value))
 
 void test("genui/0 language validates capability names", () => {
   assert.equal(isGenui0CapabilityName("dice.roll"), true)
@@ -72,4 +112,44 @@ void test("genui/0 language owns result target normalization", () => {
     normalizeGenui0ResultTarget("bad-target", "demo.weather.lookup"),
     "demoWeatherLookup",
   )
+})
+
+void test("generated sandbox language matches sanitizer capability grammar", () => {
+  const directLanguage = createGenui0Language()
+  const sandboxLanguage = sandboxLanguageFromGeneratedScript()
+
+  for (const expression of [
+    "@capability('dice.roll', { sides: 6, label: $label }, { target: 'rollResult' })",
+    `@capability("notes.create", {})`,
+    "@capability('dice.roll', { sides: window.location })",
+    "@capability('dice.roll', { sides: 6 }, { target: $target })",
+    "@capability('dice.roll', { nested: { value: 1 } })",
+  ]) {
+    const sanitizerAction = parseGenui0CapabilityAction(expression)
+    const directAction = directLanguage.parseCapabilityExpression(expression, readSignal)
+    const sandboxAction = sandboxLanguage.parseCapabilityExpression(expression, readSignal)
+
+    assert.equal(directAction !== undefined, sanitizerAction !== undefined, expression)
+    assert.deepEqual(jsonRoundTrip(sandboxAction), jsonRoundTrip(directAction), expression)
+  }
+})
+
+void test("generated sandbox language matches sanitizer object-expression grammar", () => {
+  const sandboxLanguage = sandboxLanguageFromGeneratedScript()
+
+  for (const expression of [
+    "{ count: 1, label: 'Roll', ok: true }",
+    "{ sides: $sides, label: $label }",
+    "{ bad: window.location }",
+    "{ nested: { value: 1 } }",
+    "{ bad: ['x'] }",
+  ]) {
+    const sandboxValue = sandboxLanguage.parseObjectLiteral(expression, readSignal)
+
+    assert.equal(
+      sandboxValue !== sandboxLanguage.invalid,
+      isSafeGenui0ObjectExpression(expression),
+      expression,
+    )
+  }
 })
