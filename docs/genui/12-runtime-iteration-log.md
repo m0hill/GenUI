@@ -34,19 +34,28 @@ Accepted shape:
 - `data-genui-each="$orders.value.items"` names the array to render.
 - `data-genui-as="order"` names the item scope; when omitted, the runtime uses `$item`.
 - `data-genui-key="$order.id"` preserves row identity when the backing array changes.
+- `data-genui-row-state="{ note: $order.note, editing: false }"` initializes row-local
+  state once per key.
 - The element's children are the template. The runtime clones them into one instance per
   item. Unkeyed lists rebuild on refresh; keyed lists reconcile existing rows by key.
 - Nested `data-genui-each` is valid. Inner scopes merge with outer scopes, so an action
   can read both `$order.id` and `$line.id`.
 - Scope is a state-read overlay, not a state write. `$order` and `$line` do not get
   written into shared surface state.
+- `$row` is the reserved row-local scope inside keyed repeated rows. Row bindings such as
+  `data-genui-bind="row.note"` and row actions such as `@set('row.editing', true)` write
+  to that row's ephemeral state, not to the action result object.
+- `row` is reserved everywhere else: do not use `data-genui-as="row"`, a root
+  `data-genui-state` key named `row`, `target: 'row'`, or static `row.*` bindings/actions.
+  These are rejected during sanitization; the runtime also treats `$row` without a row
+  scope as empty/no-op.
 - Event-time scope recovery is part of the design. Delegated click/submit handlers use
   the rendered element scope so row actions can build action inputs from item data.
 - Action results stay data-only. The runtime repeats existing sanitized markup over
   data; actions do not return display HTML.
 - Keyed reconciliation is the current rule for row identity. It is the foundation for
-  future editable/stateful repeated rows, but `data-genui-bind` inside repeated templates
-  is still intentionally disabled.
+  editable/stateful repeated rows. `data-genui-bind` inside repeated templates is allowed
+  only for `row.*` paths in keyed rows.
 
 Explicitly rejected for now:
 
@@ -111,6 +120,7 @@ Supported directive shapes:
 
 - `data-genui-state`
 - `data-genui-bind`
+- `data-genui-row-state`
 - `data-genui-on-click`
 - `data-genui-on-submit`
 - `data-genui-on-load`
@@ -345,16 +355,16 @@ Bindings are reactive in both directions for installed static controls:
       controls, including text inputs, checkboxes, selects, and textareas.
     - Done in code: input/change-origin refreshes skip only the source bound control;
       authored actions and action results still sync focused controls.
-    - Done in code: repeated-template bindings remain inactive because editable row
-      semantics are still deferred.
+    - Done in code: repeated-template bindings are restricted to keyed row-local `row.*`
+      paths.
 
 18. Mount-time loading.
     - Done in code: `data-genui-on-load` runs static mount-time authored actions after
       sandbox listeners are installed.
     - Done in code: load actions use the existing grant-checked action path and render
       pending/result state through the normal target result model.
-    - Done in code: `data-genui-on-load` is stripped from repeated templates until row
-      lifecycle semantics are designed.
+    - Done in code: `data-genui-on-load` remains static-only and is stripped from
+      repeated templates.
 
 19. Keyed repeated rows.
     - Done in code: `data-genui-key` is accepted as a safe expression alongside
@@ -364,6 +374,21 @@ Bindings are reactive in both directions for installed static controls:
     - Done in code: unkeyed lists keep the previous full-rerender behavior.
     - Done in code: duplicate or empty runtime keys fall back to the unkeyed render path
       for that refresh rather than reusing the wrong row.
+
+20. Row-local state.
+    - Done in code: `data-genui-row-state` initializes `$row` once per keyed row instance.
+    - Done in code: `data-genui-bind="row.name"` reads and writes row-local state inside
+      keyed repeated rows.
+    - Done in code: `@set('row.name', value)` writes to the nearest keyed row scope, so
+      per-row expand/collapse and edit mode are independent.
+    - Done in code: action inputs can compose immutable item data and row-local drafts,
+      e.g. `{ id: $order.id, note: $row.note }`.
+    - Done in code: `$row` is fully reserved. Static/out-of-scope `row.*`,
+      `data-genui-as="row"`, root `row` state, and `target: 'row'` are rejected with
+      `reserved_row_path`.
+    - Done in code: if duplicate or empty runtime keys force an unkeyed fallback refresh,
+      row-local reads become empty and row-local writes become no-ops instead of leaking
+      into global state.
 
 ## Important Deferred Work
 
@@ -393,7 +418,6 @@ Bindings are reactive in both directions for installed static controls:
 - Should `@set('state.path', value)` be complemented by `@toggle('state.path')`?
 - When is `<template data-genui-each>` worth adding over the current host-element
   template model?
-- What is the right explicit row-editing model if repeated rows eventually need local
-  editable form state?
+- Should row-local state be included in the future snapshot/restore protocol?
 - What is the minimum persistence API that makes `Surface` restoration honest without
   overcommitting to storage semantics?

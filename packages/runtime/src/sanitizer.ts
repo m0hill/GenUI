@@ -125,6 +125,7 @@ const sanitizeDataAttribute = (
   attribute: Attribute,
   grantedActions: ReadonlyMap<string, Action>,
   insideRepeatedTemplate: boolean,
+  insideKeyedRepeatedTemplate: boolean,
   elementStartsRepeatedTemplate: boolean,
 ): SanitizedAttribute => {
   const result = allowGenui0DataAttribute({
@@ -132,6 +133,7 @@ const sanitizeDataAttribute = (
     value: attribute.value,
     grantedActions,
     insideRepeatedTemplate,
+    insideKeyedRepeatedTemplate,
     elementStartsRepeatedTemplate,
   })
 
@@ -144,6 +146,8 @@ const sanitizeAttribute = (
   attribute: Attribute,
   grantedActions: ReadonlyMap<string, Action>,
   insideRepeatedTemplate: boolean,
+  insideKeyedRepeatedTemplate: boolean,
+  elementStartsRepeatedTemplate: boolean,
 ): SanitizedAttribute => {
   const name = attributeName(attribute).toLowerCase()
 
@@ -164,7 +168,13 @@ const sanitizeAttribute = (
     return dropAttribute("form_submission_attribute", attribute.value)
   }
   if (name.startsWith("data-")) {
-    return sanitizeDataAttribute(attribute, grantedActions, insideRepeatedTemplate, false)
+    return sanitizeDataAttribute(
+      attribute,
+      grantedActions,
+      insideRepeatedTemplate,
+      insideKeyedRepeatedTemplate,
+      elementStartsRepeatedTemplate,
+    )
   }
 
   if (allowedUrlAttributeNames.has(name)) {
@@ -184,9 +194,20 @@ const sanitizeAttributes = (
   element: ElementNode,
   context: SanitizationContext,
   insideRepeatedTemplate: boolean,
+  insideKeyedRepeatedTemplate: boolean,
 ): void => {
+  const elementStartsRepeatedTemplate = element.attrs.some((attribute) =>
+    genui0AttributeStartsRepeatedTemplate(attributeName(attribute)),
+  )
+
   element.attrs = element.attrs.flatMap((attribute) => {
-    const safe = sanitizeAttribute(attribute, context.grantedActions, insideRepeatedTemplate)
+    const safe = sanitizeAttribute(
+      attribute,
+      context.grantedActions,
+      insideRepeatedTemplate,
+      insideKeyedRepeatedTemplate,
+      elementStartsRepeatedTemplate,
+    )
     if (!safe.keep) {
       recordDrop(
         context.dropped,
@@ -234,6 +255,7 @@ const sanitizeChildren = (
   parent: ParentNode,
   context: SanitizationContext,
   insideRepeatedTemplate = false,
+  insideKeyedRepeatedTemplate = false,
 ): void => {
   const safeChildren: ChildNode[] = []
 
@@ -252,11 +274,19 @@ const sanitizeChildren = (
       continue
     }
 
-    sanitizeAttributes(child, context, insideRepeatedTemplate)
+    sanitizeAttributes(child, context, insideRepeatedTemplate, insideKeyedRepeatedTemplate)
     const childStartsRepeatedTemplate = child.attrs.some((attribute) =>
       genui0AttributeStartsRepeatedTemplate(attributeName(attribute)),
     )
-    sanitizeChildren(child, context, insideRepeatedTemplate || childStartsRepeatedTemplate)
+    const childStartsKeyedRepeatedTemplate =
+      childStartsRepeatedTemplate &&
+      child.attrs.some((attribute) => attributeName(attribute) === "data-genui-key")
+    sanitizeChildren(
+      child,
+      context,
+      insideRepeatedTemplate || childStartsRepeatedTemplate,
+      childStartsRepeatedTemplate ? childStartsKeyedRepeatedTemplate : insideKeyedRepeatedTemplate,
+    )
     safeChildren.push(child)
   }
 

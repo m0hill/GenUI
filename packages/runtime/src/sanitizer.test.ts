@@ -178,14 +178,26 @@ void test("sanitizer preserves only granted capability calls", () => {
   ])
 })
 
-void test("sanitizer strips bindings inside repeated templates", () => {
+void test("sanitizer allows only row bindings inside keyed repeated templates", () => {
   const sanitized = sanitizeSurfaceHtml(
     [
       `<input data-genui-bind="outside" value="kept">`,
+      `<div data-genui-state="{ row: 'bad', kept: true }">Reserved state</div>`,
+      `<input data-genui-bind="row.note" value="bad static row">`,
+      `<button data-genui-on-click="@set('row.editing', true)">Bad static edit row</button>`,
+      `<button data-genui-on-click="@set('row', true)">Bad bare row</button>`,
+      `<button data-genui-on-click="@action('dice.roll', {}, { target: 'row' })">Bad row target</button>`,
       `<section data-genui-each="$orders.value.items" data-genui-as="order" data-genui-key="$order.id" data-genui-bind="root" data-genui-on-load="@action('dice.roll', {})">`,
       `<input data-genui-bind="orderName" value="stripped">`,
+      `<input data-genui-bind="row.note" data-genui-row-state="{ note: $order.note, editing: false }">`,
+      `<button data-genui-on-click="@set('row.editing', true)">Edit row</button>`,
       `<button data-genui-on-load="@action('dice.roll', {})">Load row</button>`,
       `<span data-genui-text="$order.id"></span>`,
+      `</section>`,
+      `<section data-genui-each="$reserved.value.items" data-genui-as="row" data-genui-key="$row.id"></section>`,
+      `<section data-genui-each="$drafts.value.items" data-genui-as="draft">`,
+      `<input data-genui-bind="row.note" data-genui-row-state="{ note: $draft.note }">`,
+      `<button data-genui-on-click="@set('row.editing', true)">Bad edit row</button>`,
       `</section>`,
     ].join(""),
     granted,
@@ -193,14 +205,54 @@ void test("sanitizer strips bindings inside repeated templates", () => {
   const safe = sanitized.html
 
   assert.match(safe, /data-genui-bind="outside"/)
+  assert.doesNotMatch(safe, /data-genui-state="\{ row: 'bad', kept: true \}"/)
+  assert.doesNotMatch(safe, /bad static row" data-genui-bind/)
+  assert.doesNotMatch(safe, /Bad static edit row" data-genui-on-click/)
+  assert.doesNotMatch(safe, /Bad bare row" data-genui-on-click/)
+  assert.doesNotMatch(safe, /target: 'row'/)
   assert.match(safe, /data-genui-each="\$orders.value.items"/)
   assert.match(safe, /data-genui-as="order"/)
   assert.match(safe, /data-genui-key="\$order.id"/)
+  assert.match(safe, /data-genui-bind="row.note"/)
+  assert.match(safe, /data-genui-row-state="\{ note: \$order.note, editing: false \}"/)
+  assert.match(safe, /@set\('row.editing', true\)/)
   assert.match(safe, /data-genui-text="\$order.id"/)
+  assert.doesNotMatch(safe, /data-genui-as="row"/)
   assert.doesNotMatch(safe, /data-genui-bind="root"/)
   assert.doesNotMatch(safe, /data-genui-bind="orderName"/)
+  assert.doesNotMatch(safe, /\$draft.note/)
   assert.doesNotMatch(safe, /data-genui-on-load/)
   assert.deepEqual(sanitized.dropped, [
+    {
+      node: "div",
+      attribute: "data-genui-state",
+      value: "{ row: 'bad', kept: true }",
+      reason: "reserved_row_path",
+    },
+    {
+      node: "input",
+      attribute: "data-genui-bind",
+      value: "row.note",
+      reason: "reserved_row_path",
+    },
+    {
+      node: "button",
+      attribute: "data-genui-on-click",
+      value: "@set('row.editing', true)",
+      reason: "reserved_row_path",
+    },
+    {
+      node: "button",
+      attribute: "data-genui-on-click",
+      value: "@set('row', true)",
+      reason: "reserved_row_path",
+    },
+    {
+      node: "button",
+      attribute: "data-genui-on-click",
+      value: "@action('dice.roll', {}, { target: 'row' })",
+      reason: "reserved_row_path",
+    },
     {
       node: "section",
       attribute: "data-genui-bind",
@@ -224,6 +276,30 @@ void test("sanitizer strips bindings inside repeated templates", () => {
       attribute: "data-genui-on-load",
       value: "@action('dice.roll', {})",
       reason: "forbidden_repeated_template_attribute",
+    },
+    {
+      node: "section",
+      attribute: "data-genui-as",
+      value: "row",
+      reason: "reserved_row_path",
+    },
+    {
+      node: "input",
+      attribute: "data-genui-bind",
+      value: "row.note",
+      reason: "reserved_row_path",
+    },
+    {
+      node: "input",
+      attribute: "data-genui-row-state",
+      value: "{ note: $draft.note }",
+      reason: "forbidden_repeated_template_attribute",
+    },
+    {
+      node: "button",
+      attribute: "data-genui-on-click",
+      value: "@set('row.editing', true)",
+      reason: "reserved_row_path",
     },
   ])
 })

@@ -703,6 +703,157 @@ void test("sandbox runtime preserves keyed repeated rows across reorder", () => 
   assert.equal(nextRows[0]?.querySelector("input")?.value, "draft survives")
 })
 
+void test("sandbox runtime keeps row-local bindings scoped to keyed rows", () => {
+  const { window, messages } = createHarness(`
+    <ul data-genui-each="$orders.value.items" data-genui-as="order" data-genui-key="$order.id">
+      <li data-genui-row-state="{ note: $order.note, editing: false }">
+        <span class="id" data-genui-text="$order.id"></span>
+        <input class="note" data-genui-bind="row.note">
+        <button class="edit" data-genui-on-click="@set('row.editing', true)">Edit</button>
+        <span class="editing" data-genui-text="$row.editing"></span>
+        <button class="save" data-genui-on-click="@action('orders.update', { id: $order.id, note: $row.note, editing: $row.editing }, { target: 'orders' })">
+          Save
+        </button>
+      </li>
+    </ul>
+  `)
+
+  const setOrders = (items: readonly Record<string, string>[]): void => {
+    window.dispatchEvent(
+      new window.MessageEvent("message", {
+        data: {
+          channel: protocolChannel,
+          surfaceId: "surface-test",
+          type: "result",
+          target: "orders",
+          state: { status: "complete", value: { items } },
+        },
+      }),
+    )
+  }
+
+  setOrders([
+    { id: "order-1", note: "Alpha" },
+    { id: "order-2", note: "Beta" },
+  ])
+
+  const firstRows = Array.from(window.document.querySelectorAll("li"))
+  const order2Row = firstRows[1]
+  const order2Note = order2Row?.querySelector("input")
+  assert.ok(order2Note instanceof window.HTMLInputElement)
+  assert.equal(order2Note.value, "Beta")
+
+  order2Note.value = "Draft beta"
+  order2Note.dispatchEvent(new window.Event("input", { bubbles: true }))
+  order2Row
+    ?.querySelector(".edit")
+    ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }))
+
+  assert.equal(order2Note.value, "Draft beta")
+  assert.equal(order2Row?.querySelector(".editing")?.textContent, "true")
+
+  setOrders([
+    { id: "order-2", note: "Server beta" },
+    { id: "order-1", note: "Alpha" },
+  ])
+
+  const nextRows = Array.from(window.document.querySelectorAll("li"))
+  assert.equal(nextRows[0], order2Row)
+  assert.equal(nextRows[0]?.querySelector(".id")?.textContent, "order-2")
+  assert.equal(nextRows[0]?.querySelector("input")?.value, "Draft beta")
+  assert.equal(nextRows[0]?.querySelector(".editing")?.textContent, "true")
+
+  nextRows[0]
+    ?.querySelector(".save")
+    ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }))
+
+  const message = capabilityPostMessage(messages)
+  assert.equal(message.action, "orders.update")
+  assert.deepEqual(jsonRoundTrip(message.input), {
+    editing: true,
+    id: "order-2",
+    note: "Draft beta",
+  })
+
+  setOrders([{ id: "order-1", note: "Alpha" }])
+  assert.equal(window.document.querySelectorAll("li").length, 1)
+
+  setOrders([
+    { id: "order-2", note: "Fresh beta" },
+    { id: "order-1", note: "Alpha" },
+  ])
+  const restoredOrder2Note = window.document.querySelector("li input")
+  assert.ok(restoredOrder2Note instanceof window.HTMLInputElement)
+  assert.equal(restoredOrder2Note.value, "Fresh beta")
+})
+
+void test("sandbox runtime reserves row outside row scope", () => {
+  const { window } = createHarness(`
+    <input data-genui-bind="row.note" value="Ignored">
+    <button data-genui-on-click="@set('row.editing', true)">Edit</button>
+    <span class="editing" data-genui-text="$row.editing"></span>
+  `)
+
+  assert.equal(window.document.querySelector("input")?.getAttribute("value"), "Ignored")
+  assert.equal(window.document.querySelector(".editing")?.textContent, "")
+
+  window.document
+    .querySelector("button")
+    ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }))
+
+  assert.equal(window.document.querySelector(".editing")?.textContent, "")
+})
+
+void test("sandbox runtime does not leak row state during duplicate-key fallback", () => {
+  const { window } = createHarness(`
+    <ul data-genui-each="$orders.value.items" data-genui-as="order" data-genui-key="$order.id">
+      <li data-genui-row-state="{ editing: false }">
+        <span class="id" data-genui-text="$order.name"></span>
+        <button class="edit" data-genui-on-click="@set('row.editing', true)">Edit</button>
+        <span class="editing" data-genui-text="$row.editing"></span>
+      </li>
+    </ul>
+  `)
+
+  window.dispatchEvent(
+    new window.MessageEvent("message", {
+      data: {
+        channel: protocolChannel,
+        surfaceId: "surface-test",
+        type: "result",
+        target: "orders",
+        state: {
+          status: "complete",
+          value: {
+            items: [
+              { id: "duplicate", name: "First" },
+              { id: "duplicate", name: "Second" },
+            ],
+          },
+        },
+      },
+    }),
+  )
+
+  const rows = Array.from(window.document.querySelectorAll("li"))
+  assert.equal(rows.length, 2)
+  assert.deepEqual(
+    rows.map((row) => row.querySelector(".editing")?.textContent),
+    ["", ""],
+  )
+
+  rows[0]
+    ?.querySelector(".edit")
+    ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }))
+
+  assert.deepEqual(
+    Array.from(window.document.querySelectorAll("li")).map(
+      (row) => row.querySelector(".editing")?.textContent,
+    ),
+    ["", ""],
+  )
+})
+
 void test("sandbox runtime renders nested repeated items with merged scopes", () => {
   const { window, messages } = createHarness(`
     <section data-genui-each="$orders.value.items" data-genui-as="order">

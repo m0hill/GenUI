@@ -10,6 +10,7 @@ import { genuiDialect, type Action, type SanitizationDropReason } from "../types
 export const genui0AttributeNames = {
   state: "data-genui-state",
   bind: "data-genui-bind",
+  rowState: "data-genui-row-state",
   onClick: "data-genui-on-click",
   onSubmit: "data-genui-on-submit",
   onLoad: "data-genui-on-load",
@@ -30,6 +31,7 @@ interface Genui0DataAttribute {
   readonly value: string | undefined
   readonly grantedActions: ReadonlyMap<string, Action>
   readonly insideRepeatedTemplate?: boolean
+  readonly insideKeyedRepeatedTemplate?: boolean
   readonly elementStartsRepeatedTemplate?: boolean
 }
 
@@ -122,6 +124,7 @@ interface Genui0DirectiveDefinition {
   readonly valueKind: Genui0DirectiveValueKind
   readonly startsRepeatedTemplate?: boolean
   readonly forbiddenInRepeatedTemplate?: boolean
+  readonly requiresKeyedRepeatedTemplate?: boolean
   validateName?(match: Genui0DirectiveMatch): boolean
   renderable?(match: Genui0DirectiveMatch, value: string): Genui0RenderableDirective | undefined
 }
@@ -134,6 +137,23 @@ const safeDynamicAttribute = (attribute: string): boolean => {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
+
+const rowPathSource = (value: string): string => {
+  const source = value.trim().startsWith("$") ? value.trim().slice(1) : value.trim()
+  return source
+}
+
+const isReservedRowPath = (value: string): boolean => {
+  const source = rowPathSource(value)
+  return source === "row" || source.startsWith("row.")
+}
+
+const isScopedRowPath = (value: string): boolean => rowPathSource(value).startsWith("row.")
+
+const objectHasKey = (value: string, key: string): boolean => {
+  const parsed = genui0Language.parseObjectLiteral(value, () => genui0Language.invalid)
+  return isRecord(parsed) && Object.prototype.hasOwnProperty.call(parsed, key)
+}
 
 const elementStyle = (element: Element): CSSStyleDeclaration | undefined => {
   // SAFETY: generated surfaces render in browser DOMs. Some test DOM implementations do not type
@@ -206,9 +226,17 @@ const genui0DirectiveDefinitions = [
     pattern: { type: "exact", name: genui0AttributeNames.bind },
     usage: genui0AttributeNames.bind,
     instruction:
-      "Use data-genui-bind for form state outside repeated rows; do not put data-genui-bind inside data-genui-each.",
+      'Use data-genui-bind for form state; inside keyed rows, bind only row paths such as data-genui-bind="row.note" and read them as $row.note.',
     valueKind: "binding",
-    forbiddenInRepeatedTemplate: true,
+  },
+  {
+    key: "row_state",
+    pattern: { type: "exact", name: genui0AttributeNames.rowState },
+    usage: genui0AttributeNames.rowState,
+    instruction:
+      'Use data-genui-row-state inside keyed rows to initialize $row once per key, e.g. data-genui-row-state="{ note: $order.note, editing: false }".',
+    valueKind: "object",
+    requiresKeyedRepeatedTemplate: true,
   },
   {
     key: "on_click",
@@ -395,6 +423,30 @@ const loadActionExpressionRejectionReason = (
   return granted.effect === "read" ? undefined : "forbidden_load_action"
 }
 
+const reservedRowActionReason = (
+  valueKind: Genui0DirectiveValueKind,
+  value: string,
+  insideRepeatedTemplate: boolean,
+  insideKeyedRepeatedTemplate: boolean,
+  elementStartsRepeatedTemplate: boolean,
+): SanitizationDropReason | undefined => {
+  if (valueKind !== "action" && valueKind !== "load_action") return undefined
+
+  const action = genui0Language.parseSetAction(value)
+  if (action !== undefined) {
+    if (!isReservedRowPath(action.pathExpression)) return undefined
+    return insideRepeatedTemplate &&
+      insideKeyedRepeatedTemplate &&
+      !elementStartsRepeatedTemplate &&
+      isScopedRowPath(action.pathExpression)
+      ? undefined
+      : "reserved_row_path"
+  }
+
+  const capability = genui0Language.parseCapabilityAction(value)
+  return capability?.target === "row" ? "reserved_row_path" : undefined
+}
+
 const valueRejectionReason = (
   valueKind: Genui0DirectiveValueKind,
   value: string,
@@ -420,6 +472,7 @@ export const allowGenui0DataAttribute = ({
   value,
   grantedActions,
   insideRepeatedTemplate = false,
+  insideKeyedRepeatedTemplate = false,
   elementStartsRepeatedTemplate = false,
 }: Genui0DataAttribute): Genui0DataAttributeResult => {
   if (value === undefined) return { reason: "invalid_genui_expression" }
@@ -427,11 +480,32 @@ export const allowGenui0DataAttribute = ({
   const directive = findDirective(name)
   if (directive === undefined) return { reason: "unknown_genui_attribute" }
 
-  if (
-    directive.definition.forbiddenInRepeatedTemplate === true &&
-    (insideRepeatedTemplate || elementStartsRepeatedTemplate)
-  ) {
-    return { reason: "forbidden_repeated_template_attribute" }
+  const inRepeatedTemplate = insideRepeatedTemplate || elementStartsRepeatedTemplate
+  if (directive.definition.key === "bind" && inRepeatedTemplate) {
+    if (isReservedRowPath(value)) {
+      if (
+        elementStartsRepeatedTemplate ||
+        !insideKeyedRepeatedTemplate ||
+        !isScopedRowPath(value)
+      ) {
+        return { reason: "reserved_row_path" }
+      }
+    } else {
+      return { reason: "forbidden_repeated_template_attribute" }
+    }
+  } else {
+    if (
+      directive.definition.forbiddenInRepeatedTemplate === true &&
+      (insideRepeatedTemplate || elementStartsRepeatedTemplate)
+    ) {
+      return { reason: "forbidden_repeated_template_attribute" }
+    }
+    if (
+      directive.definition.requiresKeyedRepeatedTemplate === true &&
+      (!insideRepeatedTemplate || !insideKeyedRepeatedTemplate || elementStartsRepeatedTemplate)
+    ) {
+      return { reason: "forbidden_repeated_template_attribute" }
+    }
   }
   if (directive.definition.validateName?.(directive.match) === false) {
     return { reason: "invalid_genui_attribute" }
@@ -439,7 +513,26 @@ export const allowGenui0DataAttribute = ({
 
   const valueReason = valueRejectionReason(directive.definition.valueKind, value, grantedActions)
   if (valueReason !== undefined) return { reason: valueReason }
-
+  if (directive.definition.key === "bind" && isReservedRowPath(value) && !inRepeatedTemplate) {
+    return { reason: "reserved_row_path" }
+  }
+  if (directive.definition.key === "as" && value.trim() === "row") {
+    return { reason: "reserved_row_path" }
+  }
+  if (directive.definition.key === "state" && objectHasKey(value, "row")) {
+    return { reason: "reserved_row_path" }
+  }
+  if (
+    reservedRowActionReason(
+      directive.definition.valueKind,
+      value,
+      insideRepeatedTemplate,
+      insideKeyedRepeatedTemplate,
+      elementStartsRepeatedTemplate,
+    ) !== undefined
+  ) {
+    return { reason: "reserved_row_path" }
+  }
   return { name, value }
 }
 

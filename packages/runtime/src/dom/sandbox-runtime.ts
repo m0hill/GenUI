@@ -36,10 +36,20 @@ export const installSandboxRuntime = (
   config: SandboxRuntimeConfig,
   global: SandboxRuntimeGlobal,
 ): SandboxRuntimeInstance => {
-  type StateScope = Readonly<Record<string, unknown>>
   type RenderMode = "static" | "template"
   type RefreshOptions = {
     readonly skipBoundElement?: Element
+  }
+
+  type RowState = Record<string, unknown>
+
+  type StateScope = Readonly<Record<string, unknown>> & {
+    readonly row?: RowState
+  }
+
+  type ScopedPath = {
+    readonly path: readonly string[]
+    readonly scope: StateScope
   }
 
   type Directive = Genui0RuntimeDirective & {
@@ -53,6 +63,7 @@ export const installSandboxRuntime = (
   type EachRenderState = {
     readonly template: readonly Node[]
     readonly instances: Map<string, EachInstance>
+    readonly rowStates: Map<string, RowState>
   }
 
   type EachBlock = {
@@ -63,6 +74,7 @@ export const installSandboxRuntime = (
     readonly scope: StateScope
     readonly template: readonly Node[]
     readonly instances: Map<string, EachInstance>
+    readonly rowStates: Map<string, RowState>
     directives: Directive[]
   }
 
@@ -82,8 +94,9 @@ export const installSandboxRuntime = (
   const directives: Directive[] = []
   const eachBlocks: EachBlock[] = []
   const loadActions: LoadAction[] = []
-  const boundElements = new Map<Element, readonly string[]>()
+  const boundElements = new Map<Element, ScopedPath>()
   const elementScopes = new WeakMap<Element, StateScope>()
+  const initializedRowStateElements = new WeakSet<Element>()
   const inlineEachStates = new WeakMap<Element, EachRenderState>()
   const baseClassNames = new WeakMap<Element, string>()
   const visibleDisplays = new WeakMap<Element, string>()
@@ -114,7 +127,12 @@ export const installSandboxRuntime = (
     const [name, ...rest] = path
     if (name === undefined) return ""
 
-    let value: unknown = hasOwn(scope, name) ? scope[name] : hasOwn(state, name) ? state[name] : ""
+    let value: unknown
+    if (name === "row") {
+      value = isRecord(scope.row) ? scope.row : ""
+    } else {
+      value = hasOwn(scope, name) ? scope[name] : hasOwn(state, name) ? state[name] : ""
+    }
     for (const property of rest) {
       const next = readOwnProperty(value, property)
       if (!next.found) return ""
@@ -123,25 +141,35 @@ export const installSandboxRuntime = (
     return value
   }
 
-  const writePath = (path: readonly string[], value: unknown): void => {
+  const writePath = (
+    path: readonly string[],
+    value: unknown,
+    scope: StateScope = emptyScope,
+  ): void => {
     const [name, ...rest] = path
     if (name === undefined) return
 
-    if (rest.length === 0) {
-      state[name] = value
+    const target = name === "row" ? scope.row : state
+    if (!isRecord(target)) return
+    const targetPath = name === "row" ? rest : path
+    const [targetName, ...targetRest] = targetPath
+    if (targetName === undefined) return
+
+    if (targetRest.length === 0) {
+      target[targetName] = value
       return
     }
 
     let cursor: Record<string, unknown>
-    const current = state[name]
+    const current = target[targetName]
     if (isRecord(current)) {
       cursor = current
     } else {
       cursor = {}
-      state[name] = cursor
+      target[targetName] = cursor
     }
 
-    for (const property of rest.slice(0, -1)) {
+    for (const property of targetRest.slice(0, -1)) {
       const child = cursor[property]
       if (isRecord(child)) {
         cursor = child
@@ -153,7 +181,7 @@ export const installSandboxRuntime = (
       cursor = next
     }
 
-    const last = rest.at(-1)
+    const last = targetRest.at(-1)
     if (last !== undefined) cursor[last] = value
   }
 
@@ -299,14 +327,14 @@ export const installSandboxRuntime = (
   ]
 
   const syncBoundElements = (skipElement: Element | undefined): void => {
-    for (const [element, path] of boundElements) {
+    for (const [element, binding] of boundElements) {
       if (!element.isConnected) {
         boundElements.delete(element)
         continue
       }
 
       if (element === skipElement) continue
-      writeElementValue(element, readPath(path))
+      writeElementValue(element, readPath(binding.path, binding.scope))
     }
   }
 
@@ -365,7 +393,7 @@ export const installSandboxRuntime = (
     const action = genui0Language.parseSetExpression(expression, readStateFromScope(scope))
     if (action === undefined) return false
 
-    writePath(action.path, action.value)
+    writePath(action.path, action.value, scope)
     refresh()
     return true
   }
@@ -431,10 +459,10 @@ export const installSandboxRuntime = (
     const target = event.target
     if (!isBoundElement(target)) return
 
-    writePath(
-      statePath(target.getAttribute(genui0AttributeNames.bind) ?? ""),
-      readElementValue(target),
-    )
+    const binding = boundElements.get(target)
+    if (binding === undefined) return
+
+    writePath(binding.path, readElementValue(target), binding.scope)
     refresh({ skipBoundElement: target })
   }
 
@@ -459,20 +487,41 @@ export const installSandboxRuntime = (
     }
   }
 
-  const installStaticBinding = (element: Element): void => {
+  const hasRowScope = (scope: StateScope): boolean => isRecord(scope.row)
+
+  const isRowPath = (path: readonly string[]): boolean => path[0] === "row" && path.length > 1
+
+  const installBinding = (element: Element, scope: StateScope, mode: RenderMode): void => {
     const binding = element.getAttribute(genui0AttributeNames.bind)
     if (binding === null) return
 
     const path = statePath(binding)
     if (path.length === 0) return
+    if (mode === "template" && (!isRowPath(path) || !hasRowScope(scope))) return
 
-    boundElements.set(element, path)
+    boundElements.set(element, { path, scope })
 
-    if (hasAuthoredFormValue(element) || readPath(path) === "") {
-      writePath(path, readElementValue(element))
+    if (hasAuthoredFormValue(element) || readPath(path, scope) === "") {
+      writePath(path, readElementValue(element), scope)
     } else {
-      writeElementValue(element, readPath(path))
+      writeElementValue(element, readPath(path, scope))
     }
+  }
+
+  const installRowState = (element: Element, scope: StateScope, mode: RenderMode): void => {
+    const row = scope.row
+    if (mode !== "template" || !isRecord(row) || initializedRowStateElements.has(element)) {
+      return
+    }
+
+    const expression = element.getAttribute(genui0AttributeNames.rowState)
+    if (expression === null) return
+
+    const parsed = genui0Language.parseObjectLiteral(expression, readStateFromScope(scope))
+    if (!isRecord(parsed)) return
+
+    for (const [name, value] of Object.entries(parsed)) row[name] = value
+    initializedRowStateElements.add(element)
   }
 
   const installLoadAction = (element: Element, scope: StateScope, mode: RenderMode): void => {
@@ -517,11 +566,13 @@ export const installSandboxRuntime = (
     mode: RenderMode,
   ): void => {
     elementScopes.set(element, scope)
+    installRowState(element, scope, mode)
+
     for (const attribute of element.attributes) {
       installDirective(element, attribute, scope, targetDirectives)
     }
 
-    if (mode === "static") installStaticBinding(element)
+    installBinding(element, scope, mode)
     installLoadAction(element, scope, mode)
 
     if (element.hasAttribute(genui0AttributeNames.each)) {
@@ -552,6 +603,7 @@ export const installSandboxRuntime = (
       scope,
       template,
       instances: new Map(),
+      rowStates: new Map(),
       directives: [],
     })
   }
@@ -637,18 +689,23 @@ export const installSandboxRuntime = (
     }
 
     const nextInstances = new Map<string, EachInstance>()
+    const nextRowStates = new Map<string, RowState>()
     const orderedNodes: Node[] = []
     for (const row of rows) {
       const existing = renderState.instances.get(row.key)
       const instance = existing ?? { nodes: cloneTemplate(renderState.template) }
-      renderInstanceNodes(instance.nodes, row.scope, targetDirectives)
+      const rowState = renderState.rowStates.get(row.key) ?? {}
+      renderInstanceNodes(instance.nodes, { ...row.scope, row: rowState }, targetDirectives)
       nextInstances.set(row.key, instance)
+      nextRowStates.set(row.key, rowState)
       orderedNodes.push(...instance.nodes)
     }
 
     reconcileChildNodes(element, orderedNodes)
     renderState.instances.clear()
     for (const [key, instance] of nextInstances) renderState.instances.set(key, instance)
+    renderState.rowStates.clear()
+    for (const [key, rowState] of nextRowStates) renderState.rowStates.set(key, rowState)
     return true
   }
 
@@ -684,6 +741,7 @@ export const installSandboxRuntime = (
     }
 
     renderState.instances.clear()
+    renderState.rowStates.clear()
     renderUnkeyedEachTemplate(
       element,
       itemName,
@@ -709,6 +767,7 @@ export const installSandboxRuntime = (
       ({
         template: Array.from(element.childNodes).map((node) => node.cloneNode(true)),
         instances: new Map(),
+        rowStates: new Map(),
       } satisfies EachRenderState)
     inlineEachStates.set(element, renderState)
     renderEachTemplate(
@@ -730,7 +789,7 @@ export const installSandboxRuntime = (
         block.expression,
         block.itemName,
         block.keyExpression,
-        { template: block.template, instances: block.instances },
+        { template: block.template, instances: block.instances, rowStates: block.rowStates },
         block.scope,
         block.directives,
       )

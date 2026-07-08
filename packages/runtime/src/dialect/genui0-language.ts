@@ -956,7 +956,7 @@ const createGenui0Language = (): Genui0Language => {
 
   const isSafeBindingExpression = (value: string): boolean => {
     const source = value.trim()
-    return source.length <= 1_200 && (isStateName(source) || isStatePath(source))
+    return source.length <= 1_200 && statePathParts(source) !== undefined
   }
 
   const parseTargetOptions = (source: string, expression: ObjectExpression): string | undefined => {

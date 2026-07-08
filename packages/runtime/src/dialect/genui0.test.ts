@@ -172,6 +172,26 @@ void test("genui/0 allows simple local state expressions", () => {
   )
   assert.deepEqual(
     allowGenui0DataAttribute({
+      name: "data-genui-bind",
+      value: "row.note",
+      grantedActions,
+      insideRepeatedTemplate: true,
+      insideKeyedRepeatedTemplate: true,
+    }),
+    { name: "data-genui-bind", value: "row.note" },
+  )
+  assert.deepEqual(
+    allowGenui0DataAttribute({
+      name: "data-genui-row-state",
+      value: "{ note: $order.note, editing: false }",
+      grantedActions,
+      insideRepeatedTemplate: true,
+      insideKeyedRepeatedTemplate: true,
+    }),
+    { name: "data-genui-row-state", value: "{ note: $order.note, editing: false }" },
+  )
+  assert.deepEqual(
+    allowGenui0DataAttribute({
       name: "data-genui-each",
       value: "$orders.value.items",
       grantedActions,
@@ -295,6 +315,77 @@ void test("genui/0 rejects general JavaScript expressions", () => {
   )
 })
 
+void test("genui/0 reserves row for keyed row-local state", () => {
+  assert.deepEqual(
+    allowGenui0DataAttribute({
+      name: "data-genui-as",
+      value: "row",
+      grantedActions,
+    }),
+    { reason: "reserved_row_path" },
+  )
+  assert.deepEqual(
+    allowGenui0DataAttribute({
+      name: "data-genui-state",
+      value: "{ row: 'bad' }",
+      grantedActions,
+    }),
+    { reason: "reserved_row_path" },
+  )
+  assert.deepEqual(
+    allowGenui0DataAttribute({
+      name: "data-genui-bind",
+      value: "row.note",
+      grantedActions,
+    }),
+    { reason: "reserved_row_path" },
+  )
+  assert.deepEqual(
+    allowGenui0DataAttribute({
+      name: "data-genui-bind",
+      value: "row",
+      grantedActions,
+      insideRepeatedTemplate: true,
+      insideKeyedRepeatedTemplate: true,
+    }),
+    { reason: "reserved_row_path" },
+  )
+  assert.deepEqual(
+    allowGenui0DataAttribute({
+      name: "data-genui-on-click",
+      value: "@set('row.editing', true)",
+      grantedActions,
+    }),
+    { reason: "reserved_row_path" },
+  )
+  assert.deepEqual(
+    allowGenui0DataAttribute({
+      name: "data-genui-on-click",
+      value: "@set('row', true)",
+      grantedActions,
+      insideRepeatedTemplate: true,
+      insideKeyedRepeatedTemplate: true,
+    }),
+    { reason: "reserved_row_path" },
+  )
+  assert.deepEqual(
+    allowGenui0DataAttribute({
+      name: "data-genui-on-click",
+      value: "@action('dice.roll', {}, { target: 'row' })",
+      grantedActions,
+    }),
+    { reason: "reserved_row_path" },
+  )
+  assert.deepEqual(
+    allowGenui0DataAttribute({
+      name: "data-genui-on-load",
+      value: "@action('dice.roll', {}, { target: 'row' })",
+      grantedActions,
+    }),
+    { reason: "reserved_row_path" },
+  )
+})
+
 void test("genui/0 owns repeated-template structural directive constraints", () => {
   assert.deepEqual(
     allowGenui0DataAttribute({
@@ -391,11 +482,13 @@ void test("genui/0 instructions describe dialect and capability descriptors", ()
   assert.match(instructions, /data-genui-on-load/)
   assert.match(instructions, /data-genui-each/)
   assert.match(instructions, /data-genui-as/)
+  assert.match(instructions, /data-genui-row-state/)
   assert.match(instructions, /@set\('state\.path', value\)/)
   assert.match(instructions, /data-genui-as="order"/)
+  assert.match(instructions, /\$row\.note/)
   assert.match(instructions, /\$order\.id and \$line\.id/)
   assert.match(instructions, /\$orders\.value\.items\.length/)
-  assert.match(instructions, /do not put data-genui-bind inside data-genui-each/)
+  assert.match(instructions, /inside keyed rows, bind only row paths/)
   assert.match(instructions, /dice\.roll: Roll a die\./)
   assert.match(instructions, /target: 'resultName'/)
   assert.match(instructions, /\$target\.status/)
