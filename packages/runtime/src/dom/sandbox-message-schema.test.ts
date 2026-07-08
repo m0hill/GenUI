@@ -63,6 +63,26 @@ void test("sandbox message schema parses protocol variants", () => {
       },
     },
   )
+
+  assert.deepEqual(
+    parseSandboxMessage({
+      channel: protocolChannel,
+      type: "violation",
+      surfaceId: "surface-1",
+      reason: "runtime_expression",
+      detail: "data-genui-text: formatCurrency($amount, $currency)",
+    }),
+    {
+      ok: true,
+      value: {
+        channel: protocolChannel,
+        type: "violation",
+        surfaceId: "surface-1",
+        reason: "runtime_expression",
+        detail: "data-genui-text: formatCurrency($amount, $currency)",
+      },
+    },
+  )
 })
 
 void test("sandbox message schema parses snapshot responses", () => {
@@ -126,6 +146,12 @@ void test("sandbox message schema classifies malformed boundary data", () => {
       action: "dice.roll",
       input: {},
       target: 42,
+    },
+    {
+      channel: protocolChannel,
+      type: "violation",
+      surfaceId: "surface-1",
+      reason: "other",
     },
   ]) {
     assert.deepEqual(parseSandboxMessage(message), { ok: false, reason: "bad_message" })

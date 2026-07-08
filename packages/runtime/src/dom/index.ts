@@ -21,11 +21,14 @@ export type { SurfaceSnapshot } from "./protocol.js"
 export interface MountOptions {
   readonly transport: (call: ActionCall, options: TransportOptions) => Promise<ActionResult>
   readonly confirm?: NonNullable<ExecuteOptions["approve"]>
+  readonly imagePolicy?: ImagePolicy
   readonly maxHeight?: number
   readonly onEvent?: (event: SurfaceEvent) => void
   readonly snapshot?: SurfaceSnapshot
   readonly snapshotTimeoutMs?: number
 }
+
+export type ImagePolicy = "none" | "data" | "https" | "https-and-data"
 
 export interface ReplaceOptions {
   readonly snapshot?: SurfaceSnapshot
@@ -46,11 +49,22 @@ interface PendingSnapshotRequest {
 
 const defaultSnapshotTimeoutMs = 1_000
 
-const surfaceDocument = (surface: Surface, snapshot?: SurfaceSnapshot): string => `<!doctype html>
+const imageSourcePolicy = (policy: ImagePolicy): string => {
+  if (policy === "data") return "data:"
+  if (policy === "https") return "https:"
+  if (policy === "https-and-data") return "https: data:"
+  return "'none'"
+}
+
+const surfaceDocument = (
+  surface: Surface,
+  imagePolicy: ImagePolicy,
+  snapshot?: SurfaceSnapshot,
+): string => `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src https: data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src ${imageSourcePolicy(imagePolicy)}; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 </head>
 <body>${surface.html}<script>${sandboxBridgeScript(surface.id, snapshot)}</script></body>
 </html>`
@@ -75,6 +89,7 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
     options.snapshotTimeoutMs >= 0
       ? options.snapshotTimeoutMs
       : defaultSnapshotTimeoutMs
+  const imagePolicy = options.imagePolicy ?? "none"
   const pendingSnapshots = new Map<string, PendingSnapshotRequest>()
   const broker = createSurfaceBroker(surface, {
     transport: options.transport,
@@ -182,7 +197,11 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
   }
 
   ownerDocument.defaultView?.addEventListener("message", handleMessage)
-  iframe.srcdoc = surfaceDocument(broker.surface, options.snapshot ?? emptySurfaceSnapshot())
+  iframe.srcdoc = surfaceDocument(
+    broker.surface,
+    imagePolicy,
+    options.snapshot ?? emptySurfaceSnapshot(),
+  )
 
   element.replaceChildren(iframe)
 
@@ -208,7 +227,11 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
 
         if (disposed) return
         broker.replace(nextSurface)
-        iframe.srcdoc = surfaceDocument(broker.surface, snapshot ?? emptySurfaceSnapshot())
+        iframe.srcdoc = surfaceDocument(
+          broker.surface,
+          imagePolicy,
+          snapshot ?? emptySurfaceSnapshot(),
+        )
       })
       replacementQueue = replacement.catch(() => undefined)
       return replacement

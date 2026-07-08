@@ -418,6 +418,16 @@ Bindings are reactive in both directions for installed static controls:
     - Design note: scroll is host-owned under the auto-height iframe model and is not part
       of sandbox snapshots.
 
+23. Runtime diagnostics and image loading.
+    - Done in code: post-mount invalid expression evaluations emit sandbox violations with
+      reason `runtime_expression`, so repair loops can observe runtime failures in
+      addition to sanitize-time drops.
+    - Done in code: formatter input failures and mismatched ordering comparisons now
+      evaluate to the dialect invalid sentinel instead of silently rendering empty or false.
+    - Done in code: sandbox image loading is blocked by default with `img-src 'none'`.
+      Hosts can opt into `imagePolicy: "data"`, `"https"`, or `"https-and-data"` at
+      mount time.
+
 ## Important Deferred Work
 
 - Model adapters.

@@ -1,17 +1,28 @@
 import assert from "node:assert/strict"
 import { after, before, test } from "node:test"
 import { chromium, type Browser, type Frame, type Page } from "playwright"
+import type { ImagePolicy } from "./index.js"
 import { sandboxBridgeScript } from "./sandbox-bridge.js"
 
 let browser: Browser | undefined
 
 const surfaceId = "surface-browser"
 
-const sandboxDocument = (html: string): string => `<!doctype html>
+const imageSourcePolicy = (policy: ImagePolicy): string => {
+  if (policy === "data") return "data:"
+  if (policy === "https") return "https:"
+  if (policy === "https-and-data") return "https: data:"
+  return "'none'"
+}
+
+const sandboxDocument = (
+  html: string,
+  imagePolicy: ImagePolicy = "none",
+): string => `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src https: data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src ${imageSourcePolicy(imagePolicy)}; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 </head>
 <body>${html}<script>${sandboxBridgeScript(surfaceId)}</script></body>
 </html>`
@@ -39,7 +50,7 @@ const newBrowserPage = async (): Promise<Page> => {
 const installHostHarness = async (
   page: Page,
   html: string,
-  options: { readonly maxHeight?: number } = {},
+  options: { readonly imagePolicy?: ImagePolicy; readonly maxHeight?: number } = {},
 ): Promise<Frame> => {
   await page.setContent(`<main id="root"></main>`)
   await page.evaluate(
@@ -136,7 +147,7 @@ const installHostHarness = async (
 
       Object.assign(window, { __genuiHost: { calls, completeLastCall, events } })
     },
-    { srcdoc: sandboxDocument(html), maxHeight: options.maxHeight },
+    { srcdoc: sandboxDocument(html, options.imagePolicy), maxHeight: options.maxHeight },
   )
 
   const iframe = await page.locator("iframe").elementHandle()
@@ -286,6 +297,43 @@ void test("browser sandbox prevents parent DOM access and network fetch", async 
   })
 
   assert.deepEqual(result, { fetchAccess: "blocked", parentAccess: "blocked" })
+})
+
+void test("browser sandbox blocks image requests unless image policy opts in", async (context) => {
+  const blockedPage = await newBrowserPage()
+  const allowedPage = await newBrowserPage()
+  context.after(async () => {
+    await blockedPage.close()
+    await allowedPage.close()
+  })
+
+  let blockedImageRequests = 0
+  await blockedPage.route("https://example.com/pixel.png", async (route) => {
+    blockedImageRequests += 1
+    await route.fulfill({ status: 204 })
+  })
+
+  await installHostHarness(
+    blockedPage,
+    `<img src="https://example.com/pixel.png" alt="tracking pixel">`,
+  )
+  await blockedPage.waitForTimeout(100)
+  assert.equal(blockedImageRequests, 0)
+
+  let allowedImageRequests = 0
+  await allowedPage.route("https://example.com/pixel.png", async (route) => {
+    allowedImageRequests += 1
+    await route.fulfill({ status: 204 })
+  })
+  const request = allowedPage.waitForRequest("https://example.com/pixel.png")
+
+  await installHostHarness(
+    allowedPage,
+    `<img src="https://example.com/pixel.png" alt="tracking pixel">`,
+    { imagePolicy: "https" },
+  )
+  await request
+  assert.equal(allowedImageRequests, 1)
 })
 
 void test("browser sandbox renders repeated result items with scoped calls", async (context) => {

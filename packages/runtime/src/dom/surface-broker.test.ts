@@ -203,6 +203,24 @@ void test("surface broker emits protocol, resize, link, and mismatch effects", (
     ),
     [{ type: "violation", reason: "surface_mismatch" }],
   )
+  assert.deepEqual(
+    emittedEvents(
+      broker.handleSandboxMessage({
+        channel: protocolChannel,
+        type: "violation",
+        surfaceId: current.id,
+        reason: "runtime_expression",
+        detail: "data-genui-text: formatCurrency($amount, $currency)",
+      }).effects,
+    ),
+    [
+      {
+        type: "violation",
+        reason: "runtime_expression",
+        detail: "data-genui-text: formatCurrency($amount, $currency)",
+      },
+    ],
+  )
 })
 
 void test("surface broker refuses unsafe forged link messages", () => {

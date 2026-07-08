@@ -22,6 +22,14 @@ interface LinkSandboxMessage {
   readonly href: string
 }
 
+interface ViolationSandboxMessage {
+  readonly channel: typeof protocolChannel
+  readonly type: "violation"
+  readonly surfaceId: string
+  readonly reason: "runtime_expression"
+  readonly detail?: string
+}
+
 export interface SnapshotSandboxMessage {
   readonly channel: typeof protocolChannel
   readonly type: "snapshot"
@@ -30,7 +38,11 @@ export interface SnapshotSandboxMessage {
   readonly snapshot: SurfaceSnapshot
 }
 
-export type SandboxMessage = ActionSandboxMessage | ResizeSandboxMessage | LinkSandboxMessage
+export type SandboxMessage =
+  | ActionSandboxMessage
+  | ResizeSandboxMessage
+  | LinkSandboxMessage
+  | ViolationSandboxMessage
 
 export type ParseSandboxMessageResult =
   | { readonly ok: true; readonly value: SandboxMessage }
@@ -81,6 +93,22 @@ const parseCapabilityMessage = (
     action,
     input: value.input,
     ...(typeof value.target === "string" ? { target: value.target } : {}),
+  }
+}
+
+const parseViolationMessage = (
+  value: Readonly<Record<string, unknown>>,
+): ViolationSandboxMessage | undefined => {
+  if (typeof value.surfaceId !== "string") return undefined
+  if (value.reason !== "runtime_expression") return undefined
+  if (value.detail !== undefined && typeof value.detail !== "string") return undefined
+
+  return {
+    channel: protocolChannel,
+    type: "violation",
+    surfaceId: value.surfaceId,
+    reason: value.reason,
+    ...(typeof value.detail === "string" ? { detail: value.detail } : {}),
   }
 }
 
@@ -145,6 +173,13 @@ export const parseSandboxMessage = (value: unknown): ParseSandboxMessageResult =
 
   if (value.type === "capability") {
     const message = parseCapabilityMessage(value)
+    return message === undefined
+      ? { ok: false, reason: "bad_message" }
+      : { ok: true, value: message }
+  }
+
+  if (value.type === "violation") {
+    const message = parseViolationMessage(value)
     return message === undefined
       ? { ok: false, reason: "bad_message" }
       : { ok: true, value: message }

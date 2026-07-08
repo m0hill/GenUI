@@ -36,6 +36,28 @@ void test("mount renders a sandboxed iframe and replaces/disposes it", async () 
   assert.equal(element.querySelector("iframe"), null)
 })
 
+void test("mount blocks image loading by default and supports explicit image policies", () => {
+  const policies = [
+    { policy: undefined, expected: "img-src 'none'" },
+    { policy: "none", expected: "img-src 'none'" },
+    { policy: "data", expected: "img-src data:" },
+    { policy: "https", expected: "img-src https:" },
+    { policy: "https-and-data", expected: "img-src https: data:" },
+  ] as const
+
+  for (const { policy, expected } of policies) {
+    const { element } = createMountTarget()
+    const surface = testSurface([], `<img src="https://example.com/pixel.png">`)
+    const instance = mount(asDomElement(element), surface, {
+      ...(policy === undefined ? {} : { imagePolicy: policy }),
+      transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+    })
+
+    assert.match(mountedIframe(element).srcdoc, new RegExp(expected.replaceAll("'", "\\'")))
+    instance.dispose()
+  }
+})
+
 void test("mount snapshots and seeds same-surface replacement documents", async () => {
   const { window, element } = createMountTarget()
   const first = testSurface([diceDescriptor], `<input data-genui-bind="query">`)

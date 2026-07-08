@@ -806,38 +806,38 @@ const createGenui0Language = (): Genui0Language => {
     return Number.isFinite(date.getTime()) ? date : undefined
   }
 
-  const formatNumber = (value: unknown): string => {
+  const formatNumber = (value: unknown): string | typeof invalid => {
     const number = finiteNumber(value)
     return number === undefined
-      ? ""
+      ? invalid
       : new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(number)
   }
 
-  const formatCurrency = (value: unknown, currency: unknown): string => {
+  const formatCurrency = (value: unknown, currency: unknown): string | typeof invalid => {
     const number = finiteNumber(value)
     const code = currencyCode(currency)
     return number === undefined || code === undefined
-      ? ""
+      ? invalid
       : new Intl.NumberFormat("en-US", {
           style: "currency",
           currency: code,
         }).format(number)
   }
 
-  const formatPercent = (value: unknown): string => {
+  const formatPercent = (value: unknown): string | typeof invalid => {
     const number = finiteNumber(value)
     return number === undefined
-      ? ""
+      ? invalid
       : new Intl.NumberFormat("en-US", {
           style: "percent",
           maximumFractionDigits: 1,
         }).format(number)
   }
 
-  const formatDate = (value: unknown): string => {
+  const formatDate = (value: unknown): string | typeof invalid => {
     const date = dateValue(value)
     return date === undefined
-      ? ""
+      ? invalid
       : new Intl.DateTimeFormat("en-US", {
           timeZone: "UTC",
           year: "numeric",
@@ -846,9 +846,13 @@ const createGenui0Language = (): Genui0Language => {
         }).format(date)
   }
 
-  const compareOrdered = (operator: OrderingOperator, left: unknown, right: unknown): boolean => {
+  const compareOrdered = (
+    operator: OrderingOperator,
+    left: unknown,
+    right: unknown,
+  ): boolean | typeof invalid => {
     if (typeof left === "number" && typeof right === "number") {
-      if (!Number.isFinite(left) || !Number.isFinite(right)) return false
+      if (!Number.isFinite(left) || !Number.isFinite(right)) return invalid
       if (operator === "<") return left < right
       if (operator === "<=") return left <= right
       if (operator === ">") return left > right
@@ -862,7 +866,7 @@ const createGenui0Language = (): Genui0Language => {
       return left >= right
     }
 
-    return false
+    return invalid
   }
 
   const evaluateValue = (
@@ -952,7 +956,7 @@ const createGenui0Language = (): Genui0Language => {
   }
 
   const isSafeSimpleExpression = (value: string): boolean =>
-    value.length <= 1_200 && evaluateExpression(value, () => "") !== invalid
+    value.length <= 1_200 && parseFullExpression(value) !== undefined
 
   const isSafeBindingExpression = (value: string): boolean => {
     const source = value.trim()

@@ -37,3 +37,8 @@ state survive conversational UI iteration. Cross-surface replacement does not au
 state; pass `replace(surface, { snapshot })` when the host intentionally wants that.
 Scroll is host-owned in the auto-height iframe model and is intentionally not part of the
 snapshot.
+
+Images are blocked by default with `img-src 'none'`. Hosts may opt into `imagePolicy:
+"data"`, `"https"`, or `"https-and-data"` when a surface should render images. Runtime
+expression failures such as invalid formatter inputs emit `violation` events with reason
+`runtime_expression` so model repair loops can see post-mount failures.

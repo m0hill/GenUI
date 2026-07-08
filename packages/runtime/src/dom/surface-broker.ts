@@ -20,6 +20,7 @@ export type SurfaceViolationReason =
   | "ungranted_call"
   | "unsafe_link"
   | "snapshot_timeout"
+  | "runtime_expression"
 
 export type SurfaceEvent =
   | { readonly type: "call"; readonly call: ActionCall; readonly target: string }
@@ -260,6 +261,16 @@ export const createSurfaceBroker = (
             }),
           ])
         : task([emit({ type: "link", href })])
+    }
+
+    if (message.type === "violation") {
+      return task([
+        emit({
+          type: "violation",
+          reason: message.reason,
+          ...(message.detail === undefined ? {} : { detail: message.detail }),
+        }),
+      ])
     }
 
     return handleAction(message)

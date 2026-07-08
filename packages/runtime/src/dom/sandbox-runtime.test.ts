@@ -310,6 +310,52 @@ void test("sandbox runtime renders expression v0.5 operators and formatters", ()
   assert.equal(window.document.querySelector("#date")?.textContent, "Jan 2, 2026")
 })
 
+void test("sandbox runtime reports invalid post-mount expression evaluations", () => {
+  const { window, messages } = createHarness(`
+    <section data-genui-state="{ amount: 12, currency: 'USD', threshold: 10 }">
+      <p id="price" data-genui-text="formatCurrency($amount, $currency)"></p>
+      <p id="visible" data-genui-show="$amount > $threshold">Visible</p>
+      <button id="bad-currency" data-genui-on-click="@set('currency', 'US Dollars')">Bad currency</button>
+      <button id="bad-threshold" data-genui-on-click="@set('threshold', 'large')">Bad threshold</button>
+    </section>
+  `)
+
+  assert.equal(window.document.querySelector("#price")?.textContent, "$12.00")
+  assert.equal(displayStyle(window.document.querySelector("#visible")), "")
+
+  window.document
+    .querySelector("#bad-currency")
+    ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }))
+  window.document
+    .querySelector("#bad-threshold")
+    ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }))
+
+  assert.equal(window.document.querySelector("#price")?.textContent, "")
+  assert.equal(displayStyle(window.document.querySelector("#visible")), "none")
+  assert.equal(
+    messages.some(
+      (message) =>
+        isRecord(message) &&
+        message.type === "violation" &&
+        message.reason === "runtime_expression" &&
+        typeof message.detail === "string" &&
+        message.detail.includes("formatCurrency"),
+    ),
+    true,
+  )
+  assert.equal(
+    messages.some(
+      (message) =>
+        isRecord(message) &&
+        message.type === "violation" &&
+        message.reason === "runtime_expression" &&
+        typeof message.detail === "string" &&
+        message.detail.includes("$amount > $threshold"),
+    ),
+    true,
+  )
+})
+
 void test("sandbox runtime removes unsafe dynamic style values", () => {
   const { window } = createHarness(`
     <input data-genui-bind="background" value="linear-gradient(135deg,#fff,#f8fafc)">

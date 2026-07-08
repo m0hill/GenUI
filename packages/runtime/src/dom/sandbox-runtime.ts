@@ -101,6 +101,7 @@ export const installSandboxRuntime = (
   const boundElements = new Map<Element, ScopedPath>()
   const elementScopes = new WeakMap<Element, StateScope>()
   const initializedRowStateElements = new WeakSet<Element>()
+  const reportedRuntimeExpressions = new Set<string>()
   const inlineEachStates = new WeakMap<Element, EachRenderState>()
   const baseClassNames = new WeakMap<Element, string>()
   const visibleDisplays = new WeakMap<Element, string>()
@@ -246,6 +247,21 @@ export const installSandboxRuntime = (
       { channel: config.channel, surfaceId: config.surfaceId, ...message },
       "*",
     )
+  }
+
+  const truncateDetail = (value: string): string =>
+    value.length <= 240 ? value : `${value.slice(0, 237)}...`
+
+  const reportRuntimeExpression = (source: string, expression: string): void => {
+    const key = `${source}\u0000${expression}`
+    if (reportedRuntimeExpressions.has(key)) return
+
+    reportedRuntimeExpressions.add(key)
+    post({
+      type: "violation",
+      reason: "runtime_expression",
+      detail: truncateDetail(`${source}: ${expression}`),
+    })
   }
 
   const installSnapshot = (): void => {
@@ -447,6 +463,9 @@ export const installSandboxRuntime = (
   const refreshDirectives = (): void => {
     for (const directive of currentDirectives()) {
       const value = evaluate(directive.expression, directive.scope)
+      if (value === genui0Language.invalid) {
+        reportRuntimeExpression(`data-genui-${directive.type}`, directive.expression)
+      }
       genui0Runtime.applyDirective(directive, value, {
         isTruthy,
         shouldRemoveDynamicValue,
@@ -480,7 +499,12 @@ export const installSandboxRuntime = (
 
   const postActionCall = (expression: string, scope: StateScope): boolean => {
     const action = genui0Language.parseCapabilityExpression(expression, readStateFromScope(scope))
-    if (action === undefined) return false
+    if (action === undefined) {
+      if (genui0Language.parseCapabilityAction(expression) !== undefined) {
+        reportRuntimeExpression("action input", expression)
+      }
+      return false
+    }
 
     const target = resultTargetFor(action)
     setResultState(target, pendingResultState(readPath([target])))
@@ -497,7 +521,12 @@ export const installSandboxRuntime = (
 
   const runLocalAction = (expression: string, scope: StateScope): boolean => {
     const action = genui0Language.parseSetExpression(expression, readStateFromScope(scope))
-    if (action === undefined) return false
+    if (action === undefined) {
+      if (genui0Language.parseSetAction(expression) !== undefined) {
+        reportRuntimeExpression("set action", expression)
+      }
+      return false
+    }
 
     writePath(action.path, action.value, scope)
     refresh()

@@ -127,6 +127,14 @@ void test("genui/0 language evaluates expression v0.5 operators and formatters",
     genui0Language.evaluateExpression("formatDate($createdAt)", readState),
     "Jan 2, 2026",
   )
+  assert.equal(
+    genui0Language.evaluateExpression("formatCurrency($amount, $status)", readState),
+    genui0Language.invalid,
+  )
+  assert.equal(
+    genui0Language.evaluateExpression("$amount > $status", readState),
+    genui0Language.invalid,
+  )
 })
 
 void test("genui/0 language rejects malformed tokenizer input", () => {
