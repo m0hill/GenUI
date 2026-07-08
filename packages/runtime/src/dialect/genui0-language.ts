@@ -1,3 +1,5 @@
+import { splitDelimitedSource } from "../source-scanner.js"
+
 export interface Genui0CapabilityAction {
   readonly capability: string
   readonly inputExpression: string
@@ -62,80 +64,19 @@ const createGenui0Language = (): Genui0Language => {
   const stringLiteralPattern = exactPattern(stringLiteralPatternSource)
   const invalid = Symbol("genui0.invalid")
 
-  const splitOutsideQuotes = (source: string, separator: string): string[] | undefined => {
-    const parts: string[] = []
-    let quote: '"' | "'" | undefined
-    let start = 0
+  const splitOutsideQuotes = (source: string, separator: string): string[] | undefined =>
+    splitDelimitedSource(source, {
+      separator,
+      brackets: { type: "reject", characters: "()[]{}" },
+      requireNonEmptyParts: true,
+    })
 
-    for (let index = 0; index < source.length; index += 1) {
-      const character = source[index]
-      if (character === undefined) return undefined
-      if (character === "\\") return undefined
-
-      if (quote !== undefined) {
-        if (character === quote) quote = undefined
-        continue
-      }
-
-      if (character === '"' || character === "'") {
-        quote = character
-        continue
-      }
-
-      if ("()[]{}".includes(character)) return undefined
-      if (character === separator) {
-        parts.push(source.slice(start, index).trim())
-        start = index + 1
-      }
-    }
-
-    if (quote !== undefined) return undefined
-    parts.push(source.slice(start).trim())
-    return parts.every((part) => part.length > 0) ? parts : undefined
-  }
-
-  const splitTopLevel = (source: string, separator: string): string[] | undefined => {
-    const parts: string[] = []
-    let quote: '"' | "'" | undefined
-    let depth = 0
-    let start = 0
-
-    for (let index = 0; index < source.length; index += 1) {
-      const character = source[index]
-      if (character === undefined) return undefined
-      if (character === "\\") return undefined
-
-      if (quote !== undefined) {
-        if (character === quote) quote = undefined
-        continue
-      }
-
-      if (character === '"' || character === "'") {
-        quote = character
-        continue
-      }
-
-      if (character === "(" || character === "[" || character === "{") {
-        depth += 1
-        continue
-      }
-
-      if (character === ")" || character === "]" || character === "}") {
-        depth -= 1
-        if (depth < 0) return undefined
-        continue
-      }
-
-      if (character === separator && depth === 0) {
-        parts.push(source.slice(start, index).trim())
-        start = index + 1
-      }
-    }
-
-    if (quote !== undefined || depth !== 0) return undefined
-    parts.push(source.slice(start).trim())
-    return parts.every((part) => part.length > 0) ? parts : undefined
-  }
+  const splitTopLevel = (source: string, separator: string): string[] | undefined =>
+    splitDelimitedSource(source, {
+      separator,
+      brackets: { type: "track-depth", open: "([{", close: ")]}" },
+      requireNonEmptyParts: true,
+    })
 
   const splitKeyValue = (entry: string): readonly [string, string] | undefined => {
     const parts = splitOutsideQuotes(entry, ":")

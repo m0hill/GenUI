@@ -273,6 +273,15 @@ Supported event actions:
     - Done in code: removed the tiny `capability-result` module; the standard
       capability error envelope constructor now lives next to `CapabilityResult`.
 
+13. Shared source scanner.
+    - Done in code: replaced duplicate quote/depth scanners in `genui0-language` and
+      `css-style` with one internal `source-scanner` module.
+    - Done in code: the scanner makes bracket behavior explicit: GenUI shallow object
+      entries reject brackets, GenUI action arguments track `()[]{}`, and CSS tracks
+      parentheses only.
+    - Done in code: added focused scanner tests for quoted separators, empty-part
+      handling, bracket-depth handling, and escape rejection.
+
 ## Important Deferred Work
 
 - Prototype-pollution tests around state paths and object literal keys.

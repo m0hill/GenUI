@@ -1,3 +1,5 @@
+import { splitDelimitedSource } from "./source-scanner.js"
+
 const allowedStylePropertyList = [
   "align-content",
   "align-items",
@@ -137,49 +139,11 @@ const hasUnsafeStyleCharacter = (value: string): boolean => {
   return false
 }
 
-const splitCssList = (source: string, separator: ":" | ";"): string[] | undefined => {
-  const parts: string[] = []
-  let quote: '"' | "'" | undefined
-  let depth = 0
-  let start = 0
-
-  for (let index = 0; index < source.length; index += 1) {
-    const character = source[index]
-    if (character === undefined) return undefined
-    if (character === "\\") return undefined
-
-    if (quote !== undefined) {
-      if (character === quote) quote = undefined
-      continue
-    }
-
-    if (character === '"' || character === "'") {
-      quote = character
-      continue
-    }
-
-    if (character === "(") {
-      depth += 1
-      continue
-    }
-
-    if (character === ")") {
-      depth -= 1
-      if (depth < 0) return undefined
-      continue
-    }
-
-    if (character === separator && depth === 0) {
-      parts.push(source.slice(start, index).trim())
-      start = index + 1
-    }
-  }
-
-  if (quote !== undefined || depth !== 0) return undefined
-
-  parts.push(source.slice(start).trim())
-  return parts
-}
+const splitCssList = (source: string, separator: ":" | ";"): string[] | undefined =>
+  splitDelimitedSource(source, {
+    separator,
+    brackets: { type: "track-depth", open: "(", close: ")" },
+  })
 
 const splitDeclaration = (declaration: string): readonly [string, string] | undefined => {
   const parts = splitCssList(declaration, ":")
