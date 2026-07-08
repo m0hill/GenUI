@@ -25,7 +25,7 @@ void test("mountSurface renders a sandboxed iframe and updates/disposes it", () 
   const iframe = mountedIframe(element)
 
   assert.equal(instance.surface, first)
-  assert.equal(iframe.getAttribute("sandbox"), "allow-scripts")
+  assert.equal(iframe.getAttribute("sandbox"), "allow-scripts allow-forms")
   assert.match(iframe.srcdoc, /<button>Roll<\/button>/)
 
   instance.update(second)

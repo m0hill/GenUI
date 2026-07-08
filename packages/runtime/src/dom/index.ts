@@ -50,7 +50,7 @@ export const mountSurface = (
   })
 
   const iframe = ownerDocument.createElement("iframe")
-  iframe.setAttribute("sandbox", "allow-scripts")
+  iframe.setAttribute("sandbox", "allow-scripts allow-forms")
   iframe.setAttribute("referrerpolicy", "no-referrer")
   iframe.style.border = "0"
   iframe.style.display = "block"
