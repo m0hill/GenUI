@@ -1,3 +1,4 @@
+import { genui0SandboxLanguageScript } from "../dialect/genui0-language.js"
 import { protocolChannel } from "./protocol.js"
 
 const escapeScriptJson = (value: string): string =>
@@ -8,7 +9,6 @@ export const sandboxBridgeScript = (surfaceId: string): string => `
 (() => {
   const channel = ${escapeScriptJson(protocolChannel)};
   const surfaceId = ${escapeScriptJson(surfaceId)};
-  const invalid = Symbol("invalid");
   let nextCallId = 1;
 
   const post = (message) => parent.postMessage({ channel, surfaceId, ...message }, "*");
@@ -17,64 +17,7 @@ export const sandboxBridgeScript = (surfaceId: string): string => `
       ? window.crypto.randomUUID()
       : "call-" + nextCallId++;
 
-  const bareIdentifierPattern = /^_?[A-Za-z][A-Za-z0-9_]*$/;
-  const capabilityNamePattern = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$/i;
-  const signalPathPattern = /^\\$_?[A-Za-z][A-Za-z0-9_]*(?:\\._?[A-Za-z][A-Za-z0-9_]*)*$/;
-  const numberLiteralPattern = /^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$/;
-  const stringLiteralPattern = /^(?:"[^"\\\\<>]*"|'[^'\\\\<>]*')$/;
-  const targetPattern = /^_?[A-Za-z][A-Za-z0-9_]*$/;
-
-  const splitTopLevel = (source, separator) => {
-    const parts = [];
-    let quote;
-    let depth = 0;
-    let start = 0;
-
-    for (let index = 0; index < source.length; index += 1) {
-      const character = source[index];
-      if (character === "\\\\") return undefined;
-
-      if (quote !== undefined) {
-        if (character === quote) quote = undefined;
-        continue;
-      }
-
-      if (character === '"' || character === "'") {
-        quote = character;
-        continue;
-      }
-
-      if (character === "(" || character === "[" || character === "{") {
-        depth += 1;
-        continue;
-      }
-
-      if (character === ")" || character === "]" || character === "}") {
-        depth -= 1;
-        if (depth < 0) return undefined;
-        continue;
-      }
-
-      if (character === separator && depth === 0) {
-        parts.push(source.slice(start, index).trim());
-        start = index + 1;
-      }
-    }
-
-    if (quote !== undefined || depth !== 0) return undefined;
-    parts.push(source.slice(start).trim());
-    return parts.every((part) => part.length > 0) ? parts : undefined;
-  };
-
-  const parseStringLiteral = (source) =>
-    stringLiteralPattern.test(source.trim()) ? source.trim().slice(1, -1) : invalid;
-
-  const parseObjectKey = (source) => {
-    const key = source.trim();
-    if (bareIdentifierPattern.test(key)) return key;
-    const literal = parseStringLiteral(key);
-    return literal !== invalid && bareIdentifierPattern.test(literal) ? literal : invalid;
-  };
+  ${genui0SandboxLanguageScript()}
 
   const readElementValue = (element) => {
     const type = typeof element.type === "string" ? element.type.toLowerCase() : "";
@@ -91,47 +34,10 @@ export const sandboxBridgeScript = (surfaceId: string): string => `
     return element.textContent || "";
   };
 
-  const parseScalarExpression = (source, readSignal) => {
-    const value = source.trim();
-    if (stringLiteralPattern.test(value)) return value.slice(1, -1);
-    if (numberLiteralPattern.test(value)) return Number(value);
-    if (value === "true") return true;
-    if (value === "false") return false;
-    if (value === "null") return null;
-    if (signalPathPattern.test(value)) return readSignal(value);
-    return invalid;
-  };
-
-  const parseObjectLiteral = (source, readSignal) => {
-    const value = source.trim();
-    if (!value.startsWith("{") || !value.endsWith("}")) return invalid;
-
-    const body = value.slice(1, -1).trim();
-    if (body.length === 0) return {};
-
-    const entries = splitTopLevel(body, ",");
-    if (entries === undefined) return invalid;
-
-    const output = {};
-    for (const entry of entries) {
-      const keyValue = splitTopLevel(entry, ":");
-      if (keyValue === undefined || keyValue.length !== 2) return invalid;
-
-      const key = parseObjectKey(keyValue[0]);
-      if (key === invalid) return invalid;
-
-      const parsedValue = parseScalarExpression(keyValue[1], readSignal);
-      if (parsedValue === invalid) return invalid;
-      output[key] = parsedValue;
-    }
-
-    return output;
-  };
-
   const readDataSignal = (name) => {
     for (const element of document.querySelectorAll("[data-signals]")) {
-      const signals = parseObjectLiteral(element.getAttribute("data-signals") || "{}", () => "");
-      if (signals !== invalid && Object.prototype.hasOwnProperty.call(signals, name)) {
+      const signals = genui0ParseObjectLiteral(element.getAttribute("data-signals") || "{}", () => "");
+      if (signals !== genui0Invalid && Object.prototype.hasOwnProperty.call(signals, name)) {
         return signals[name];
       }
     }
@@ -139,14 +45,14 @@ export const sandboxBridgeScript = (surfaceId: string): string => `
   };
 
   const readBoundSignal = (name, fullPath) => {
-    let rootValue = invalid;
+    let rootValue = genui0Invalid;
     for (const element of document.querySelectorAll("[data-bind]")) {
       const binding = element.getAttribute("data-bind") || "";
       const bindingPath = binding.startsWith("$") ? binding.slice(1) : binding;
       if (bindingPath === fullPath) return readElementValue(element);
-      if (bindingPath.split(".")[0] === name && rootValue === invalid) rootValue = readElementValue(element);
+      if (bindingPath.split(".")[0] === name && rootValue === genui0Invalid) rootValue = readElementValue(element);
     }
-    return rootValue === invalid ? readDataSignal(name) : rootValue;
+    return rootValue === genui0Invalid ? readDataSignal(name) : rootValue;
   };
 
   function readSignal(expression) {
@@ -167,48 +73,9 @@ export const sandboxBridgeScript = (surfaceId: string): string => `
     return value;
   }
 
-  const parseTargetOption = (source) => {
-    const value = source.trim();
-    if (!value.startsWith("{") || !value.endsWith("}")) return invalid;
-
-    const body = value.slice(1, -1).trim();
-    if (body.length === 0) return undefined;
-
-    const entries = splitTopLevel(body, ",");
-    if (entries === undefined || entries.length !== 1) return invalid;
-
-    const keyValue = splitTopLevel(entries[0], ":");
-    if (keyValue === undefined || keyValue.length !== 2) return invalid;
-
-    const key = parseObjectKey(keyValue[0]);
-    const target = parseStringLiteral(keyValue[1]);
-    return key === "target" && target !== invalid && targetPattern.test(target)
-      ? target
-      : invalid;
-  };
-
-  const parseCapabilityExpression = (expression) => {
-    const source = expression.trim();
-    const prefix = "@capability(";
-    if (!source.startsWith(prefix) || !source.endsWith(")")) return undefined;
-
-    const args = splitTopLevel(source.slice(prefix.length, -1), ",");
-    if (args === undefined || (args.length !== 2 && args.length !== 3)) return undefined;
-
-    const capability = parseStringLiteral(args[0]);
-    if (capability === invalid || !capabilityNamePattern.test(capability)) return undefined;
-
-    const input = parseObjectLiteral(args[1], readSignal);
-    if (input === invalid) return undefined;
-
-    const target = args[2] === undefined ? undefined : parseTargetOption(args[2]);
-    if (target === invalid) return undefined;
-
-    return { callId: createCallId(), capability, input, target };
-  };
-
   const postCapabilityCall = (expression) => {
-    const call = parseCapabilityExpression(expression);
+    const action = parseGenui0CapabilityExpression(expression, readSignal);
+    const call = action === undefined ? undefined : { callId: createCallId(), ...action };
     if (call === undefined) return false;
 
     post({

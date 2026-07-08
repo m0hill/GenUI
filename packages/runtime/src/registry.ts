@@ -5,6 +5,7 @@ import {
   publicCapabilityDescriptors,
 } from "./capability-projections.js"
 import { genui0Instructions } from "./dialect/genui0.js"
+import { isGenui0CapabilityName } from "./dialect/genui0-language.js"
 import { sanitizeSurfaceHtml } from "./sanitizer.js"
 import { parseWithSchema } from "./schema.js"
 import { createSurfaceRecords } from "./surface-records.js"
@@ -25,8 +26,6 @@ export interface CreateRegistryOptions<Ctx> {
   readonly capabilities: readonly AnyCapabilityDefinition<Ctx>[]
 }
 
-const capabilityNamePattern = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$/i
-
 const capabilityError = (code: CapabilityErrorCode, message: string): CapabilityResult => ({
   ok: false,
   error: { code, message },
@@ -43,7 +42,7 @@ export const createRegistry = <Ctx>(options: CreateRegistryOptions<Ctx>): Regist
   const surfaceRecords = createSurfaceRecords()
 
   for (const capability of options.capabilities) {
-    if (!capabilityNamePattern.test(capability.name)) {
+    if (!isGenui0CapabilityName(capability.name)) {
       throw new Error(`Invalid capability name: ${capability.name}`)
     }
     if (byName.has(capability.name)) {
