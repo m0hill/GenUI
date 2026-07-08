@@ -29,6 +29,14 @@ void test("genui/0 language parses capability actions", () => {
 
 void test("genui/0 language rejects unsupported capability action syntax", () => {
   assert.equal(
+    genui0Language.parseCapabilityAction("@capability ('dice.roll', { sides: 6 })"),
+    undefined,
+  )
+  assert.equal(
+    genui0Language.parseCapabilityAction("@capability('dice.roll', { sides: 6 },)"),
+    undefined,
+  )
+  assert.equal(
     genui0Language.parseCapabilityAction("@capability('dice.roll', { sides: window.location })"),
     undefined,
   )
@@ -54,6 +62,7 @@ void test("genui/0 language parses local set actions", () => {
     valueExpression: "true",
   })
   assert.equal(genui0Language.parseSetAction("@set('tab', window.location)"), undefined)
+  assert.equal(genui0Language.parseSetAction("@set ('tab', 'details')"), undefined)
   assert.equal(genui0Language.parseSetAction("@set('bad-target', 'x')"), undefined)
   assert.equal(genui0Language.parseSetAction("@set($target, 'x')"), undefined)
 })
@@ -61,6 +70,7 @@ void test("genui/0 language parses local set actions", () => {
 void test("genui/0 language validates safe expressions", () => {
   assert.equal(genui0Language.isSafeObjectExpression("{ count: 1, label: 'Roll', ok: true }"), true)
   assert.equal(genui0Language.isSafeObjectExpression("{ bad: window.location }"), false)
+  assert.equal(genui0Language.isSafeObjectExpression("{ count: 1, }"), false)
   assert.equal(genui0Language.isSafeObjectExpression("{ nested: { value: 1 } }"), false)
 
   assert.equal(genui0Language.isSafeSimpleExpression("$count"), true)
