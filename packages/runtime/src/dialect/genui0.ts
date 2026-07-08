@@ -1,4 +1,5 @@
 import {
+  isGenui0StateName,
   isSafeGenui0BindingExpression,
   isSafeGenui0ObjectExpression,
   isSafeGenui0SimpleExpression,
@@ -43,9 +44,14 @@ export const allowGenui0DataAttribute = ({
     return isSafeGenui0BindingExpression(value) ? { name, value } : undefined
   }
 
+  if (normalized === "data-genui-as") {
+    return isGenui0StateName(value) ? { name, value } : undefined
+  }
+
   if (
     normalized === "data-genui-show" ||
     normalized === "data-genui-text" ||
+    normalized === "data-genui-each" ||
     normalized === "data-genui-class" ||
     normalized.startsWith("data-genui-class-") ||
     normalized === "data-genui-style" ||
@@ -70,12 +76,15 @@ export const genui0Instructions = (capabilities: readonly CapabilityDescriptor[]
   return [
     `Generated UI dialect: ${genuiDialect}.`,
     "Create fragment HTML only. Do not include scripts, iframes, external styles, or document tags.",
-    "Use only the GenUI directive namespace: data-genui-state, data-genui-bind, data-genui-on-click, data-genui-on-submit, data-genui-show, data-genui-text, data-genui-class-name, data-genui-style-property, and data-genui-attr-name.",
+    "Use only the GenUI directive namespace: data-genui-state, data-genui-bind, data-genui-on-click, data-genui-on-submit, data-genui-show, data-genui-text, data-genui-each, data-genui-as, data-genui-class-name, data-genui-style-property, and data-genui-attr-name.",
     "Use @capability('name', input) only for capabilities granted to the surface.",
     "Use @capability('name', input, { target: 'resultName' }) when multiple calls need separate result state.",
     "Use @set('state.path', value) for local-only interactions such as tabs, toggles, disclosure, and selection.",
     "Capability result state is written to $target.status, $target.value, and $target.error; status is 'pending', 'complete', or 'error'.",
+    "When a target with a previous value becomes pending, $target.value remains available so existing lists and details can stay visible.",
     "When target is omitted, the default result target is the camel-cased capability name, e.g. orders.search writes to $ordersSearch.",
+    'Render arrays with data-genui-each on a container; its existing children are the item template. Use data-genui-as="order" to read each item as $order.',
+    "Nested data-genui-each blocks can read outer and inner scope together, e.g. $order.id and $line.id.",
     "Use only simple v0 expressions: state reads like $name or $name.path, primitive literals, comparisons, and flat object literals.",
     "Available capabilities:",
     capabilityList.length > 0 ? capabilityList : "- none",

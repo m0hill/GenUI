@@ -60,45 +60,73 @@ export const installSandboxRuntime = (
     readonly path: readonly string[]
   }
 
+  type StateScope = Readonly<Record<string, unknown>>
+
   type Directive =
-    | { readonly type: "text"; readonly element: Element; readonly expression: string }
+    | {
+        readonly type: "text"
+        readonly element: Element
+        readonly expression: string
+        readonly scope: StateScope
+      }
     | {
         readonly type: "show"
         readonly element: Element
         readonly expression: string
         readonly visibleDisplay: string
+        readonly scope: StateScope
       }
     | {
         readonly type: "class_toggle"
         readonly element: Element
         readonly className: string
         readonly expression: string
+        readonly scope: StateScope
       }
     | {
         readonly type: "class_value"
         readonly element: Element
         readonly baseClassName: string
         readonly expression: string
+        readonly scope: StateScope
       }
     | {
         readonly type: "style_property"
         readonly element: Element
         readonly property: string
         readonly expression: string
+        readonly scope: StateScope
       }
-    | { readonly type: "style_map"; readonly element: Element; readonly expression: string }
+    | {
+        readonly type: "style_map"
+        readonly element: Element
+        readonly expression: string
+        readonly scope: StateScope
+      }
     | {
         readonly type: "attribute"
         readonly element: Element
         readonly attribute: string
         readonly expression: string
+        readonly scope: StateScope
       }
+
+  type EachBlock = {
+    readonly element: Element
+    readonly expression: string
+    readonly itemName: string
+    readonly template: readonly Node[]
+    directives: Directive[]
+  }
 
   let nextCallId = 1
   let resizeObserver: ResizeObserver | undefined
   const state: Record<string, unknown> = {}
   const boundElements: BoundElement[] = []
   const directives: Directive[] = []
+  const eachBlocks: EachBlock[] = []
+  const elementScopes = new WeakMap<Element, StateScope>()
+  const emptyScope: StateScope = {}
 
   const isRecord = (value: unknown): value is Record<string, unknown> =>
     typeof value === "object" && value !== null && !Array.isArray(value)
@@ -111,11 +139,11 @@ export const installSandboxRuntime = (
     return source.split(".").filter((part) => part.length > 0)
   }
 
-  const readPath = (path: readonly string[]): unknown => {
+  const readPath = (path: readonly string[], scope: StateScope = emptyScope): unknown => {
     const [name, ...rest] = path
     if (name === undefined) return ""
 
-    let value: unknown = hasOwn(state, name) ? state[name] : ""
+    let value: unknown = hasOwn(scope, name) ? scope[name] : hasOwn(state, name) ? state[name] : ""
     for (const property of rest) {
       if (!isRecord(value) || !hasOwn(value, property)) return ""
       value = value[property]
@@ -157,10 +185,13 @@ export const installSandboxRuntime = (
     if (last !== undefined) cursor[last] = value
   }
 
-  const readState = (expression: string): unknown => readPath(statePath(expression))
+  const readStateFromScope =
+    (scope: StateScope = emptyScope) =>
+    (expression: string): unknown =>
+      readPath(statePath(expression), scope)
 
-  const evaluate = (expression: string): unknown =>
-    language.evaluateExpression(expression, readState)
+  const evaluate = (expression: string, scope: StateScope = emptyScope): unknown =>
+    language.evaluateExpression(expression, readStateFromScope(scope))
 
   const isTruthy = (value: unknown): boolean =>
     value !== language.invalid &&
@@ -323,9 +354,14 @@ export const installSandboxRuntime = (
     style.setProperty(property, textValue(value))
   }
 
+  const currentDirectives = (): readonly Directive[] => [
+    ...directives,
+    ...eachBlocks.flatMap((block) => block.directives),
+  ]
+
   const refreshDirectives = (): void => {
-    for (const directive of directives) {
-      const value = evaluate(directive.expression)
+    for (const directive of currentDirectives()) {
+      const value = evaluate(directive.expression, directive.scope)
 
       if (directive.type === "text") {
         directive.element.textContent = textValue(value)
@@ -377,6 +413,7 @@ export const installSandboxRuntime = (
   }
 
   const refresh = (): void => {
+    renderEachBlocks()
     refreshDirectives()
     reportHeight()
   }
@@ -390,11 +427,19 @@ export const installSandboxRuntime = (
     writePath([target], state)
   }
 
-  const postCapabilityCall = (expression: string): boolean => {
-    const action = language.parseCapabilityExpression(expression, readState)
+  const pendingResultState = (target: string): Record<string, unknown> => {
+    const previous = readPath([target])
+    return isRecord(previous) && hasOwn(previous, "value")
+      ? { status: "pending", value: previous.value }
+      : { status: "pending" }
+  }
+
+  const postCapabilityCall = (expression: string, scope: StateScope): boolean => {
+    const action = language.parseCapabilityExpression(expression, readStateFromScope(scope))
     if (action === undefined) return false
 
-    setResultState(resultTargetFor(action), { status: "pending" })
+    const target = resultTargetFor(action)
+    setResultState(target, pendingResultState(target))
     refresh()
     post({
       type: "capability",
@@ -406,8 +451,8 @@ export const installSandboxRuntime = (
     return true
   }
 
-  const runLocalAction = (expression: string): boolean => {
-    const action = language.parseSetExpression(expression, readState)
+  const runLocalAction = (expression: string, scope: StateScope): boolean => {
+    const action = language.parseSetExpression(expression, readStateFromScope(scope))
     if (action === undefined) return false
 
     writePath(action.path, action.value)
@@ -415,13 +460,27 @@ export const installSandboxRuntime = (
     return true
   }
 
-  const runAuthoredAction = (expression: string): boolean =>
-    runLocalAction(expression) || postCapabilityCall(expression)
+  const scopeForElement = (element: Element): StateScope => {
+    let current: Element | null = element
+    while (current !== null) {
+      const scope = elementScopes.get(current)
+      if (scope !== undefined) return scope
+      current = current.parentElement
+    }
+    return emptyScope
+  }
+
+  const runAuthoredAction = (expression: string, scope: StateScope): boolean =>
+    runLocalAction(expression, scope) || postCapabilityCall(expression, scope)
 
   const handleClick = (event: MouseEvent): void => {
     const action = closestWithAttribute(event.target, "data-genui-on-click")
     const expression = action?.getAttribute("data-genui-on-click") ?? null
-    if (expression !== null && runAuthoredAction(expression)) {
+    if (
+      action !== null &&
+      expression !== null &&
+      runAuthoredAction(expression, scopeForElement(action))
+    ) {
       event.preventDefault()
       return
     }
@@ -451,7 +510,7 @@ export const installSandboxRuntime = (
 
     event.preventDefault()
     const expression = form.getAttribute("data-genui-on-submit")
-    if (expression !== null) runAuthoredAction(expression)
+    if (expression !== null) runAuthoredAction(expression, scopeForElement(form))
   }
 
   const handleBoundInput = (event: Event): void => {
@@ -476,7 +535,7 @@ export const installSandboxRuntime = (
     for (const element of global.document.querySelectorAll("[data-genui-state]")) {
       const parsed = language.parseObjectLiteral(
         element.getAttribute("data-genui-state") ?? "{}",
-        readState,
+        readStateFromScope(emptyScope),
       )
       if (!isRecord(parsed)) continue
       for (const [name, value] of Object.entries(parsed)) state[name] = value
@@ -497,73 +556,188 @@ export const installSandboxRuntime = (
     }
   }
 
-  const installDirective = (element: Element, attribute: Attr): void => {
+  const installEachBlocks = (): void => {
+    const isNestedEachBlock = (element: Element): boolean => {
+      let parent = element.parentElement
+      while (parent !== null) {
+        if (parent.hasAttribute("data-genui-each")) return true
+        parent = parent.parentElement
+      }
+      return false
+    }
+
+    const elements = Array.from(global.document.querySelectorAll("[data-genui-each]")).filter(
+      (element) => !isNestedEachBlock(element),
+    )
+
+    for (const element of elements) {
+      const expression = element.getAttribute("data-genui-each")
+      if (expression === null) continue
+
+      const itemName = element.getAttribute("data-genui-as") ?? "item"
+      const template = Array.from(element.childNodes).map((node) => node.cloneNode(true))
+      element.replaceChildren()
+      eachBlocks.push({ element, expression, itemName, template, directives: [] })
+    }
+  }
+
+  const installDirective = (
+    element: Element,
+    attribute: Attr,
+    scope: StateScope,
+    targetDirectives: Directive[],
+  ): void => {
     const { name, value } = attribute
     if (name === "data-genui-text") {
-      directives.push({ type: "text", element, expression: value })
+      targetDirectives.push({ type: "text", element, expression: value, scope })
       return
     }
 
     if (name === "data-genui-show") {
       const visibleDisplay = elementStyle(element)?.display ?? ""
-      directives.push({ type: "show", element, expression: value, visibleDisplay })
+      targetDirectives.push({ type: "show", element, expression: value, visibleDisplay, scope })
       return
     }
 
     if (name === "data-genui-class") {
-      directives.push({
+      targetDirectives.push({
         type: "class_value",
         element,
         baseClassName: element.className,
         expression: value,
+        scope,
       })
       return
     }
 
     if (name.startsWith("data-genui-class-")) {
-      directives.push({
+      targetDirectives.push({
         type: "class_toggle",
         element,
         className: name.slice("data-genui-class-".length),
         expression: value,
+        scope,
       })
       return
     }
 
     if (name === "data-genui-style") {
-      directives.push({ type: "style_map", element, expression: value })
+      targetDirectives.push({ type: "style_map", element, expression: value, scope })
       return
     }
 
     if (name.startsWith("data-genui-style-")) {
-      directives.push({
+      targetDirectives.push({
         type: "style_property",
         element,
         property: name.slice("data-genui-style-".length),
         expression: value,
+        scope,
       })
       return
     }
 
     if (name.startsWith("data-genui-attr-")) {
-      directives.push({
+      targetDirectives.push({
         type: "attribute",
         element,
         attribute: name.slice("data-genui-attr-".length),
         expression: value,
+        scope,
       })
     }
   }
 
-  const installDirectives = (): void => {
-    for (const element of global.document.querySelectorAll("*")) {
-      for (const attribute of element.attributes) installDirective(element, attribute)
+  const installDirectives = (
+    root: ParentNode,
+    scope: StateScope,
+    targetDirectives: Directive[],
+  ): void => {
+    const elements =
+      root instanceof global.Element
+        ? [root, ...Array.from(root.querySelectorAll("*"))]
+        : Array.from(root.querySelectorAll("*"))
+
+    for (const element of elements) {
+      for (const attribute of element.attributes) {
+        installDirective(element, attribute, scope, targetDirectives)
+      }
+    }
+  }
+
+  const renderElementTree = (
+    element: Element,
+    scope: StateScope,
+    targetDirectives: Directive[],
+  ): void => {
+    elementScopes.set(element, scope)
+    for (const attribute of element.attributes) {
+      installDirective(element, attribute, scope, targetDirectives)
+    }
+
+    if (element.hasAttribute("data-genui-each")) {
+      renderEachElement(element, scope, targetDirectives)
+      return
+    }
+
+    for (const child of element.children) renderElementTree(child, scope, targetDirectives)
+  }
+
+  const renderEachTemplate = (
+    element: Element,
+    expression: string,
+    itemName: string,
+    template: readonly Node[],
+    parentScope: StateScope,
+    targetDirectives: Directive[],
+  ): void => {
+    element.replaceChildren()
+
+    const items = evaluate(expression, parentScope)
+    if (!Array.isArray(items)) return
+
+    for (const item of items) {
+      const itemScope: StateScope = { ...parentScope, [itemName]: item }
+      for (const templateNode of template) {
+        const clone = templateNode.cloneNode(true)
+        element.append(clone)
+        if (clone instanceof global.Element) renderElementTree(clone, itemScope, targetDirectives)
+      }
+    }
+  }
+
+  function renderEachElement(
+    element: Element,
+    scope: StateScope,
+    targetDirectives: Directive[],
+  ): void {
+    const expression = element.getAttribute("data-genui-each")
+    if (expression === null) return
+
+    const itemName = element.getAttribute("data-genui-as") ?? "item"
+    const template = Array.from(element.childNodes).map((node) => node.cloneNode(true))
+    renderEachTemplate(element, expression, itemName, template, scope, targetDirectives)
+  }
+
+  const renderEachBlocks = (): void => {
+    for (const block of eachBlocks) {
+      block.directives = []
+      renderEachTemplate(
+        block.element,
+        block.expression,
+        block.itemName,
+        block.template,
+        emptyScope,
+        block.directives,
+      )
     }
   }
 
   installInitialState()
+  installEachBlocks()
   installBindings()
-  installDirectives()
+  installDirectives(global.document, emptyScope, directives)
+  renderEachBlocks()
   refreshDirectives()
 
   global.addEventListener("load", reportHeight)

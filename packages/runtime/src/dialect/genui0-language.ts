@@ -413,6 +413,9 @@ const genui0Language = createGenui0Language()
 export const isGenui0CapabilityName = (value: string): boolean =>
   genui0Language.isCapabilityName(value)
 
+/** Return whether a string is a valid genui/0 state binding name. */
+export const isGenui0StateName = (value: string): boolean => genui0Language.isStateName(value)
+
 /** Return whether a flat object expression belongs to the genui/0 closed expression subset. */
 export const isSafeGenui0ObjectExpression = (value: string): boolean =>
   genui0Language.isSafeObjectExpression(value)

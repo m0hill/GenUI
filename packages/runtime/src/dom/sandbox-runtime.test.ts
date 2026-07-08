@@ -268,6 +268,151 @@ void test("sandbox runtime runs local set actions without posting messages", () 
   )
 })
 
+void test("sandbox runtime renders repeated items with scoped capability inputs", () => {
+  const { window, messages } = createHarness(`
+    <p id="updating" data-genui-show="$orders.status == 'pending'">Updating</p>
+    <table>
+      <tbody data-genui-each="$orders.value.items" data-genui-as="order">
+        <tr>
+          <td data-genui-text="$order.id"></td>
+          <td data-genui-text="$order.status"></td>
+          <td>
+            <button data-genui-on-click="@capability('orders.refund', { id: $order.id }, { target: 'orders' })">
+              Refund
+            </button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  `)
+
+  assert.equal(window.document.querySelectorAll("tbody tr").length, 0)
+
+  window.dispatchEvent(
+    new window.MessageEvent("message", {
+      data: {
+        channel: protocolChannel,
+        surfaceId: "surface-test",
+        type: "result",
+        target: "orders",
+        state: {
+          status: "complete",
+          value: {
+            items: [
+              { id: "order-1", status: "paid" },
+              { id: "order-2", status: "pending" },
+            ],
+          },
+        },
+      },
+    }),
+  )
+
+  const rows = Array.from(window.document.querySelectorAll("tbody tr"))
+  assert.equal(rows.length, 2)
+  assert.equal(rows[0]?.textContent?.includes("order-1"), true)
+  assert.equal(rows[0]?.textContent?.includes("paid"), true)
+  assert.equal(rows[1]?.textContent?.includes("order-2"), true)
+  assert.equal(rows[1]?.textContent?.includes("pending"), true)
+
+  rows[1]
+    ?.querySelector("button")
+    ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }))
+
+  assert.equal(window.document.querySelectorAll("tbody tr").length, 2)
+  assert.equal(
+    window.document.querySelectorAll("tbody tr")[1]?.textContent?.includes("order-2"),
+    true,
+  )
+  assert.equal(displayStyle(window.document.querySelector("#updating")), "")
+
+  const message = capabilityPostMessage(messages)
+  assert.equal(message.capability, "orders.refund")
+  assert.equal(message.target, "orders")
+  assert.deepEqual(jsonRoundTrip(message.input), { id: "order-2" })
+})
+
+void test("sandbox runtime renders nested repeated items with merged scopes", () => {
+  const { window, messages } = createHarness(`
+    <section data-genui-each="$orders.value.items" data-genui-as="order">
+      <article>
+        <h2 data-genui-text="$order.id"></h2>
+        <ul data-genui-each="$order.lines" data-genui-as="line">
+          <li>
+            <span class="line-id" data-genui-text="$line.id"></span>
+            <span class="line-sku" data-genui-text="$line.sku"></span>
+            <button data-genui-on-click="@capability('orders.adjust_line', { orderId: $order.id, lineId: $line.id }, { target: 'orders' })">
+              Adjust
+            </button>
+          </li>
+        </ul>
+      </article>
+    </section>
+  `)
+
+  window.dispatchEvent(
+    new window.MessageEvent("message", {
+      data: {
+        channel: protocolChannel,
+        surfaceId: "surface-test",
+        type: "result",
+        target: "orders",
+        state: {
+          status: "complete",
+          value: {
+            items: [
+              {
+                id: "order-1",
+                lines: [
+                  { id: "line-1", sku: "A" },
+                  { id: "line-2", sku: "B" },
+                ],
+              },
+              { id: "order-2", lines: [{ id: "line-3", sku: "C" }] },
+            ],
+          },
+        },
+      },
+    }),
+  )
+
+  assert.equal(window.document.querySelectorAll("article").length, 2)
+  assert.equal(window.document.querySelectorAll("li").length, 3)
+  assert.equal(window.document.querySelectorAll(".line-id")[2]?.textContent, "line-3")
+  assert.equal(window.document.querySelectorAll(".line-sku")[2]?.textContent, "C")
+
+  window.document
+    .querySelectorAll("button")[2]
+    ?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }))
+
+  const message = capabilityPostMessage(messages)
+  assert.equal(message.capability, "orders.adjust_line")
+  assert.equal(message.target, "orders")
+  assert.deepEqual(jsonRoundTrip(message.input), { lineId: "line-3", orderId: "order-2" })
+
+  window.dispatchEvent(
+    new window.MessageEvent("message", {
+      data: {
+        channel: protocolChannel,
+        surfaceId: "surface-test",
+        type: "result",
+        target: "orders",
+        state: {
+          status: "complete",
+          value: {
+            items: [{ id: "order-3", lines: [{ id: "line-4", sku: "D" }] }],
+          },
+        },
+      },
+    }),
+  )
+
+  assert.equal(window.document.querySelectorAll("article").length, 1)
+  assert.equal(window.document.querySelectorAll("li").length, 1)
+  assert.equal(window.document.querySelector(".line-id")?.textContent, "line-4")
+  assert.equal(window.document.querySelector("h2")?.textContent, "order-3")
+})
+
 void test("sandbox runtime brokers link clicks", () => {
   const { window, messages } = createHarness(`
     <a href="https://example.com/path">Open</a>

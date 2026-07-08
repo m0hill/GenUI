@@ -69,6 +69,7 @@ void test("sanitizer preserves only granted capability calls", () => {
     [
       `<button data-genui-on-click="@capability('dice.roll', { sides: 6 }, { target: 'rollResult' })">Roll</button>`,
       `<button data-genui-on-click="@capability('demo.secret', {})">Secret</button>`,
+      `<table><tbody data-genui-each="$orders.value.items" data-genui-as="order"><tr><td data-genui-text="$order.id"></td><td><button data-genui-on-click="@capability('demo.secret', { id: $order.id })">Secret</button></td></tr></tbody></table>`,
     ].join(""),
     granted,
   )
@@ -78,6 +79,9 @@ void test("sanitizer preserves only granted capability calls", () => {
     /data-genui-on-click="@capability\('dice\.roll', \{ sides: 6 \}, \{ target: 'rollResult' \}\)"/,
   )
   assert.doesNotMatch(safe, /demo\.secret/)
+  assert.match(safe, /data-genui-each="\$orders.value.items"/)
+  assert.match(safe, /data-genui-as="order"/)
+  assert.match(safe, /data-genui-text="\$order.id"/)
 })
 
 void test("sanitizer strips unsafe GenUI expressions", () => {

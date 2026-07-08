@@ -51,6 +51,8 @@ Supported directive shapes:
 - `data-genui-on-submit`
 - `data-genui-show`
 - `data-genui-text`
+- `data-genui-each`
+- `data-genui-as`
 - `data-genui-class`
 - `data-genui-class-*`
 - `data-genui-style`
@@ -63,6 +65,10 @@ Expression scope is intentionally small:
 - primitive literals;
 - equality and inequality comparisons;
 - flat object literals for capability inputs and initial state.
+
+Capability result state is stale-while-pending: when a target with an existing `value`
+enters `status: "pending"`, the previous `value` remains readable so lists and details
+do not disappear during refresh-style mutations.
 
 Supported event actions:
 
@@ -86,10 +92,12 @@ Supported event actions:
      verbose with explicit `@set` calls.
 
 3. List rendering.
-   - Add a simple `data-genui-each` feature.
-   - Start with full rerender, not keyed diffing.
-   - Keep capability results data-only.
-   - Make item-scoped capability input work, for example `{ id: $order.id }`.
+   - Done in code: `data-genui-each` renders arrays with full rerender.
+   - Done in code: `data-genui-as="order"` creates item scope for `$order.id`.
+   - Done in code: nested `data-genui-each` blocks merge outer and inner scopes, so
+     actions can read values like `$order.id` and `$line.id` together.
+   - Done in code: item-scoped capability inputs work, for example `{ id: $order.id }`.
+   - Capability results stay data-only; no browser-side HTML fragments are introduced.
 
 4. Real app proof.
    - Build an orders-admin slice with:
@@ -115,6 +123,7 @@ Supported event actions:
 - Capability-returned HTML fragments.
 - Browser-side sanitizer.
 - Keyed list diffing.
+- `<template data-genui-each>` support.
 
 ## Explicit Non-Goals For Now
 
@@ -130,9 +139,7 @@ Supported event actions:
 - Should `@set('state.path', value)` be complemented by `@toggle('state.path')`?
 - Should `Effect` keep `"local"`, or should local behavior be represented only by
   dialect actions that never leave the sandbox?
-- Should `data-genui-each` use a host element as the template, or should the sanitizer
-  allow `<template data-genui-each>`?
-- How should repeated item scope names be declared: `data-genui-as="order"`,
-  `data-genui-item="order"`, or a fixed `$item`?
+- When is `<template data-genui-each>` worth adding over the current host-element
+  template model?
 - What is the minimum persistence API that makes `Surface` restoration honest without
   overcommitting to storage semantics?
