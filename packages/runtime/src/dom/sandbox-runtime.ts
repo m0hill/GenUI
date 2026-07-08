@@ -1,8 +1,9 @@
+import { isSafeStyleProperty, isSafeStyleValue } from "../css-style.js"
 import {
-  isSafeStyleProperty,
-  isSafeStyleValue,
-  normalizeGenuiStylePropertyName,
-} from "../css-style.js"
+  genui0AttributeNames,
+  genui0RenderableDirectiveFromAttribute,
+  type Genui0RenderableDirective,
+} from "../dialect/genui0.js"
 
 export interface SandboxRuntimeConfig {
   readonly channel: string
@@ -68,54 +69,12 @@ export const installSandboxRuntime = (
 
   type StateScope = Readonly<Record<string, unknown>>
 
-  type Directive =
-    | {
-        readonly type: "text"
-        readonly element: Element
-        readonly expression: string
-        readonly scope: StateScope
-      }
-    | {
-        readonly type: "show"
-        readonly element: Element
-        readonly expression: string
-        readonly visibleDisplay: string
-        readonly scope: StateScope
-      }
-    | {
-        readonly type: "class_toggle"
-        readonly element: Element
-        readonly className: string
-        readonly expression: string
-        readonly scope: StateScope
-      }
-    | {
-        readonly type: "class_value"
-        readonly element: Element
-        readonly baseClassName: string
-        readonly expression: string
-        readonly scope: StateScope
-      }
-    | {
-        readonly type: "style_property"
-        readonly element: Element
-        readonly property: string
-        readonly expression: string
-        readonly scope: StateScope
-      }
-    | {
-        readonly type: "style_map"
-        readonly element: Element
-        readonly expression: string
-        readonly scope: StateScope
-      }
-    | {
-        readonly type: "attribute"
-        readonly element: Element
-        readonly attribute: string
-        readonly expression: string
-        readonly scope: StateScope
-      }
+  type Directive = Genui0RenderableDirective & {
+    readonly element: Element
+    readonly visibleDisplay?: string
+    readonly baseClassName?: string
+    readonly scope: StateScope
+  }
 
   type EachBlock = {
     readonly element: Element
@@ -319,14 +278,7 @@ export const installSandboxRuntime = (
   }
 
   const isBoundElement = (target: EventTarget | null): target is Element =>
-    target instanceof global.Element && target.hasAttribute("data-genui-bind")
-
-  const safeDynamicAttribute = (attribute: string): boolean => {
-    const name = attribute.toLowerCase()
-    if (name.startsWith("on")) return false
-    if (name.startsWith("aria-")) return true
-    return ["role", "title", "disabled", "checked", "value"].includes(name)
-  }
+    target instanceof global.Element && target.hasAttribute(genui0AttributeNames.bind)
 
   const elementStyle = (element: Element): CSSStyleDeclaration | undefined => {
     // SAFETY: the sandbox runtime only receives browser DOM elements. Some test DOM
@@ -335,8 +287,6 @@ export const installSandboxRuntime = (
   }
 
   const applyAttributeValue = (element: Element, attribute: string, value: unknown): void => {
-    if (!safeDynamicAttribute(attribute)) return
-
     if (value === language.invalid || value === false || value === null || value === undefined) {
       element.removeAttribute(attribute)
       return
@@ -347,21 +297,20 @@ export const installSandboxRuntime = (
 
   const applyStyleValue = (element: Element, property: string, value: unknown): void => {
     const style = elementStyle(element)
-    const normalizedProperty = normalizeGenuiStylePropertyName(property)
-    if (style === undefined || !isSafeStyleProperty(normalizedProperty)) return
+    if (style === undefined || !isSafeStyleProperty(property)) return
 
     if (value === language.invalid || value === false || value === null || value === undefined) {
-      style.removeProperty(normalizedProperty)
+      style.removeProperty(property)
       return
     }
 
     const styleValue = textValue(value)
     if (!isSafeStyleValue(styleValue)) {
-      style.removeProperty(normalizedProperty)
+      style.removeProperty(property)
       return
     }
 
-    style.setProperty(normalizedProperty, styleValue)
+    style.setProperty(property, styleValue)
   }
 
   const currentDirectives = (): readonly Directive[] => [
@@ -380,7 +329,9 @@ export const installSandboxRuntime = (
 
       if (directive.type === "show") {
         const style = elementStyle(directive.element)
-        if (style !== undefined) style.display = isTruthy(value) ? directive.visibleDisplay : "none"
+        if (style !== undefined) {
+          style.display = isTruthy(value) ? (directive.visibleDisplay ?? "") : "none"
+        }
         continue
       }
 
@@ -393,8 +344,10 @@ export const installSandboxRuntime = (
         const dynamicClass = typeof value === "string" ? value.trim() : ""
         directive.element.className =
           dynamicClass.length === 0
-            ? directive.baseClassName
-            : [directive.baseClassName, dynamicClass].filter((item) => item.length > 0).join(" ")
+            ? (directive.baseClassName ?? "")
+            : [directive.baseClassName ?? "", dynamicClass]
+                .filter((item) => item.length > 0)
+                .join(" ")
         continue
       }
 
@@ -484,8 +437,8 @@ export const installSandboxRuntime = (
     runLocalAction(expression, scope) || postCapabilityCall(expression, scope)
 
   const handleClick = (event: MouseEvent): void => {
-    const action = closestWithAttribute(event.target, "data-genui-on-click")
-    const expression = action?.getAttribute("data-genui-on-click") ?? null
+    const action = closestWithAttribute(event.target, genui0AttributeNames.onClick)
+    const expression = action?.getAttribute(genui0AttributeNames.onClick) ?? null
     if (
       action !== null &&
       expression !== null &&
@@ -516,10 +469,10 @@ export const installSandboxRuntime = (
     if (!(target instanceof global.Element)) return
 
     const form = target.closest("form")
-    if (form === null || !form.hasAttribute("data-genui-on-submit")) return
+    if (form === null || !form.hasAttribute(genui0AttributeNames.onSubmit)) return
 
     event.preventDefault()
-    const expression = form.getAttribute("data-genui-on-submit")
+    const expression = form.getAttribute(genui0AttributeNames.onSubmit)
     if (expression !== null) runAuthoredAction(expression, scopeForElement(form))
   }
 
@@ -527,7 +480,10 @@ export const installSandboxRuntime = (
     const target = event.target
     if (!isBoundElement(target)) return
 
-    writePath(statePath(target.getAttribute("data-genui-bind") ?? ""), readElementValue(target))
+    writePath(
+      statePath(target.getAttribute(genui0AttributeNames.bind) ?? ""),
+      readElementValue(target),
+    )
     refresh()
   }
 
@@ -542,9 +498,9 @@ export const installSandboxRuntime = (
   }
 
   const installInitialState = (): void => {
-    for (const element of global.document.querySelectorAll("[data-genui-state]")) {
+    for (const element of global.document.querySelectorAll(`[${genui0AttributeNames.state}]`)) {
       const parsed = language.parseObjectLiteral(
-        element.getAttribute("data-genui-state") ?? "{}",
+        element.getAttribute(genui0AttributeNames.state) ?? "{}",
         readStateFromScope(emptyScope),
       )
       if (!isRecord(parsed)) continue
@@ -553,8 +509,8 @@ export const installSandboxRuntime = (
   }
 
   const installBindings = (): void => {
-    for (const element of global.document.querySelectorAll("[data-genui-bind]")) {
-      const path = statePath(element.getAttribute("data-genui-bind") ?? "")
+    for (const element of global.document.querySelectorAll(`[${genui0AttributeNames.bind}]`)) {
+      const path = statePath(element.getAttribute(genui0AttributeNames.bind) ?? "")
       if (path.length === 0) continue
 
       boundElements.push({ element, path })
@@ -570,21 +526,21 @@ export const installSandboxRuntime = (
     const isNestedEachBlock = (element: Element): boolean => {
       let parent = element.parentElement
       while (parent !== null) {
-        if (parent.hasAttribute("data-genui-each")) return true
+        if (parent.hasAttribute(genui0AttributeNames.each)) return true
         parent = parent.parentElement
       }
       return false
     }
 
-    const elements = Array.from(global.document.querySelectorAll("[data-genui-each]")).filter(
-      (element) => !isNestedEachBlock(element),
-    )
+    const elements = Array.from(
+      global.document.querySelectorAll(`[${genui0AttributeNames.each}]`),
+    ).filter((element) => !isNestedEachBlock(element))
 
     for (const element of elements) {
-      const expression = element.getAttribute("data-genui-each")
+      const expression = element.getAttribute(genui0AttributeNames.each)
       if (expression === null) continue
 
-      const itemName = element.getAttribute("data-genui-as") ?? "item"
+      const itemName = element.getAttribute(genui0AttributeNames.as) ?? "item"
       const template = Array.from(element.childNodes).map((node) => node.cloneNode(true))
       element.replaceChildren()
       eachBlocks.push({ element, expression, itemName, template, directives: [] })
@@ -597,65 +553,17 @@ export const installSandboxRuntime = (
     scope: StateScope,
     targetDirectives: Directive[],
   ): void => {
-    const { name, value } = attribute
-    if (name === "data-genui-text") {
-      targetDirectives.push({ type: "text", element, expression: value, scope })
-      return
-    }
+    const directive = genui0RenderableDirectiveFromAttribute(attribute)
+    if (directive === undefined) return
 
-    if (name === "data-genui-show") {
-      const visibleDisplay = elementStyle(element)?.display ?? ""
-      targetDirectives.push({ type: "show", element, expression: value, visibleDisplay, scope })
-      return
-    }
-
-    if (name === "data-genui-class") {
-      targetDirectives.push({
-        type: "class_value",
-        element,
-        baseClassName: element.className,
-        expression: value,
-        scope,
-      })
-      return
-    }
-
-    if (name.startsWith("data-genui-class-")) {
-      targetDirectives.push({
-        type: "class_toggle",
-        element,
-        className: name.slice("data-genui-class-".length),
-        expression: value,
-        scope,
-      })
-      return
-    }
-
-    if (name === "data-genui-style") {
-      targetDirectives.push({ type: "style_map", element, expression: value, scope })
-      return
-    }
-
-    if (name.startsWith("data-genui-style-")) {
-      targetDirectives.push({
-        type: "style_property",
-        element,
-        property: normalizeGenuiStylePropertyName(name.slice("data-genui-style-".length)),
-        expression: value,
-        scope,
-      })
-      return
-    }
-
-    if (name.startsWith("data-genui-attr-")) {
-      targetDirectives.push({
-        type: "attribute",
-        element,
-        attribute: name.slice("data-genui-attr-".length),
-        expression: value,
-        scope,
-      })
-    }
+    targetDirectives.push({
+      ...directive,
+      element,
+      visibleDisplay:
+        directive.type === "show" ? (elementStyle(element)?.display ?? "") : undefined,
+      baseClassName: directive.type === "class_value" ? element.className : undefined,
+      scope,
+    })
   }
 
   const installDirectives = (
@@ -685,7 +593,7 @@ export const installSandboxRuntime = (
       installDirective(element, attribute, scope, targetDirectives)
     }
 
-    if (element.hasAttribute("data-genui-each")) {
+    if (element.hasAttribute(genui0AttributeNames.each)) {
       renderEachElement(element, scope, targetDirectives)
       return
     }
@@ -721,10 +629,10 @@ export const installSandboxRuntime = (
     scope: StateScope,
     targetDirectives: Directive[],
   ): void {
-    const expression = element.getAttribute("data-genui-each")
+    const expression = element.getAttribute(genui0AttributeNames.each)
     if (expression === null) return
 
-    const itemName = element.getAttribute("data-genui-as") ?? "item"
+    const itemName = element.getAttribute(genui0AttributeNames.as) ?? "item"
     const template = Array.from(element.childNodes).map((node) => node.cloneNode(true))
     renderEachTemplate(element, expression, itemName, template, scope, targetDirectives)
   }

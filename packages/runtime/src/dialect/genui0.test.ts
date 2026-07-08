@@ -1,6 +1,11 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { allowGenui0DataAttribute, genui0Instructions } from "./genui0.js"
+import {
+  allowGenui0DataAttribute,
+  genui0DirectiveInstructionLines,
+  genui0DirectiveUsages,
+  genui0Instructions,
+} from "./genui0.js"
 
 const grantedCapabilities = new Set(["dice.roll"])
 
@@ -101,6 +106,22 @@ void test("genui/0 allows simple local state expressions", () => {
     }),
     { name: "data-genui-on-click", value: "@set('tab', 'details')" },
   )
+  assert.deepEqual(
+    allowGenui0DataAttribute({
+      name: "data-genui-style-background-color",
+      value: "$color",
+      grantedCapabilities,
+    }),
+    { name: "data-genui-style-background-color", value: "$color" },
+  )
+  assert.deepEqual(
+    allowGenui0DataAttribute({
+      name: "data-genui-attr-aria-label",
+      value: "$label",
+      grantedCapabilities,
+    }),
+    { name: "data-genui-attr-aria-label", value: "$label" },
+  )
 })
 
 void test("genui/0 rejects general JavaScript expressions", () => {
@@ -136,6 +157,52 @@ void test("genui/0 rejects general JavaScript expressions", () => {
     }),
     undefined,
   )
+  assert.equal(
+    allowGenui0DataAttribute({
+      name: "data-genui-style-behavior",
+      value: "$value",
+      grantedCapabilities,
+    }),
+    undefined,
+  )
+  assert.equal(
+    allowGenui0DataAttribute({
+      name: "data-genui-attr-onclick",
+      value: "$value",
+      grantedCapabilities,
+    }),
+    undefined,
+  )
+})
+
+void test("genui/0 owns repeated-template structural directive constraints", () => {
+  assert.equal(
+    allowGenui0DataAttribute({
+      name: "data-genui-bind",
+      value: "orderName",
+      grantedCapabilities,
+      insideRepeatedTemplate: true,
+    }),
+    undefined,
+  )
+  assert.equal(
+    allowGenui0DataAttribute({
+      name: "data-genui-bind",
+      value: "items",
+      grantedCapabilities,
+      elementStartsRepeatedTemplate: true,
+    }),
+    undefined,
+  )
+  assert.deepEqual(
+    allowGenui0DataAttribute({
+      name: "data-genui-text",
+      value: "$order.name",
+      grantedCapabilities,
+      insideRepeatedTemplate: true,
+    }),
+    { name: "data-genui-text", value: "$order.name" },
+  )
 })
 
 void test("genui/0 instructions describe dialect and capability descriptors", () => {
@@ -156,7 +223,7 @@ void test("genui/0 instructions describe dialect and capability descriptors", ()
   assert.match(instructions, /data-genui-as="order"/)
   assert.match(instructions, /\$order\.id and \$line\.id/)
   assert.match(instructions, /\$orders\.value\.items\.length/)
-  assert.match(instructions, /Do not put data-genui-bind inside data-genui-each/)
+  assert.match(instructions, /do not put data-genui-bind inside data-genui-each/)
   assert.match(instructions, /dice\.roll: Roll a die\./)
   assert.match(instructions, /target: 'resultName'/)
   assert.match(instructions, /\$target\.status/)
@@ -165,4 +232,15 @@ void test("genui/0 instructions describe dialect and capability descriptors", ()
   assert.match(instructions, /'pending', 'complete', or 'error'/)
   assert.match(instructions, /orders\.search writes to \$ordersSearch/)
   assert.match(instructions, /simple v0 expressions/)
+})
+
+void test("genui/0 instructions include every directive usage and directive line", () => {
+  const instructions = genui0Instructions([])
+
+  for (const usage of genui0DirectiveUsages) {
+    assert.equal(instructions.includes(usage), true, usage)
+  }
+  for (const line of genui0DirectiveInstructionLines) {
+    assert.equal(instructions.includes(line), true, line)
+  }
 })

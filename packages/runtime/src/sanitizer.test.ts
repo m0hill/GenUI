@@ -116,6 +116,7 @@ void test("sanitizer strips unsafe GenUI expressions", () => {
       `<button data-genui-on-click="@capability('dice.roll', { sides: 6 }); fetch('/x')">Bad</button>`,
       `<span data-genui-state="{ count: 1 }" data-genui-text="$count">1</span>`,
       `<span data-genui-show="$status == 'pending'">Loading</span>`,
+      `<span data-genui-style-behavior="$count" data-genui-attr-onclick="$count">Bad dynamic attrs</span>`,
     ].join(""),
     granted,
   )
@@ -126,6 +127,8 @@ void test("sanitizer strips unsafe GenUI expressions", () => {
   assert.match(safe, /data-genui-state="\{ count: 1 \}"/)
   assert.match(safe, /data-genui-text="\$count"/)
   assert.match(safe, /data-genui-show="\$status == 'pending'"/)
+  assert.doesNotMatch(safe, /data-genui-style-behavior/)
+  assert.doesNotMatch(safe, /data-genui-attr-onclick/)
 })
 
 void test("sanitizer strips JavaScript-shaped constructor expressions", () => {
