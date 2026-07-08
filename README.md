@@ -33,3 +33,8 @@ bun run dev
 Open <http://127.0.0.1:3000>.
 
 Sessions are stored as JSONL files in `.sessions/`.
+
+## Generated UI architecture
+
+The standalone framework notes for the generated UI capability runtime live in
+[`docs/genui/`](docs/genui/README.md).
