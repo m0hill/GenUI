@@ -2,10 +2,9 @@ import { randomUUID } from "node:crypto"
 import type { Message } from "@earendil-works/pi-ai"
 import { Hono } from "hono"
 import { z } from "zod"
-import { event, get, mod, read, reply, unsafeHtml } from "datastar-kit"
+import { event, get, mod, read, reply } from "datastar-kit"
 import { streamAiTurn } from "../../ai/index.js"
-import { genuiCapabilities } from "../../genui/default-primitives.js"
-import { verifyGeneratedSurfaceGrant } from "../../genui/surfaces.js"
+import { genuiRegistry } from "../../genui/default-primitives.js"
 import {
   appendAiMessage,
   createChat,
@@ -18,7 +17,6 @@ import {
 import { chatInvalidations } from "../../session/invalidation-bus.js"
 import { pageHead } from "../../ui/head.js"
 import { NewChatButton, PageHeader, SessionsLink } from "../../ui/layout.js"
-import { generatedUiHostScript } from "./generated-ui-host.js"
 import { AssistantTurnItem, ComposerBar, MessagesList, UserMessageItem, chatForm } from "./ui.js"
 
 const ChatSignals = z.object({
@@ -28,7 +26,7 @@ const ChatSignals = z.object({
 
 const GenuiCapabilityRequest = z.object({
   surfaceId: z.string().min(1),
-  surfaceToken: z.string().min(1),
+  callId: z.string().min(1),
   capability: z.string(),
   input: z.unknown().optional(),
   chatId: z.string().optional(),
@@ -65,7 +63,7 @@ const ChatApp = (props: { chat: ChatSession | undefined }) => (
         }
       />
 
-      <MessagesList chatId={props.chat?.id ?? ""} messages={props.chat?.messages ?? []} />
+      <MessagesList messages={props.chat?.messages ?? []} />
     </main>
 
     <ComposerBar />
@@ -76,7 +74,7 @@ const errorMessage = (error: unknown): string =>
   error instanceof Error && error.message.length > 0 ? error.message : "Something went wrong."
 
 const chatSyncEvents = (chat: ChatSession): string[] => [
-  event.patch(<MessagesList chatId={chat.id} messages={chat.messages} />),
+  event.patch(<MessagesList messages={chat.messages} />),
   event.signals(chatForm.patch({ _generating: isGenerating(chat) })),
 ]
 
@@ -133,7 +131,7 @@ async function* chatEvents(
   yield event.patch(
     <>
       <UserMessageItem message={userMessage} />
-      <AssistantTurnItem chatId={chat.id} turn={turn} />
+      <AssistantTurnItem turn={turn} />
     </>,
     { selector: "#messages", mode: "append" },
   )
@@ -153,7 +151,7 @@ async function* chatEvents(
         turn.tools.set(update.toolCall.id, update.state)
       }
 
-      yield event.patch(<AssistantTurnItem chatId={chat.id} turn={turn} />)
+      yield event.patch(<AssistantTurnItem turn={turn} />)
       chatInvalidations(chat.id).publish()
     }
 
@@ -164,7 +162,7 @@ async function* chatEvents(
     turn.error = errorMessage(error)
   }
 
-  yield event.patch(<AssistantTurnItem chatId={chat.id} turn={turn} />)
+  yield event.patch(<AssistantTurnItem turn={turn} />)
   yield event.signals(chatForm.patch({ _generating: false }))
   chatInvalidations(chat.id).publish()
 }
@@ -176,7 +174,7 @@ chat.get("/", async (c) => {
   const session = chatId === undefined ? undefined : await loadChat(chatId)
   return reply.page(<ChatApp chat={session} />, {
     title: "Hono AI chat",
-    head: [...pageHead, <script>{unsafeHtml(generatedUiHostScript)}</script>],
+    head: pageHead,
   })
 })
 
@@ -236,23 +234,16 @@ chat.post("/genui/capability", async (c) => {
     return c.json({ ok: false, error: "Capability request is invalid." }, 400)
   }
 
-  const grant = verifyGeneratedSurfaceGrant({
-    surfaceId: request.data.surfaceId,
-    surfaceToken: request.data.surfaceToken,
-    chatId: request.data.chatId,
-    capability: request.data.capability,
-  })
-  if (!grant.ok) {
-    return c.json({ ok: false, code: grant.code, error: grant.error }, 403)
-  }
-
-  const result = await genuiCapabilities.execute({
-    capability: request.data.capability,
-    input: request.data.input ?? {},
-    approved: request.data.approved,
-    chatId: grant.surface.chatId,
-    signal: c.req.raw.signal,
-  })
+  const result = await genuiRegistry.execute(
+    {
+      surfaceId: request.data.surfaceId,
+      callId: request.data.callId,
+      capability: request.data.capability,
+      input: request.data.input ?? {},
+    },
+    { chatId: request.data.chatId, signal: c.req.raw.signal },
+    { approve: () => request.data.approved },
+  )
 
   return c.json(result, result.ok ? 200 : 400)
 })

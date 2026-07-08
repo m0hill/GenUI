@@ -1,6 +1,6 @@
 import type { AssistantMessage, Message, ToolCall, ToolResultMessage } from "@earendil-works/pi-ai"
 import {
-  createUiManifestFromToolArguments,
+  createUiSurfaceFromToolArguments,
   streamAiTurn,
   type AssistantToolState,
   type CreateUiState,
@@ -79,21 +79,19 @@ const webSearchResultsById = (
 const createUiStateFromHistory = (
   toolCall: ToolCall,
   result: ToolResultMessage | undefined,
-): CreateUiState => {
-  const html = typeof toolCall.arguments.html === "string" ? toolCall.arguments.html : ""
-  const manifest = createUiManifestFromToolArguments(toolCall.arguments)
-
-  if (result?.isError === true) {
-    return {
-      status: "error",
-      html,
-      manifest,
-      error: textFromToolResult(result) || "The model called create_ui with invalid arguments.",
+  sessionId: string,
+): Promise<CreateUiState> =>
+  createUiSurfaceFromToolArguments(toolCall, sessionId).then((surface) => {
+    if (result?.isError === true) {
+      return {
+        status: "error",
+        ...(surface === undefined ? {} : { surface }),
+        error: textFromToolResult(result) || "The model called create_ui with invalid arguments.",
+      }
     }
-  }
 
-  return { status: "complete", html, manifest }
-}
+    return surface === undefined ? { status: "pending" } : { status: "complete", surface }
+  })
 
 const webSearchStateFromHistory = (
   toolCall: ToolCall,
@@ -122,10 +120,10 @@ const webSearchStateFromHistory = (
   }
 }
 
-const chatDisplayMessages = (
+const chatDisplayMessages = async (
   messages: readonly Message[],
   sessionId: string,
-): Array<UserChatMessage | AssistantTurn> => {
+): Promise<Array<UserChatMessage | AssistantTurn>> => {
   const displayMessages: Array<UserChatMessage | AssistantTurn> = []
   const toolResults = toolResultsById(messages)
   const webSearchResults = webSearchResultsById(messages)
@@ -162,7 +160,7 @@ const chatDisplayMessages = (
       if (content.name === "create_ui") {
         currentTurn.tools.set(
           content.id,
-          createUiStateFromHistory(content, toolResults.get(content.id)),
+          await createUiStateFromHistory(content, toolResults.get(content.id), sessionId),
         )
       }
       if (content.name === "web_search") {
@@ -177,12 +175,12 @@ const chatDisplayMessages = (
   return displayMessages
 }
 
-const toChatSession = (session: PersistedChatSession): ChatSession => ({
+const toChatSession = async (session: PersistedChatSession): Promise<ChatSession> => ({
   id: session.id,
   filePath: session.filePath,
   lastEntryId: session.lastEntryId,
   aiMessages: [...session.messages],
-  messages: chatDisplayMessages(session.messages, session.id),
+  messages: await chatDisplayMessages(session.messages, session.id),
 })
 
 export const loadChat = async (id: string): Promise<ChatSession | undefined> => {
@@ -192,13 +190,13 @@ export const loadChat = async (id: string): Promise<ChatSession | undefined> => 
   const session = await loadSession(id)
   if (session === undefined) return undefined
 
-  const chat = toChatSession(session)
+  const chat = await toChatSession(session)
   chats.set(chat.id, chat)
   return chat
 }
 
 export const createChat = async (): Promise<ChatSession> => {
-  const chat = toChatSession(await createSession())
+  const chat = await toChatSession(await createSession())
   chats.set(chat.id, chat)
   return chat
 }

@@ -28,4 +28,5 @@ export const pageHead: HtmlChild[] = [
   />,
   <link rel="stylesheet" href="/public/styles.css" />,
   <script type="module" src={DATASTAR_RUNTIME} />,
+  <script type="module" src="/public/generated-ui.js?v=3" />,
 ]

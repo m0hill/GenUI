@@ -638,7 +638,7 @@ body {
   overflow-wrap: anywhere;
 }
 
-.generated-ui-frame {
+.generated-ui > iframe {
   display: block;
   width: 100%;
   min-height: 180px;

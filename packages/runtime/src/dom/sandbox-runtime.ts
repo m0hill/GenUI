@@ -1,3 +1,9 @@
+import {
+  isSafeStyleProperty,
+  isSafeStyleValue,
+  normalizeGenuiStylePropertyName,
+} from "../css-style.js"
+
 export interface SandboxRuntimeConfig {
   readonly channel: string
   readonly surfaceId: string
@@ -322,23 +328,6 @@ export const installSandboxRuntime = (
     return ["role", "title", "disabled", "checked", "value"].includes(name)
   }
 
-  const safeDynamicStyleProperty = (property: string): boolean => {
-    const name = property.toLowerCase()
-    return (
-      name.startsWith("--") ||
-      [
-        "color",
-        "background-color",
-        "border-color",
-        "opacity",
-        "display",
-        "visibility",
-        "font-weight",
-        "text-decoration",
-      ].includes(name)
-    )
-  }
-
   const elementStyle = (element: Element): CSSStyleDeclaration | undefined => {
     // SAFETY: the sandbox runtime only receives browser DOM elements. Some test DOM
     // implementations do not type their Element as HTMLElement, but still expose style.
@@ -358,14 +347,21 @@ export const installSandboxRuntime = (
 
   const applyStyleValue = (element: Element, property: string, value: unknown): void => {
     const style = elementStyle(element)
-    if (style === undefined || !safeDynamicStyleProperty(property)) return
+    const normalizedProperty = normalizeGenuiStylePropertyName(property)
+    if (style === undefined || !isSafeStyleProperty(normalizedProperty)) return
 
     if (value === language.invalid || value === false || value === null || value === undefined) {
-      style.removeProperty(property)
+      style.removeProperty(normalizedProperty)
       return
     }
 
-    style.setProperty(property, textValue(value))
+    const styleValue = textValue(value)
+    if (!isSafeStyleValue(styleValue)) {
+      style.removeProperty(normalizedProperty)
+      return
+    }
+
+    style.setProperty(normalizedProperty, styleValue)
   }
 
   const currentDirectives = (): readonly Directive[] => [
@@ -644,7 +640,7 @@ export const installSandboxRuntime = (
       targetDirectives.push({
         type: "style_property",
         element,
-        property: name.slice("data-genui-style-".length),
+        property: normalizeGenuiStylePropertyName(name.slice("data-genui-style-".length)),
         expression: value,
         scope,
       })

@@ -6,6 +6,10 @@ import sessions from "./pages/sessions.js"
 
 const app = new Hono()
 
+app.get("/public/generated-ui.js", async (c, next) => {
+  c.header("Cache-Control", "no-store")
+  await next()
+})
 app.use("/public/*", serveStatic({ root: "./" }))
 
 app.route("/", chat).route("/sessions", sessions)

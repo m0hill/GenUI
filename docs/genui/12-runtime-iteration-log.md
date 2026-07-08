@@ -103,6 +103,11 @@ Supported directive shapes:
 - `data-genui-style-*`
 - `data-genui-attr-*`
 
+Static presentation CSS is allowed through normal inline `style` attributes after
+sanitization. The sanitizer keeps known visual/layout properties and removes CSS that
+can fetch external resources or uses unsupported properties. `<style>` tags and external
+stylesheets remain outside the generated surface dialect.
+
 Expression scope is intentionally small:
 
 - state reads: `$name`, `$name.path`;

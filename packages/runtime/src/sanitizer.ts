@@ -1,4 +1,5 @@
 import { parseFragment, serialize, type DefaultTreeAdapterMap } from "parse5"
+import { sanitizeInlineStyle } from "./css-style.js"
 import { allowGenui0DataAttribute } from "./dialect/genui0.js"
 
 type ParentNode = DefaultTreeAdapterMap["parentNode"]
@@ -83,7 +84,10 @@ const sanitizeAttribute = (
   const name = attributeName(attribute).toLowerCase()
 
   if (name.startsWith("on")) return undefined
-  if (name === "style") return undefined
+  if (name === "style") {
+    const style = sanitizeInlineStyle(attribute.value)
+    return style === undefined ? undefined : { ...attribute, value: style }
+  }
   if (insideRepeatedTemplate && name === "data-genui-bind") return undefined
   if (directSubmissionAttributeNames.has(name)) return undefined
   if (name.startsWith("data-")) return sanitizeDataAttribute(attribute, grantedCapabilities)

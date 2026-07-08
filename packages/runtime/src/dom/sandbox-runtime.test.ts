@@ -201,6 +201,7 @@ void test("sandbox runtime refreshes local directives from bound input state", (
     <p id="classed-hyphen" data-genui-class-is-active="$city == 'blue'"></p>
     <p id="styled" data-genui-style-color="$city"></p>
     <p id="styled-hyphen" data-genui-style-background-color="$city"></p>
+    <p id="styled-legacy" data-genui-style-property-background="$city"></p>
     <p id="attr" data-genui-attr-title="$city"></p>
     <p id="attr-hyphen" data-genui-attr-aria-label="$city"></p>
   `)
@@ -211,6 +212,7 @@ void test("sandbox runtime refreshes local directives from bound input state", (
   const classedHyphen = window.document.querySelector("#classed-hyphen")
   const styled = window.document.querySelector("#styled")
   const styledHyphen = window.document.querySelector("#styled-hyphen")
+  const styledLegacy = window.document.querySelector("#styled-legacy")
   const attr = window.document.querySelector("#attr")
   const attrHyphen = window.document.querySelector("#attr-hyphen")
   assert.notEqual(input, null)
@@ -221,6 +223,7 @@ void test("sandbox runtime refreshes local directives from bound input state", (
   assert.equal(classedHyphen?.classList.contains("is-active"), false)
   assert.equal(styled?.getAttribute("style"), "color: red;")
   assert.equal(styledHyphen?.getAttribute("style"), "background-color: red;")
+  assert.equal(styledLegacy?.getAttribute("style"), "background: red;")
   assert.equal(attr?.getAttribute("title"), "red")
   assert.equal(attrHyphen?.getAttribute("aria-label"), "red")
 
@@ -233,8 +236,27 @@ void test("sandbox runtime refreshes local directives from bound input state", (
   assert.equal(classedHyphen?.classList.contains("is-active"), true)
   assert.equal(styled?.getAttribute("style"), "color: blue;")
   assert.equal(styledHyphen?.getAttribute("style"), "background-color: blue;")
+  assert.equal(styledLegacy?.getAttribute("style"), "background: blue;")
   assert.equal(attr?.getAttribute("title"), "blue")
   assert.equal(attrHyphen?.getAttribute("aria-label"), "blue")
+})
+
+void test("sandbox runtime removes unsafe dynamic style values", () => {
+  const { window } = createHarness(`
+    <input data-genui-bind="background" value="linear-gradient(135deg,#fff,#f8fafc)">
+    <p id="styled" data-genui-style-background="$background"></p>
+  `)
+  const input = window.document.querySelector("input")
+  const styled = window.document.querySelector("#styled")
+  assert.notEqual(input, null)
+
+  assert.match(styled?.getAttribute("style") ?? "", /linear-gradient/)
+
+  if (input !== null) input.value = "url(https://example.com/track.png)"
+  input?.dispatchEvent(new window.Event("input", { bubbles: true }))
+
+  assert.doesNotMatch(styled?.getAttribute("style") ?? "", /url\(/)
+  assert.doesNotMatch(styled?.getAttribute("style") ?? "", /background/)
 })
 
 void test("sandbox runtime runs local set actions without posting messages", () => {

@@ -47,21 +47,26 @@ void test("sanitizer strips direct form submission attributes", () => {
   assert.match(safe, /href="https:\/\/example\.com"/)
 })
 
-void test("sanitizer strips indirect URL-bearing attributes and inline styles", () => {
+void test("sanitizer strips indirect URL-bearing attributes and unsafe inline styles", () => {
   const safe = sanitizeSurfaceHtml(
     [
       `<svg><a xlink:href="javascript:alert(1)">bad</a></svg>`,
       `<img srcset="javascript:alert(1) 1x, https://example.com/a.png 2x">`,
-      `<div style="background-image:url(https://example.com/track.png)">x</div>`,
+      `<div style="color: #111827; background: linear-gradient(135deg,#fff,#f8fafc); box-shadow: 0 10px 25px rgba(15,23,42,.06); background-image:url(https://example.com/track.png); behavior:url(x); unknown: 1">x</div>`,
     ].join(""),
     granted,
   )
 
   assert.doesNotMatch(safe, /xlink:href/i)
   assert.doesNotMatch(safe, /srcset/i)
-  assert.doesNotMatch(safe, /\sstyle=/i)
   assert.doesNotMatch(safe, /javascript:/i)
   assert.doesNotMatch(safe, /url\(/i)
+  assert.doesNotMatch(safe, /behavior/i)
+  assert.doesNotMatch(safe, /unknown/i)
+  assert.match(
+    safe,
+    /style="color: #111827; background: linear-gradient\(135deg,#fff,#f8fafc\); box-shadow: 0 10px 25px rgba\(15,23,42,.06\);"/,
+  )
 })
 
 void test("sanitizer preserves only granted capability calls", () => {

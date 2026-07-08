@@ -7,3 +7,4 @@ auth.json
 .sessions/
 public/styles.css
 examples/*/public/styles.css
+examples/*/public/generated-ui.js

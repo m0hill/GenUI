@@ -1,25 +1,9 @@
+import { createRegistry, defineCapability, type Surface } from "@hono-ai/genui-runtime"
 import { z } from "zod"
-import {
-  createCapabilityRegistry,
-  defineCapability,
-  type GenuiCapabilityDefinition,
-  type GenuiCapabilityDescriptor,
-  type GenuiCapabilityManifest,
-} from "./capabilities.js"
 
-export interface GenuiActionDescriptor {
-  readonly name: string
-  readonly description: string
-}
-
-export interface GenuiPluginAttributeDescriptor {
-  readonly name: string
-  readonly description: string
-}
-
-export interface GenuiRuntimeManifest extends GenuiCapabilityManifest {
-  readonly actions: readonly GenuiActionDescriptor[]
-  readonly pluginAttributes: readonly GenuiPluginAttributeDescriptor[]
+export interface GenuiCapabilityContext {
+  readonly chatId?: string
+  readonly signal?: AbortSignal
 }
 
 interface DemoNote {
@@ -169,114 +153,92 @@ const lookupWeather = async (
   }
 }
 
-const capabilityDefinitions = [
-  defineCapability({
-    name: "chat.follow_up",
-    description: "Submit a follow-up prompt into the current chat composer.",
-    effect: "draft",
-    execution: "client",
-    inputSchema: z.object({ prompt: z.string().trim().min(1).max(1200) }),
-    execute: () => undefined,
-  }),
-  defineCapability({
-    name: "demo.time.now",
-    description: "Return the server's current ISO time and locale display text.",
-    effect: "read",
-    inputSchema: z.object({}),
-    execute: () => {
-      const now = new Date()
-      return {
-        iso: now.toISOString(),
-        display: now.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "medium" }),
-      }
-    },
-  }),
-  defineCapability({
-    name: "demo.palette.generate",
-    description: "Generate a deterministic color palette from a short seed.",
-    effect: "read",
-    inputSchema: z.object({
-      seed: z.string().trim().min(1).max(80),
-      count: z.number().int().min(3).max(8).default(5),
+export const defaultGenuiCapabilityNames = ["chat.follow_up"] as const
+
+export interface CreateGeneratedSurfaceInput {
+  readonly chatId: string
+  readonly toolCallId: string
+  readonly html: string
+  readonly requested?: readonly string[]
+}
+
+export const genuiRegistry = createRegistry<GenuiCapabilityContext>({
+  capabilities: [
+    defineCapability({
+      name: "chat.follow_up",
+      description: "Submit a follow-up prompt into the current chat composer.",
+      effect: "local",
+      input: z.object({ prompt: z.string().trim().min(1).max(1200) }),
+      execute: () => undefined,
     }),
-    execute: (_ctx, input) => ({
-      seed: input.seed,
-      colors: createPalette(input.seed, input.count),
+    defineCapability({
+      name: "demo.time.now",
+      description: "Return the server's current ISO time and locale display text.",
+      effect: "read",
+      input: z.object({}),
+      execute: () => {
+        const now = new Date()
+        return {
+          iso: now.toISOString(),
+          display: now.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "medium" }),
+        }
+      },
     }),
-  }),
-  defineCapability({
-    name: "demo.weather.lookup",
-    description: "Look up a short weather forecast for a city using Open-Meteo.",
-    effect: "read",
-    inputSchema: z.object({
-      city: z.string().trim().min(1).max(120),
-      days: z.number().int().min(1).max(5).default(3),
+    defineCapability({
+      name: "demo.palette.generate",
+      description: "Generate a deterministic color palette from a short seed.",
+      effect: "read",
+      input: z.object({
+        seed: z.string().trim().min(1).max(80),
+        count: z.number().int().min(3).max(8).default(5),
+      }),
+      execute: (_ctx, input) => ({
+        seed: input.seed,
+        colors: createPalette(input.seed, input.count),
+      }),
     }),
-    execute: (ctx, input) => lookupWeather(input.city, input.days, ctx.signal),
-  }),
-  defineCapability({
-    name: "demo.notes.create",
-    description: "Create an in-memory demo note for this local app session.",
-    effect: "external_write",
-    requiresApproval: true,
-    inputSchema: z.object({ text: z.string().trim().min(1).max(500) }),
-    execute: (ctx, input) => {
-      const note = {
-        id: `note-${Date.now()}-${demoNotes.length + 1}`,
-        text: input.text,
-        createdAt: new Date().toISOString(),
-        chatId: ctx.chatId,
-      }
-      demoNotes.unshift(note)
-      return note
-    },
-  }),
-  defineCapability({
-    name: "demo.notes.list",
-    description: "List recent in-memory demo notes created through generated UI.",
-    effect: "read",
-    inputSchema: z.object({ limit: z.number().int().min(1).max(10).default(5) }),
-    execute: (_ctx, input) => ({ notes: demoNotes.slice(0, input.limit) }),
-  }),
-] as const satisfies readonly GenuiCapabilityDefinition[]
-
-export const genuiCapabilities = createCapabilityRegistry(capabilityDefinitions)
-
-export const genuiActions = [
-  {
-    name: "toast",
-    description: "Show a local toast inside the generated UI iframe.",
-  },
-  {
-    name: "setSignal",
-    description: "Set a local Datastar signal path inside the generated UI iframe.",
-  },
-] as const satisfies readonly GenuiActionDescriptor[]
-
-export const genuiPluginAttributes = [
-  {
-    name: "data-focus-when",
-    description: "Focus an element when a Datastar expression becomes truthy.",
-  },
-] as const satisfies readonly GenuiPluginAttributeDescriptor[]
-
-const defaultCapabilityNames = ["chat.follow_up"] as const
-
-export const createGenuiManifest = (
-  capabilityNames: readonly string[] | undefined,
-): GenuiRuntimeManifest => ({
-  ...genuiCapabilities.projectManifest(capabilityNames ?? defaultCapabilityNames),
-  actions: genuiActions,
-  pluginAttributes: genuiPluginAttributes,
+    defineCapability({
+      name: "demo.weather.lookup",
+      description: "Look up a short weather forecast for a city using Open-Meteo.",
+      effect: "read",
+      input: z.object({
+        city: z.string().trim().min(1).max(120),
+        days: z.number().int().min(1).max(5).default(3),
+      }),
+      execute: (ctx, input) => lookupWeather(input.city, input.days, ctx.signal),
+    }),
+    defineCapability({
+      name: "demo.notes.create",
+      description: "Create an in-memory demo note for this local app session.",
+      effect: "write",
+      policy: "require_approval",
+      input: z.object({ text: z.string().trim().min(1).max(500) }),
+      execute: (ctx, input) => {
+        const note = {
+          id: `note-${Date.now()}-${demoNotes.length + 1}`,
+          text: input.text,
+          createdAt: new Date().toISOString(),
+          chatId: ctx.chatId,
+        }
+        demoNotes.unshift(note)
+        return note
+      },
+    }),
+    defineCapability({
+      name: "demo.notes.list",
+      description: "List recent in-memory demo notes created through generated UI.",
+      effect: "read",
+      input: z.object({ limit: z.number().int().min(1).max(10).default(5) }),
+      execute: (_ctx, input) => ({ notes: demoNotes.slice(0, input.limit) }),
+    }),
+  ],
 })
 
-export const allGenuiCapabilityDescriptors = (): readonly GenuiCapabilityDescriptor[] =>
-  genuiCapabilities.list()
+export const genuiPromptCapabilities = (): string => genuiRegistry.instructions()
 
-export const genuiPromptCapabilities = (): string =>
-  allGenuiCapabilityDescriptors()
-    .map(
-      (capability) =>
-        `- ${capability.name}: ${capability.description} effect=${capability.effect} execution=${capability.execution} approval=${capability.requiresApproval}`,
-    )
-    .join("\n")
+export const createGeneratedSurface = (input: CreateGeneratedSurfaceInput): Promise<Surface> =>
+  genuiRegistry.createSurface({
+    html: input.html,
+    requested: input.requested ?? defaultGenuiCapabilityNames,
+    meta: { chatId: input.chatId, toolCallId: input.toolCallId },
+  })

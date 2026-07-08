@@ -9,13 +9,10 @@ import {
   type ToolCall,
   type ToolResultMessage,
 } from "@earendil-works/pi-ai"
+import type { Surface } from "@hono-ai/genui-runtime"
 import { aiModel, getAiApiKey } from "./provider.js"
 import { executeWebSearchTool, webSearchTool, type WebSearchState } from "./web-search-tool.js"
-import {
-  createGenuiManifest,
-  genuiPromptCapabilities,
-  type GenuiRuntimeManifest,
-} from "../genui/default-primitives.js"
+import { createGeneratedSurface, genuiPromptCapabilities } from "../genui/default-primitives.js"
 
 const chatPrompt = `
 You are a concise assistant that can answer normally or create polished server-rendered interactive UI.
@@ -26,11 +23,6 @@ Core behavior:
 - When a visual or interactive answer would help, call create_ui with a complete HTML fragment.
 - You may write short text before/after create_ui, but do not duplicate the same information in both places.
 
-Documentation you can look up with web_search when unsure:
-- Datastar attributes/actions: https://data-star.dev/reference/attributes and https://data-star.dev/reference/actions
-- Datastar Kit docs/examples: https://datastar-kit.dev and https://github.com/m0hill/datastar-kit
-- Prefer domainFilter ["data-star.dev"] for Datastar syntax and ["datastar-kit.dev", "github.com"] for Datastar Kit examples.
-
 Using web_search:
 - Use web_search for live facts, source-backed claims, docs lookup, and image-backed UIs.
 - Set includeImages: true when a UI would benefit from real images, photos, logos, thumbnails, or media cards.
@@ -40,39 +32,24 @@ Using web_search:
 Generated UI contract:
 - create_ui.html must be a complete HTML fragment, not markdown and not fenced code.
 - Do not use <script>, <style>, iframe, object, embed, template, noscript, external CSS, or arbitrary JavaScript.
-- Use inline styles for visual design. CSS url(...) is removed, so use <img> for images.
 - Safe remote images are allowed as <img src="https://..." alt="...">. Always include useful alt text.
 - Safe external links are allowed as <a href="https://...">. Use links for sources or deeper reading, not navigation spam.
 - Use semantic HTML: section, article, header, ul/li, figure/figcaption, and tabular markup when appropriate.
 - Make the UI feel designed: clear hierarchy, spacing, cards, accessible contrast, responsive wrapping, and useful empty/error labels.
 
-Allowed Datastar subset in generated UI:
-- State/display: data-signals, data-bind, data-show, data-text.
-- Styling: data-class, data-class:*, data-style, data-style:*.
-- Attributes: data-attr:disabled, data-attr:title, data-attr:aria-label, data-attr:aria-expanded, data-attr:aria-pressed, data-attr:aria-selected.
-- Events: data-on:click for local underscore-signal assignments, registered local actions, or safe @capability('name', input) calls from the capability list; data-on:submit__prevent for safe @capability('name', input) calls.
-- Use local underscore signals for UI-only state, e.g. data-signals="{ _ui_seat: '', _ui_tab: 'overview' }".
-- Forms/buttons that ask follow-up questions must call @capability('chat.follow_up', { prompt: '...' }). The host validates and submits the prompt; the generated UI cannot call app routes directly.
-- If you use any @capability call, include the exact capability names in create_ui.capabilities. This is the UI's permission grant request; ungranted capability calls are stripped or rejected.
-- Local browser actions available without a capability grant: @toast({ message: 'Saved' }) and @setSignal('_ui_name', value).
-- Local plugin attribute available: data-focus-when="expression".
-- You may show bridge state with $_capabilityStatus, $_capabilityError, and $_capabilityResult.
-
-Available generated UI capabilities:
+Generated UI runtime instructions:
 ${genuiPromptCapabilities()}
 
-Datastar examples:
-- Local selection: <button type="button" data-on:click="$_ui_seat = 'A1'" data-style:background-color="$_ui_seat === 'A1' ? '#22c55e' : '#334155'">A1</button>
-- Reactive disabled submit: <button type="button" data-attr:disabled="!$_ui_seat" data-on:click="@capability('chat.follow_up', { prompt: \`Cinema seat selected: \${$_ui_seat}\` })">Confirm seat</button>
-- Form follow-up: <section data-signals="{ _ui_city: '', _ui_days: '3' }"><form data-on:submit__prevent="@capability('chat.follow_up', { prompt: \`Make a weather UI for \${$_ui_city} for \${$_ui_days} days\` })"><input data-bind="_ui_city" placeholder="City"><input data-bind="_ui_days" placeholder="Days"><button type="submit">Generate</button><p data-show="$_capabilityError" data-text="$_capabilityError"></p></form></section>
-- Server weather lookup: <section data-signals="{ _ui_city: 'Tokyo' }"><input data-bind="_ui_city"><button type="button" data-on:click="@capability('demo.weather.lookup', { city: $_ui_city, days: 3 })">Check weather</button><pre data-text="JSON.stringify($_capabilityResult, null, 2)"></pre></section>
-- Local toast: <button type="button" data-on:click="@toast({ message: 'Saved locally' })">Save</button>
-- Tabs: <section data-signals="{ _ui_tab: 'summary' }"><button data-on:click="$_ui_tab = 'summary'" data-attr:aria-selected="$_ui_tab === 'summary'">Summary</button><button data-on:click="$_ui_tab = 'details'" data-attr:aria-selected="$_ui_tab === 'details'">Details</button><div data-show="$_ui_tab === 'summary'">...</div><div data-show="$_ui_tab === 'details'">...</div></section>
+GenUI examples:
+- Local tabs: <section data-genui-state="{ tab: 'summary' }"><button type="button" data-genui-on-click="@set('tab', 'summary')" data-genui-attr-aria-selected="$tab == 'summary'">Summary</button><button type="button" data-genui-on-click="@set('tab', 'details')" data-genui-attr-aria-selected="$tab == 'details'">Details</button><div data-genui-show="$tab == 'summary'">...</div><div data-genui-show="$tab == 'details'">...</div></section>
+- Follow-up form: <section data-genui-state="{ city: '', days: 3 }"><form data-genui-on-submit="@capability('chat.follow_up', { prompt: $city })"><input data-genui-bind="city" placeholder="City"><button type="submit">Ask</button><p data-genui-show="$chatFollowUp.status == 'error'" data-genui-text="$chatFollowUp.error"></p></form></section>
+- Server weather lookup: <section data-genui-state="{ city: 'Tokyo' }"><input data-genui-bind="city"><button type="button" data-genui-on-click="@capability('demo.weather.lookup', { city: $city, days: 3 }, { target: 'weather' })">Check weather</button><p data-genui-show="$weather.status == 'pending'">Loading...</p><pre data-genui-text="$weather.value"></pre></section>
+- Lists: <section><button type="button" data-genui-on-click="@capability('demo.notes.list', { limit: 5 }, { target: 'notes' })">Load notes</button><ul data-genui-each="$notes.value.notes" data-genui-as="note"><li data-genui-text="$note.text"></li></ul></section>
 
 Quality bar for create_ui:
 - Prefer small but complete interfaces: cards, calculators, selectors, comparisons, timelines, itineraries, dashboards, galleries, quizzes, or forms.
 - Use real source-backed text/images when available; cite source URLs in the UI or surrounding answer.
-- Keep interactions declarative with Datastar signals. If an interaction needs arbitrary JavaScript, redesign it using signals or keep it static.
+- Keep interactions declarative with GenUI state. If an interaction needs arbitrary JavaScript, redesign it with data-genui-* directives or keep it static.
 `.trim()
 
 const createUiParameters = Type.Object({
@@ -85,7 +62,7 @@ const createUiParameters = Type.Object({
   html: Type.String({
     minLength: 1,
     description:
-      "A self-contained HTML fragment. Inline styles, safe HTTPS images/links, and the documented Datastar subset are allowed. Scripts and external CSS are not.",
+      "A self-contained HTML fragment using the documented data-genui-* runtime dialect. Scripts and external CSS are not allowed.",
   }),
 })
 
@@ -98,10 +75,10 @@ const createUiTool = {
 } satisfies Tool<typeof createUiParameters>
 
 export type CreateUiState =
-  | { status: "pending"; html: string; manifest: GenuiRuntimeManifest }
-  | { status: "streaming"; html: string; manifest: GenuiRuntimeManifest }
-  | { status: "complete"; html: string; manifest: GenuiRuntimeManifest }
-  | { status: "error"; html: string; manifest: GenuiRuntimeManifest; error: string }
+  | { status: "pending"; surface?: undefined }
+  | { status: "streaming"; surface: Surface }
+  | { status: "complete"; surface: Surface }
+  | { status: "error"; surface?: Surface; error: string }
 
 export type AssistantToolState = CreateUiState | WebSearchState
 
@@ -122,8 +99,20 @@ const capabilityNamesFromArguments = (argumentsValue: unknown): string[] | undef
   return names.length > 0 ? names : undefined
 }
 
-export const createUiManifestFromToolArguments = (argumentsValue: unknown): GenuiRuntimeManifest =>
-  createGenuiManifest(capabilityNamesFromArguments(argumentsValue))
+export const createUiSurfaceFromToolArguments = async (
+  toolCall: Pick<ToolCall, "id" | "arguments">,
+  sessionId: string,
+): Promise<Surface | undefined> => {
+  const html = typeof toolCall.arguments.html === "string" ? toolCall.arguments.html : ""
+  if (html.length === 0) return undefined
+
+  return createGeneratedSurface({
+    chatId: sessionId,
+    toolCallId: toolCall.id,
+    html,
+    requested: capabilityNamesFromArguments(toolCall.arguments),
+  })
+}
 
 export async function* streamAiTurn(
   messages: Message[],
@@ -154,15 +143,11 @@ export async function* streamAiTurn(
       if (aiEvent.type === "toolcall_start" || aiEvent.type === "toolcall_delta") {
         const toolCall = aiEvent.partial.content[aiEvent.contentIndex]
         if (toolCall?.type === "toolCall" && toolCall.name === createUiTool.name) {
-          const html = typeof toolCall.arguments.html === "string" ? toolCall.arguments.html : ""
-          const manifest = createUiManifestFromToolArguments(toolCall.arguments)
+          const surface = await createUiSurfaceFromToolArguments(toolCall, options.sessionId)
           yield {
             type: "tool_update",
             toolCall,
-            state:
-              html.length === 0
-                ? { status: "pending", html, manifest }
-                : { status: "streaming", html, manifest },
+            state: surface === undefined ? { status: "pending" } : { status: "streaming", surface },
           }
         }
 
@@ -177,19 +162,24 @@ export async function* streamAiTurn(
         let state: CreateUiState
         try {
           const input: CreateUiInput = validateToolArguments(createUiTool, aiEvent.toolCall)
+          const surface = await createGeneratedSurface({
+            chatId: options.sessionId,
+            toolCallId: aiEvent.toolCall.id,
+            html: input.html,
+            requested: input.capabilities,
+          })
           state = {
             status: "complete",
-            html: input.html,
-            manifest: createGenuiManifest(input.capabilities),
+            surface,
           }
         } catch {
+          const surface = await createUiSurfaceFromToolArguments(
+            aiEvent.toolCall,
+            options.sessionId,
+          )
           state = {
             status: "error",
-            html:
-              typeof aiEvent.toolCall.arguments.html === "string"
-                ? aiEvent.toolCall.arguments.html
-                : "",
-            manifest: createUiManifestFromToolArguments(aiEvent.toolCall.arguments),
+            ...(surface === undefined ? {} : { surface }),
             error: "The model called create_ui with invalid arguments.",
           }
         }

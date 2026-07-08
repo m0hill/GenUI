@@ -76,7 +76,8 @@ export const genui0Instructions = (capabilities: readonly CapabilityDescriptor[]
   return [
     `Generated UI dialect: ${genuiDialect}.`,
     "Create fragment HTML only. Do not include scripts, iframes, external styles, or document tags.",
-    "Use only the GenUI directive namespace: data-genui-state, data-genui-bind, data-genui-on-click, data-genui-on-submit, data-genui-show, data-genui-text, data-genui-each, data-genui-as, data-genui-class-name, data-genui-style-property, and data-genui-attr-name.",
+    "Use inline style attributes for static presentation. Use data-genui-style-{css-property} only when a style value must come from state, e.g. data-genui-style-background-color.",
+    "Use only the GenUI directive namespace: data-genui-state, data-genui-bind, data-genui-on-click, data-genui-on-submit, data-genui-show, data-genui-text, data-genui-each, data-genui-as, data-genui-class-name, data-genui-style-{css-property}, and data-genui-attr-name.",
     "Use @capability('name', input) only for capabilities granted to the surface.",
     "Use @capability('name', input, { target: 'resultName' }) when multiple calls need separate result state.",
     "Use @set('state.path', value) for local-only interactions such as tabs, toggles, disclosure, and selection.",
