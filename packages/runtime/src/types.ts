@@ -4,6 +4,9 @@ export const genuiDialect = "genui/0"
 /** Versioned generated UI interaction dialect identifier. */
 export type Dialect = string
 
+/** Value that may be returned synchronously or asynchronously by host adapters. */
+export type MaybePromise<Value> = Value | Promise<Value>
+
 /** Coarse effect class used for policy, approval, and product UX. */
 export type Effect = "local" | "read" | "write" | "dangerous"
 
@@ -160,8 +163,8 @@ export interface SurfaceRecord {
 
 /** Storage boundary for generated surface authority records. */
 export interface SurfaceStore {
-  get(id: string): SurfaceRecord | Promise<SurfaceRecord | undefined> | undefined
-  set(record: SurfaceRecord): void | Promise<void>
+  get(id: string): MaybePromise<SurfaceRecord | undefined>
+  set(record: SurfaceRecord): MaybePromise<void>
 }
 
 /** Optional execution hooks supplied by the host application. */

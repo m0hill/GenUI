@@ -1,4 +1,4 @@
-import { mount, type SurfaceTransportOptions } from "@hono-ai/genui/dom"
+import { mount, type TransportOptions } from "@hono-ai/genui/dom"
 import type { ActionCall, Action, ActionErrorCode, ActionResult, Surface } from "@hono-ai/genui"
 
 const surfaceSelector = "[data-genui-surface]"
@@ -120,7 +120,7 @@ const submitFollowUpPrompt = async (input: unknown): Promise<ActionResult> => {
 
 const executeServerAction = async (
   call: ActionCall,
-  options: SurfaceTransportOptions,
+  options: TransportOptions,
 ): Promise<ActionResult> => {
   const response = await fetch("/genui/action", {
     method: "POST",
@@ -142,7 +142,7 @@ const executeServerAction = async (
   )
 }
 
-const transport = (call: ActionCall, options: SurfaceTransportOptions): Promise<ActionResult> => {
+const transport = (call: ActionCall, options: TransportOptions): Promise<ActionResult> => {
   if (call.action === "chat.follow_up") return submitFollowUpPrompt(call.input)
   return executeServerAction(call, options)
 }

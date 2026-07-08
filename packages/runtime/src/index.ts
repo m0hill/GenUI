@@ -14,6 +14,7 @@ export type {
   Effect,
   ExecuteOptions,
   Grant,
+  MaybePromise,
   Policy,
   Surface,
   SurfaceInput,

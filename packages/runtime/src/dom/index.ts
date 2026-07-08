@@ -11,16 +11,12 @@ import {
   type SurfaceBrokerEffect,
   type SurfaceBrokerTask,
   type SurfaceEvent,
-  type SurfaceTransportOptions,
+  type TransportOptions,
 } from "./surface-broker.js"
-export type {
-  SurfaceEvent,
-  SurfaceTransportOptions,
-  SurfaceViolationReason,
-} from "./surface-broker.js"
+export type { SurfaceEvent, SurfaceViolationReason, TransportOptions } from "./surface-broker.js"
 
 export interface MountOptions {
-  readonly transport: (call: ActionCall, options: SurfaceTransportOptions) => Promise<ActionResult>
+  readonly transport: (call: ActionCall, options: TransportOptions) => Promise<ActionResult>
   readonly confirm?: NonNullable<ExecuteOptions["approve"]>
   readonly maxHeight?: number
   readonly onEvent?: (event: SurfaceEvent) => void

@@ -6,6 +6,9 @@ The v0 slice is intentionally small: app-defined actions go into `new Genui()`, 
 runtime creates sanitized surfaces under explicit grants, and every action call is
 enforced against that surface grant before application code runs.
 
+Actions are capability-style grants: generated UI requests named authority, and the app
+decides what each surface actually receives.
+
 Action `effect` values describe authority outside the sandbox: `local`, `read`, `write`,
 or `dangerous`. Purely local interface behavior usually belongs to the `genui/0` dialect,
 for example `@set('state.path', value)`, but host-executed local actions can also be

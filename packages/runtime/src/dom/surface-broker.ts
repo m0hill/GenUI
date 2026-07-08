@@ -37,12 +37,12 @@ export type SurfaceEvent =
       readonly detail?: string
     }
 
-export interface SurfaceTransportOptions {
+export interface TransportOptions {
   readonly signal: AbortSignal
 }
 
 export interface SurfaceBrokerOptions {
-  readonly transport: (call: ActionCall, options: SurfaceTransportOptions) => Promise<ActionResult>
+  readonly transport: (call: ActionCall, options: TransportOptions) => Promise<ActionResult>
   readonly confirm?: NonNullable<ExecuteOptions["approve"]>
   readonly maxHeight?: number
 }
