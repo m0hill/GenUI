@@ -198,7 +198,7 @@ void test("browser sandbox renders capability pending and result state", async (
   const frame = await installHostHarness(
     page,
     `
-      <form data-genui-on-submit-prevent="@capability('dice.roll', { sides: $sides }, { target: 'rollResult' })">
+      <form data-genui-on-submit="@capability('dice.roll', { sides: $sides }, { target: 'rollResult' })">
         <input data-genui-bind="sides" type="number" value="6">
         <button>Roll</button>
       </form>

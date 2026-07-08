@@ -16,6 +16,7 @@ export const sandboxBridgeScript = (surfaceId: string): string => `
     parseObjectLiteral: genui0ParseObjectLiteral,
     evaluateExpression: genui0EvaluateExpression,
     parseCapabilityExpression: parseGenui0CapabilityExpression,
+    parseSetExpression: parseGenui0SetExpression,
     defaultResultTarget: genui0DefaultResultTarget,
   };
 

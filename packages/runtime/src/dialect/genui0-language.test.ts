@@ -12,13 +12,14 @@ import {
   isSafeGenui0SimpleExpression,
   normalizeGenui0ResultTarget,
   parseGenui0CapabilityAction,
+  parseGenui0SetAction,
   type Genui0Language,
 } from "./genui0-language.js"
 
 interface SandboxLanguageGlobal {
   __genui0LanguageForTest?: Pick<
     Genui0Language,
-    "invalid" | "parseObjectLiteral" | "parseCapabilityExpression"
+    "invalid" | "parseObjectLiteral" | "parseCapabilityExpression" | "parseSetExpression"
   >
 }
 
@@ -34,6 +35,7 @@ const sandboxLanguageFromGeneratedScript = (): NonNullable<
       invalid: genui0Invalid,
       parseObjectLiteral: genui0ParseObjectLiteral,
       parseCapabilityExpression: parseGenui0CapabilityExpression,
+      parseSetExpression: parseGenui0SetExpression,
     };
   `)
 
@@ -88,6 +90,20 @@ void test("genui/0 language rejects unsupported capability action syntax", () =>
   )
 })
 
+void test("genui/0 language parses local set actions", () => {
+  assert.deepEqual(parseGenui0SetAction("@set('tab', 'details')"), {
+    pathExpression: "tab",
+    valueExpression: "'details'",
+  })
+  assert.deepEqual(parseGenui0SetAction("@set('panel.open', true)"), {
+    pathExpression: "panel.open",
+    valueExpression: "true",
+  })
+  assert.equal(parseGenui0SetAction("@set('tab', window.location)"), undefined)
+  assert.equal(parseGenui0SetAction("@set('bad-target', 'x')"), undefined)
+  assert.equal(parseGenui0SetAction("@set($target, 'x')"), undefined)
+})
+
 void test("genui/0 language validates safe expressions", () => {
   assert.equal(isSafeGenui0ObjectExpression("{ count: 1, label: 'Roll', ok: true }"), true)
   assert.equal(isSafeGenui0ObjectExpression("{ bad: window.location }"), false)
@@ -112,6 +128,27 @@ void test("genui/0 language owns result target normalization", () => {
     normalizeGenui0ResultTarget("bad-target", "demo.weather.lookup"),
     "demoWeatherLookup",
   )
+})
+
+void test("generated sandbox language matches sanitizer local set grammar", () => {
+  const directLanguage = createGenui0Language()
+  const sandboxLanguage = sandboxLanguageFromGeneratedScript()
+
+  for (const expression of [
+    "@set('tab', 'details')",
+    "@set('panel.open', true)",
+    "@set('label', $label)",
+    "@set('tab', window.location)",
+    "@set('bad-target', 'x')",
+    "@set($target, 'x')",
+  ]) {
+    const sanitizerAction = parseGenui0SetAction(expression)
+    const directAction = directLanguage.parseSetExpression(expression, readState)
+    const sandboxAction = sandboxLanguage.parseSetExpression(expression, readState)
+
+    assert.equal(directAction !== undefined, sanitizerAction !== undefined, expression)
+    assert.deepEqual(jsonRoundTrip(sandboxAction), jsonRoundTrip(directAction), expression)
+  }
 })
 
 void test("generated sandbox language matches sanitizer capability grammar", () => {

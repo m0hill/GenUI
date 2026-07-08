@@ -3,6 +3,7 @@ import {
   isSafeGenui0ObjectExpression,
   isSafeGenui0SimpleExpression,
   parseGenui0CapabilityAction,
+  parseGenui0SetAction,
 } from "./genui0-language.js"
 import { genuiDialect, type CapabilityDescriptor } from "../types.js"
 
@@ -26,9 +27,10 @@ export const allowGenui0DataAttribute = ({
   const normalized = name.toLowerCase()
   if (value === undefined) return undefined
 
-  if (normalized === "data-genui-on-click" || normalized === "data-genui-on-submit-prevent") {
+  if (normalized === "data-genui-on-click" || normalized === "data-genui-on-submit") {
     const action = parseGenui0CapabilityAction(value)
-    return action !== undefined && grantedCapabilities.has(action.capability)
+    return parseGenui0SetAction(value) !== undefined ||
+      (action !== undefined && grantedCapabilities.has(action.capability))
       ? { name, value }
       : undefined
   }
@@ -68,9 +70,12 @@ export const genui0Instructions = (capabilities: readonly CapabilityDescriptor[]
   return [
     `Generated UI dialect: ${genuiDialect}.`,
     "Create fragment HTML only. Do not include scripts, iframes, external styles, or document tags.",
-    "Use only the GenUI directive namespace: data-genui-state, data-genui-bind, data-genui-on-click, data-genui-on-submit-prevent, data-genui-show, data-genui-text, data-genui-class-name, data-genui-style-property, and data-genui-attr-name.",
+    "Use only the GenUI directive namespace: data-genui-state, data-genui-bind, data-genui-on-click, data-genui-on-submit, data-genui-show, data-genui-text, data-genui-class-name, data-genui-style-property, and data-genui-attr-name.",
     "Use @capability('name', input) only for capabilities granted to the surface.",
     "Use @capability('name', input, { target: 'resultName' }) when multiple calls need separate result state.",
+    "Use @set('state.path', value) for local-only interactions such as tabs, toggles, disclosure, and selection.",
+    "Capability result state is written to $target.status, $target.value, and $target.error; status is 'pending', 'complete', or 'error'.",
+    "When target is omitted, the default result target is the camel-cased capability name, e.g. orders.search writes to $ordersSearch.",
     "Use only simple v0 expressions: state reads like $name or $name.path, primitive literals, comparisons, and flat object literals.",
     "Available capabilities:",
     capabilityList.length > 0 ? capabilityList : "- none",

@@ -13,6 +13,7 @@ import {
   capabilityPostMessage,
   createSandboxWindow,
   displayStyle,
+  isRecord,
   jsonRoundTrip,
 } from "./test-support.test-support.js"
 
@@ -30,6 +31,8 @@ const language: SandboxRuntimeLanguage = {
   evaluateExpression: (source, readState) => genui0Language.evaluateExpression(source, readState),
   parseCapabilityExpression: (expression, readState) =>
     genui0Language.parseCapabilityExpression(expression, readState),
+  parseSetExpression: (expression, readState) =>
+    genui0Language.parseSetExpression(expression, readState),
   defaultResultTarget: (capability) => genui0Language.defaultResultTarget(capability),
 }
 
@@ -79,9 +82,9 @@ void test("sandbox runtime posts capability calls from click actions", () => {
   })
 })
 
-void test("sandbox runtime posts capability calls from prevented submit actions", () => {
+void test("sandbox runtime posts capability calls from submit actions", () => {
   const { window, messages } = createHarness(`
-    <form data-genui-on-submit-prevent="@capability('weather.lookup', { city: $city })">
+    <form data-genui-on-submit="@capability('weather.lookup', { city: $city })">
       <input data-genui-bind="city" value="Tokyo">
       <button>Search</button>
     </form>
@@ -232,6 +235,37 @@ void test("sandbox runtime refreshes local directives from bound input state", (
   assert.equal(styledHyphen?.getAttribute("style"), "background-color: blue;")
   assert.equal(attr?.getAttribute("title"), "blue")
   assert.equal(attrHyphen?.getAttribute("aria-label"), "blue")
+})
+
+void test("sandbox runtime runs local set actions without posting messages", () => {
+  const { window, messages } = createHarness(`
+    <section data-genui-state="{ tab: 'summary' }">
+      <button id="summary" data-genui-on-click="@set('tab', 'summary')">Summary</button>
+      <button id="details" data-genui-on-click="@set('tab', 'details')">Details</button>
+      <p id="summary-panel" data-genui-show="$tab == 'summary'">Summary panel</p>
+      <p id="details-panel" data-genui-show="$tab == 'details'">Details panel</p>
+      <p id="current" data-genui-text="$tab"></p>
+    </section>
+  `)
+
+  const details = window.document.querySelector("#details")
+  const summaryPanel = window.document.querySelector("#summary-panel")
+  const detailsPanel = window.document.querySelector("#details-panel")
+  const current = window.document.querySelector("#current")
+
+  assert.equal(displayStyle(summaryPanel), "")
+  assert.equal(displayStyle(detailsPanel), "none")
+  assert.equal(current?.textContent, "summary")
+
+  details?.dispatchEvent(new window.MouseEvent("click", { bubbles: true, cancelable: true }))
+
+  assert.equal(displayStyle(summaryPanel), "none")
+  assert.equal(displayStyle(detailsPanel), "")
+  assert.equal(current?.textContent, "details")
+  assert.equal(
+    messages.some((message) => isRecord(message) && message.type === "capability"),
+    false,
+  )
 })
 
 void test("sandbox runtime brokers link clicks", () => {

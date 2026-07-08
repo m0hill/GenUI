@@ -10,6 +10,16 @@ export interface Genui0SandboxCapabilityAction {
   readonly target?: string
 }
 
+export interface Genui0SetAction {
+  readonly pathExpression: string
+  readonly valueExpression: string
+}
+
+export interface Genui0SandboxSetAction {
+  readonly path: readonly string[]
+  readonly value: unknown
+}
+
 export interface Genui0Language {
   readonly invalid: symbol
   isCapabilityName(value: string): boolean
@@ -20,12 +30,17 @@ export interface Genui0Language {
   isSafeSimpleExpression(value: string): boolean
   isSafeBindingExpression(value: string): boolean
   parseCapabilityAction(value: string): Genui0CapabilityAction | undefined
+  parseSetAction(value: string): Genui0SetAction | undefined
   parseObjectLiteral(source: string, readState: (expression: string) => unknown): unknown
   evaluateExpression(source: string, readState: (expression: string) => unknown): unknown
   parseCapabilityExpression(
     expression: string,
     readState: (expression: string) => unknown,
   ): Genui0SandboxCapabilityAction | undefined
+  parseSetExpression(
+    expression: string,
+    readState: (expression: string) => unknown,
+  ): Genui0SandboxSetAction | undefined
   defaultResultTarget(capability: string): string
   normalizeResultTarget(target: string | undefined, capability: string): string
 }
@@ -174,6 +189,11 @@ export const createGenui0Language = (): Genui0Language => {
   const isCapabilityName = (value: string): boolean => capabilityNamePattern.test(value)
   const isStateName = (value: string): boolean => bareIdentifierPattern.test(value)
   const isStatePath = (value: string): boolean => statePathPattern.test(value)
+  const statePathParts = (value: string): readonly string[] | undefined => {
+    const source = value.startsWith("$") ? value.slice(1) : value
+    const parts = source.split(".")
+    return parts.length > 0 && parts.every(isStateName) ? parts : undefined
+  }
 
   const parseScalarExpression = (
     source: string,
@@ -312,6 +332,42 @@ export const createGenui0Language = (): Genui0Language => {
       : { capability: action.capability, input, target: action.target }
   }
 
+  const parseSetAction = (value: string): Genui0SetAction | undefined => {
+    const source = value.trim()
+    const prefix = "@set("
+    if (!source.startsWith(prefix) || !source.endsWith(")")) return undefined
+
+    const args = splitTopLevel(source.slice(prefix.length, -1), ",")
+    if (args === undefined || args.length !== 2) return undefined
+
+    const pathExpression = stringLiteralValue(args[0])
+    const valueExpression = args[1]
+    if (
+      pathExpression === invalid ||
+      valueExpression === undefined ||
+      statePathParts(pathExpression) === undefined ||
+      !isSafeSimpleExpression(valueExpression)
+    ) {
+      return undefined
+    }
+
+    return { pathExpression, valueExpression }
+  }
+
+  const parseSetExpression = (
+    expression: string,
+    readState: (expression: string) => unknown,
+  ): Genui0SandboxSetAction | undefined => {
+    const action = parseSetAction(expression)
+    if (action === undefined) return undefined
+
+    const path = statePathParts(action.pathExpression)
+    if (path === undefined) return undefined
+
+    const value = evaluateExpression(action.valueExpression, readState)
+    return value === invalid ? undefined : { path, value }
+  }
+
   const camelCaseWords = (words: readonly string[]): string => {
     const [first, ...rest] = words
     if (first === undefined) return "capability"
@@ -341,9 +397,11 @@ export const createGenui0Language = (): Genui0Language => {
     isSafeSimpleExpression,
     isSafeBindingExpression,
     parseCapabilityAction,
+    parseSetAction,
     parseObjectLiteral,
     evaluateExpression,
     parseCapabilityExpression,
+    parseSetExpression,
     defaultResultTarget,
     normalizeResultTarget,
   }
@@ -371,6 +429,10 @@ export const isSafeGenui0BindingExpression = (value: string): boolean =>
 export const parseGenui0CapabilityAction = (value: string): Genui0CapabilityAction | undefined =>
   genui0Language.parseCapabilityAction(value)
 
+/** Parse a v0 local @set action only when its path and value syntax are in the dialect. */
+export const parseGenui0SetAction = (value: string): Genui0SetAction | undefined =>
+  genui0Language.parseSetAction(value)
+
 /** Convert a capability name into the default genui/0 result state target. */
 export const defaultGenui0ResultTarget = (capability: string): string =>
   genui0Language.defaultResultTarget(capability)
@@ -389,4 +451,5 @@ export const genui0SandboxLanguageScript = (): string => `
   const genui0EvaluateExpression = genui0Language.evaluateExpression;
   const genui0DefaultResultTarget = genui0Language.defaultResultTarget;
   const parseGenui0CapabilityExpression = genui0Language.parseCapabilityExpression;
+  const parseGenui0SetExpression = genui0Language.parseSetExpression;
 `

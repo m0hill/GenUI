@@ -9,6 +9,11 @@ export interface SandboxRuntimeCapabilityAction {
   readonly target?: string
 }
 
+export interface SandboxRuntimeSetAction {
+  readonly path: readonly string[]
+  readonly value: unknown
+}
+
 export interface SandboxRuntimeLanguage {
   readonly invalid: unknown
   parseObjectLiteral(source: string, readState: (expression: string) => unknown): unknown
@@ -17,6 +22,10 @@ export interface SandboxRuntimeLanguage {
     expression: string,
     readState: (expression: string) => unknown,
   ): SandboxRuntimeCapabilityAction | undefined
+  parseSetExpression(
+    expression: string,
+    readState: (expression: string) => unknown,
+  ): SandboxRuntimeSetAction | undefined
   defaultResultTarget(capability: string): string
 }
 
@@ -397,10 +406,22 @@ export const installSandboxRuntime = (
     return true
   }
 
+  const runLocalAction = (expression: string): boolean => {
+    const action = language.parseSetExpression(expression, readState)
+    if (action === undefined) return false
+
+    writePath(action.path, action.value)
+    refresh()
+    return true
+  }
+
+  const runAuthoredAction = (expression: string): boolean =>
+    runLocalAction(expression) || postCapabilityCall(expression)
+
   const handleClick = (event: MouseEvent): void => {
     const action = closestWithAttribute(event.target, "data-genui-on-click")
     const expression = action?.getAttribute("data-genui-on-click") ?? null
-    if (expression !== null && postCapabilityCall(expression)) {
+    if (expression !== null && runAuthoredAction(expression)) {
       event.preventDefault()
       return
     }
@@ -426,11 +447,11 @@ export const installSandboxRuntime = (
     if (!(target instanceof global.Element)) return
 
     const form = target.closest("form")
-    if (form === null || !form.hasAttribute("data-genui-on-submit-prevent")) return
+    if (form === null || !form.hasAttribute("data-genui-on-submit")) return
 
     event.preventDefault()
-    const expression = form.getAttribute("data-genui-on-submit-prevent")
-    if (expression !== null) postCapabilityCall(expression)
+    const expression = form.getAttribute("data-genui-on-submit")
+    if (expression !== null) runAuthoredAction(expression)
   }
 
   const handleBoundInput = (event: Event): void => {

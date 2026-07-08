@@ -10,14 +10,15 @@ This folder is intentionally conceptual. It avoids implementation-shaped code so
 2. [Principles](01-principles.md) explains the core bet: HTML for generated surfaces, capabilities for authority, and JSON for protocol.
 3. [Trust And Runtime](02-trust-and-runtime.md) describes the actors, sandbox boundary, host broker, server authority, and rendering pipeline.
 4. [Capabilities And Permissions](03-capabilities-and-permissions.md) explains capability grants, effects, policies, approvals, and how to adapt existing agent tools.
-5. [Interaction And State](04-interaction-and-state.md) explains Datastar's role, capability calls, result flow, shared state, persistence, and streaming.
+5. [Interaction And State](04-interaction-and-state.md) explains declarative interaction, capability calls, result flow, shared state, persistence, and streaming.
 6. [Extensions And JavaScript](05-extensions-and-javascript.md) covers trusted actions, plugin attributes, MCP adapters, widgets, and the narrow case for custom JavaScript.
 7. [Product Hardening](06-product-hardening.md) covers threat modeling, testing, product quality, observability, and a practical roadmap.
 8. [Related Approaches](07-related-approaches.md) compares this architecture with React components-as-tools, JSON UI, A2UI-style approaches, and CopilotKit-style frameworks.
 9. [Reconstruction Guide](08-reconstruction-guide.md) gives a concise build order for recreating the system from scratch.
 10. [Surface Runtime Model](09-surface-runtime-model.md) defines surface identity, grants, manifests, and request lifecycle.
-11. [Expression Model](10-expression-model.md) captures the Datastar-vs-closed-DSL decision the framework must make.
+11. [Expression Model](10-expression-model.md) captures the declarative-runtime-vs-closed-DSL decision the framework must make.
 12. [Runtime API And Packaging](11-runtime-api-and-packaging.md) describes the provider-independent public surface, adapter seams, and runtime bundling model.
+13. [Runtime Iteration Log](12-runtime-iteration-log.md) tracks current runtime advice, accepted decisions, deferred work, and next commits.
 
 ## One-Sentence Version
 
@@ -54,7 +55,7 @@ Model creates UI
 The important separation is simple:
 
 - HTML describes the interface.
-- Datastar describes ordinary interaction.
+- The GenUI dialect describes ordinary interaction.
 - JSON carries protocol data.
 - Capabilities carry authority.
 - The host and server enforce trust.

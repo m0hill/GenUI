@@ -77,6 +77,14 @@ void test("genui/0 allows simple local state expressions", () => {
     }),
     { name: "data-genui-show", value: "$status == 'pending'" },
   )
+  assert.deepEqual(
+    allowGenui0DataAttribute({
+      name: "data-genui-on-click",
+      value: "@set('tab', 'details')",
+      grantedCapabilities,
+    }),
+    { name: "data-genui-on-click", value: "@set('tab', 'details')" },
+  )
 })
 
 void test("genui/0 rejects general JavaScript expressions", () => {
@@ -96,6 +104,14 @@ void test("genui/0 rejects general JavaScript expressions", () => {
     }),
     undefined,
   )
+  assert.equal(
+    allowGenui0DataAttribute({
+      name: "data-genui-on-click",
+      value: "@set('tab', window.location)",
+      grantedCapabilities,
+    }),
+    undefined,
+  )
 })
 
 void test("genui/0 instructions describe dialect and capability descriptors", () => {
@@ -109,7 +125,14 @@ void test("genui/0 instructions describe dialect and capability descriptors", ()
   ])
 
   assert.match(instructions, /Generated UI dialect: genui\/0/)
+  assert.match(instructions, /data-genui-on-submit/)
+  assert.match(instructions, /@set\('state\.path', value\)/)
   assert.match(instructions, /dice\.roll: Roll a die\./)
   assert.match(instructions, /target: 'resultName'/)
+  assert.match(instructions, /\$target\.status/)
+  assert.match(instructions, /\$target\.value/)
+  assert.match(instructions, /\$target\.error/)
+  assert.match(instructions, /'pending', 'complete', or 'error'/)
+  assert.match(instructions, /orders\.search writes to \$ordersSearch/)
   assert.match(instructions, /simple v0 expressions/)
 })
