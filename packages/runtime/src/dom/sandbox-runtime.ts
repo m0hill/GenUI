@@ -119,6 +119,10 @@ export const installSandboxRuntime = (
     directives: Directive[]
   }
 
+  type OwnPropertyRead =
+    | { readonly found: false }
+    | { readonly found: true; readonly value: unknown }
+
   let nextCallId = 1
   let resizeObserver: ResizeObserver | undefined
   const state: Record<string, unknown> = {}
@@ -134,6 +138,15 @@ export const installSandboxRuntime = (
   const hasOwn = (value: object, key: string): boolean =>
     Object.prototype.hasOwnProperty.call(value, key)
 
+  const readOwnProperty = (value: unknown, key: string): OwnPropertyRead => {
+    if (typeof value !== "object" || value === null) return { found: false }
+
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)
+    return descriptor !== undefined && "value" in descriptor
+      ? { found: true, value: descriptor.value }
+      : { found: false }
+  }
+
   const statePath = (expression: string): readonly string[] => {
     const source = expression.startsWith("$") ? expression.slice(1) : expression
     return source.split(".").filter((part) => part.length > 0)
@@ -145,8 +158,9 @@ export const installSandboxRuntime = (
 
     let value: unknown = hasOwn(scope, name) ? scope[name] : hasOwn(state, name) ? state[name] : ""
     for (const property of rest) {
-      if (!isRecord(value) || !hasOwn(value, property)) return ""
-      value = value[property]
+      const next = readOwnProperty(value, property)
+      if (!next.found) return ""
+      value = next.value
     }
     return value
   }

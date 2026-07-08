@@ -270,6 +270,7 @@ void test("sandbox runtime runs local set actions without posting messages", () 
 
 void test("sandbox runtime renders repeated items with scoped capability inputs", () => {
   const { window, messages } = createHarness(`
+    <p id="empty" data-genui-show="$orders.value.items.length == 0">No orders</p>
     <p id="updating" data-genui-show="$orders.status == 'pending'">Updating</p>
     <table>
       <tbody data-genui-each="$orders.value.items" data-genui-as="order">
@@ -308,6 +309,7 @@ void test("sandbox runtime renders repeated items with scoped capability inputs"
     }),
   )
 
+  assert.equal(displayStyle(window.document.querySelector("#empty")), "none")
   const rows = Array.from(window.document.querySelectorAll("tbody tr"))
   assert.equal(rows.length, 2)
   assert.equal(rows[0]?.textContent?.includes("order-1"), true)
@@ -330,6 +332,24 @@ void test("sandbox runtime renders repeated items with scoped capability inputs"
   assert.equal(message.capability, "orders.refund")
   assert.equal(message.target, "orders")
   assert.deepEqual(jsonRoundTrip(message.input), { id: "order-2" })
+
+  window.dispatchEvent(
+    new window.MessageEvent("message", {
+      data: {
+        channel: protocolChannel,
+        surfaceId: "surface-test",
+        type: "result",
+        target: "orders",
+        state: {
+          status: "complete",
+          value: { items: [] },
+        },
+      },
+    }),
+  )
+
+  assert.equal(window.document.querySelectorAll("tbody tr").length, 0)
+  assert.equal(displayStyle(window.document.querySelector("#empty")), "")
 })
 
 void test("sandbox runtime renders nested repeated items with merged scopes", () => {

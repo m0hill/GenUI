@@ -56,6 +56,12 @@ const isElementNode = (node: ChildNode): node is ElementNode => "tagName" in nod
 
 const isSafeHttpsUrl = (value: string): boolean => /^https:\/\//i.test(value.trim())
 
+const isGenuiBindAttribute = (attribute: Attribute): boolean =>
+  attributeName(attribute).toLowerCase() === "data-genui-bind"
+
+const isGenuiEachAttribute = (attribute: Attribute): boolean =>
+  attributeName(attribute).toLowerCase() === "data-genui-each"
+
 const sanitizeDataAttribute = (
   attribute: Attribute,
   grantedCapabilities: ReadonlySet<string>,
@@ -72,11 +78,13 @@ const sanitizeDataAttribute = (
 const sanitizeAttribute = (
   attribute: Attribute,
   grantedCapabilities: ReadonlySet<string>,
+  insideRepeatedTemplate: boolean,
 ): Attribute | undefined => {
   const name = attributeName(attribute).toLowerCase()
 
   if (name.startsWith("on")) return undefined
   if (name === "style") return undefined
+  if (insideRepeatedTemplate && name === "data-genui-bind") return undefined
   if (directSubmissionAttributeNames.has(name)) return undefined
   if (name.startsWith("data-")) return sanitizeDataAttribute(attribute, grantedCapabilities)
 
@@ -94,14 +102,23 @@ const sanitizeAttribute = (
 const sanitizeAttributes = (
   element: ElementNode,
   grantedCapabilities: ReadonlySet<string>,
+  insideRepeatedTemplate: boolean,
 ): void => {
   element.attrs = element.attrs.flatMap((attribute) => {
-    const safe = sanitizeAttribute(attribute, grantedCapabilities)
+    const safe = sanitizeAttribute(attribute, grantedCapabilities, insideRepeatedTemplate)
     return safe === undefined ? [] : [safe]
   })
+
+  if (element.attrs.some(isGenuiEachAttribute)) {
+    element.attrs = element.attrs.filter((attribute) => !isGenuiBindAttribute(attribute))
+  }
 }
 
-const sanitizeChildren = (parent: ParentNode, grantedCapabilities: ReadonlySet<string>): void => {
+const sanitizeChildren = (
+  parent: ParentNode,
+  grantedCapabilities: ReadonlySet<string>,
+  insideRepeatedTemplate = false,
+): void => {
   const safeChildren: ChildNode[] = []
 
   for (const child of parent.childNodes) {
@@ -113,8 +130,12 @@ const sanitizeChildren = (parent: ParentNode, grantedCapabilities: ReadonlySet<s
 
     if (removedElementTags.has(child.tagName.toLowerCase())) continue
 
-    sanitizeAttributes(child, grantedCapabilities)
-    sanitizeChildren(child, grantedCapabilities)
+    sanitizeAttributes(child, grantedCapabilities, insideRepeatedTemplate)
+    sanitizeChildren(
+      child,
+      grantedCapabilities,
+      insideRepeatedTemplate || child.attrs.some(isGenuiEachAttribute),
+    )
     safeChildren.push(child)
   }
 

@@ -85,6 +85,8 @@ export const genui0Instructions = (capabilities: readonly CapabilityDescriptor[]
     "When target is omitted, the default result target is the camel-cased capability name, e.g. orders.search writes to $ordersSearch.",
     'Render arrays with data-genui-each on a container; its existing children are the item template. Use data-genui-as="order" to read each item as $order.',
     "Nested data-genui-each blocks can read outer and inner scope together, e.g. $order.id and $line.id.",
+    "Use array length reads such as $orders.value.items.length for empty states.",
+    "Do not put data-genui-bind inside data-genui-each; repeated rows are read-only in v0.",
     "Use only simple v0 expressions: state reads like $name or $name.path, primitive literals, comparisons, and flat object literals.",
     "Available capabilities:",
     capabilityList.length > 0 ? capabilityList : "- none",

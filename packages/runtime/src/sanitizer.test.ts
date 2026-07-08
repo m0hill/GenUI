@@ -84,6 +84,26 @@ void test("sanitizer preserves only granted capability calls", () => {
   assert.match(safe, /data-genui-text="\$order.id"/)
 })
 
+void test("sanitizer strips bindings inside repeated templates", () => {
+  const safe = sanitizeSurfaceHtml(
+    [
+      `<input data-genui-bind="outside" value="kept">`,
+      `<section data-genui-each="$orders.value.items" data-genui-as="order" data-genui-bind="root">`,
+      `<input data-genui-bind="orderName" value="stripped">`,
+      `<span data-genui-text="$order.id"></span>`,
+      `</section>`,
+    ].join(""),
+    granted,
+  )
+
+  assert.match(safe, /data-genui-bind="outside"/)
+  assert.match(safe, /data-genui-each="\$orders.value.items"/)
+  assert.match(safe, /data-genui-as="order"/)
+  assert.match(safe, /data-genui-text="\$order.id"/)
+  assert.doesNotMatch(safe, /data-genui-bind="root"/)
+  assert.doesNotMatch(safe, /data-genui-bind="orderName"/)
+})
+
 void test("sanitizer strips unsafe GenUI expressions", () => {
   const safe = sanitizeSurfaceHtml(
     [

@@ -19,6 +19,50 @@ The center of gravity is:
 Generated UI should remain HTML-first. The model authors markup and directives; app
 authority stays behind brokered capabilities.
 
+## Templating Position
+
+The model is the template engine. It authors concrete HTML for each surface, so the
+dialect should not grow a general templating system for reuse, abstraction, partials,
+includes, or components.
+
+Templating belongs in the runtime only where the model cannot know cardinality at
+generation time: repeating over runtime data that arrives later from state or a
+capability result. That is the boundary for `data-genui-each`.
+
+Accepted shape:
+
+- `data-genui-each="$orders.value.items"` names the array to render.
+- `data-genui-as="order"` names the item scope; when omitted, the runtime uses `$item`.
+- The element's children are the template. The runtime clones them into one instance per
+  item and clears/rebuilds the list on refresh.
+- Nested `data-genui-each` is valid. Inner scopes merge with outer scopes, so an action
+  can read both `$order.id` and `$line.id`.
+- Scope is a state-read overlay, not a state write. `$order` and `$line` do not get
+  written into shared surface state.
+- Event-time scope recovery is part of the design. Delegated click/submit handlers use
+  the rendered element scope so row actions can build capability inputs from item data.
+- Capability results stay data-only. The runtime repeats existing sanitized markup over
+  data; capabilities do not return display HTML.
+- Whole-list rerender is the current rule. Keyed diffing can come later only if real app
+  behavior needs it.
+
+Explicitly rejected for now:
+
+- Text interpolation such as `{{ order.name }}`. Dynamic behavior should stay in
+  allowlisted attributes such as `data-genui-text`, where the sanitizer can reason about
+  it.
+- Named or reusable templates, partials, includes, and model-authored components. Reuse
+  helps human authors more than generated surfaces, and it adds a resolution layer the
+  sanitizer and runtime would need to trust.
+- Structural `if`/`else` templating. `data-genui-show` covers conditional display, and
+  the model can author both branches concretely.
+- Recursive template references. They are abstraction, not runtime-data cardinality.
+
+Future exception to keep in mind: host-defined templates or trusted widgets. An app may
+eventually register a blessed fragment such as an order card and let the model place it
+inside a generated layout with data. That belongs to the deferred trusted-widget and
+extension-model work, not to the current authored dialect.
+
 ## Accepted Big-Model Advice
 
 The latest outside review agreed with the core primitive and recommended the following
@@ -62,6 +106,7 @@ Supported directive shapes:
 Expression scope is intentionally small:
 
 - state reads: `$name`, `$name.path`;
+- array own-property reads such as `$orders.value.items.length`;
 - primitive literals;
 - equality and inequality comparisons;
 - flat object literals for capability inputs and initial state.
@@ -97,15 +142,25 @@ Supported event actions:
    - Done in code: nested `data-genui-each` blocks merge outer and inner scopes, so
      actions can read values like `$order.id` and `$line.id` together.
    - Done in code: item-scoped capability inputs work, for example `{ id: $order.id }`.
+   - Done in code: array `.length` reads work for empty states such as
+     `$orders.value.items.length == 0`.
+   - Done in code: `data-genui-bind` is stripped inside repeated templates because
+     editable row semantics are not defined yet.
    - Capability results stay data-only; no browser-side HTML fragments are introduced.
 
 4. Real app proof.
-   - Build an orders-admin slice with:
-     - `orders.search` as a read capability;
-     - `orders.refund` as an approval-gated write capability;
-     - `orders.addNote` as a write capability.
-   - The surface should include a filter form, result table, per-row actions, pending
-     state, error state, and mutation refresh behavior.
+   - Done in code: an orders-admin proof test defines app-owned schemas, capabilities,
+     state, and a generated orders surface outside the runtime internals.
+   - Done in code: `orders.search` is a read capability.
+   - Done in code: `orders.refund` is an approval-gated write capability.
+   - Done in code: `orders.add_note` is a write capability.
+   - Done in code: the proof surface includes a filter form, empty/pending/error state,
+     a repeated result table, nested line items, per-row actions, and mutation refresh
+     behavior.
+   - Done in code: the same HTML with a narrower grant refuses the write action before
+     transport.
+   - Follow-up: add a visual example route or standalone example app once the public
+     mount API settles further.
 
 ## Important Deferred Work
 
@@ -124,6 +179,7 @@ Supported event actions:
 - Browser-side sanitizer.
 - Keyed list diffing.
 - `<template data-genui-each>` support.
+- Text interpolation and named model-authored templates.
 
 ## Explicit Non-Goals For Now
 
@@ -131,6 +187,8 @@ Supported event actions:
 - Do not make app-defined directive plugins yet; every sanitizer-allowed directive is a
   runtime contract.
 - Do not add capability-returned HTML fragments before solving browser-side sanitization.
+- Do not add general templating. Repetition over runtime data is the only templating
+  construct in the authored dialect.
 - Do not couple the runtime to React, Hono, Datastar, Datastar Kit, AI SDK, Pi, OpenAI,
   or MCP.
 
@@ -141,5 +199,7 @@ Supported event actions:
   dialect actions that never leave the sandbox?
 - When is `<template data-genui-each>` worth adding over the current host-element
   template model?
+- What is the right explicit row-editing model if repeated rows eventually need local
+  editable form state?
 - What is the minimum persistence API that makes `Surface` restoration honest without
   overcommitting to storage semantics?
