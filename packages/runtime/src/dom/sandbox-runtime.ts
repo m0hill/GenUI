@@ -62,12 +62,8 @@ export const installSandboxRuntime = (
   language: SandboxRuntimeLanguage,
   global: SandboxRuntimeGlobal,
 ): SandboxRuntimeInstance => {
-  type BoundElement = {
-    readonly element: Element
-    readonly path: readonly string[]
-  }
-
   type StateScope = Readonly<Record<string, unknown>>
+  type RenderMode = "static" | "template"
 
   type Directive = Genui0RuntimeDirective & {
     readonly scope: StateScope
@@ -77,6 +73,7 @@ export const installSandboxRuntime = (
     readonly element: Element
     readonly expression: string
     readonly itemName: string
+    readonly scope: StateScope
     readonly template: readonly Node[]
     directives: Directive[]
   }
@@ -88,7 +85,6 @@ export const installSandboxRuntime = (
   let nextCallId = 1
   let resizeObserver: ResizeObserver | undefined
   const state: Record<string, unknown> = {}
-  const boundElements: BoundElement[] = []
   const directives: Directive[] = []
   const eachBlocks: EachBlock[] = []
   const elementScopes = new WeakMap<Element, StateScope>()
@@ -435,42 +431,17 @@ export const installSandboxRuntime = (
     }
   }
 
-  const installBindings = (): void => {
-    for (const element of global.document.querySelectorAll(`[${genui0AttributeNames.bind}]`)) {
-      const path = statePath(element.getAttribute(genui0AttributeNames.bind) ?? "")
-      if (path.length === 0) continue
+  const installStaticBinding = (element: Element): void => {
+    const binding = element.getAttribute(genui0AttributeNames.bind)
+    if (binding === null) return
 
-      boundElements.push({ element, path })
-      if (hasAuthoredFormValue(element) || readPath(path) === "") {
-        writePath(path, readElementValue(element))
-      } else {
-        writeElementValue(element, readPath(path))
-      }
-    }
-  }
+    const path = statePath(binding)
+    if (path.length === 0) return
 
-  const installEachBlocks = (): void => {
-    const isNestedEachBlock = (element: Element): boolean => {
-      let parent = element.parentElement
-      while (parent !== null) {
-        if (parent.hasAttribute(genui0AttributeNames.each)) return true
-        parent = parent.parentElement
-      }
-      return false
-    }
-
-    const elements = Array.from(
-      global.document.querySelectorAll(`[${genui0AttributeNames.each}]`),
-    ).filter((element) => !isNestedEachBlock(element))
-
-    for (const element of elements) {
-      const expression = element.getAttribute(genui0AttributeNames.each)
-      if (expression === null) continue
-
-      const itemName = element.getAttribute(genui0AttributeNames.as) ?? "item"
-      const template = Array.from(element.childNodes).map((node) => node.cloneNode(true))
-      element.replaceChildren()
-      eachBlocks.push({ element, expression, itemName, template, directives: [] })
+    if (hasAuthoredFormValue(element) || readPath(path) === "") {
+      writePath(path, readElementValue(element))
+    } else {
+      writeElementValue(element, readPath(path))
     }
   }
 
@@ -489,39 +460,39 @@ export const installSandboxRuntime = (
     })
   }
 
-  const installDirectives = (
-    root: ParentNode,
-    scope: StateScope,
-    targetDirectives: Directive[],
-  ): void => {
-    const elements =
-      root instanceof global.Element
-        ? [root, ...Array.from(root.querySelectorAll("*"))]
-        : Array.from(root.querySelectorAll("*"))
-
-    for (const element of elements) {
-      for (const attribute of element.attributes) {
-        installDirective(element, attribute, scope, targetDirectives)
-      }
-    }
-  }
-
   const renderElementTree = (
     element: Element,
     scope: StateScope,
     targetDirectives: Directive[],
+    mode: RenderMode,
   ): void => {
     elementScopes.set(element, scope)
     for (const attribute of element.attributes) {
       installDirective(element, attribute, scope, targetDirectives)
     }
 
+    if (mode === "static") installStaticBinding(element)
+
     if (element.hasAttribute(genui0AttributeNames.each)) {
-      renderEachElement(element, scope, targetDirectives)
+      if (mode === "static") {
+        installEachBlock(element, scope)
+      } else {
+        renderEachElement(element, scope, targetDirectives)
+      }
       return
     }
 
-    for (const child of element.children) renderElementTree(child, scope, targetDirectives)
+    for (const child of element.children) renderElementTree(child, scope, targetDirectives, mode)
+  }
+
+  const installEachBlock = (element: Element, scope: StateScope): void => {
+    const expression = element.getAttribute(genui0AttributeNames.each)
+    if (expression === null) return
+
+    const itemName = element.getAttribute(genui0AttributeNames.as) ?? "item"
+    const template = Array.from(element.childNodes).map((node) => node.cloneNode(true))
+    element.replaceChildren()
+    eachBlocks.push({ element, expression, itemName, scope, template, directives: [] })
   }
 
   const renderEachTemplate = (
@@ -542,7 +513,9 @@ export const installSandboxRuntime = (
       for (const templateNode of template) {
         const clone = templateNode.cloneNode(true)
         element.append(clone)
-        if (clone instanceof global.Element) renderElementTree(clone, itemScope, targetDirectives)
+        if (clone instanceof global.Element) {
+          renderElementTree(clone, itemScope, targetDirectives, "template")
+        }
       }
     }
   }
@@ -568,16 +541,15 @@ export const installSandboxRuntime = (
         block.expression,
         block.itemName,
         block.template,
-        emptyScope,
+        block.scope,
         block.directives,
       )
     }
   }
 
   installInitialState()
-  installEachBlocks()
-  installBindings()
-  installDirectives(global.document, emptyScope, directives)
+  if (global.document.body !== null)
+    renderElementTree(global.document.body, emptyScope, directives, "static")
   renderEachBlocks()
   refreshDirectives()
 

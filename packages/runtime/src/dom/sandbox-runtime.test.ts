@@ -290,6 +290,21 @@ void test("sandbox runtime runs local set actions without posting messages", () 
   )
 })
 
+void test("sandbox runtime does not install bindings from repeated templates", () => {
+  const { window } = createHarness(`
+    <input data-genui-bind="outside" value="kept">
+    <section data-genui-each="$orders.value.items" data-genui-as="order">
+      <input data-genui-bind="inside" value="should-not-bind">
+      <span data-genui-text="$inside"></span>
+    </section>
+    <p id="outside" data-genui-text="$outside"></p>
+    <p id="inside" data-genui-text="$inside"></p>
+  `)
+
+  assert.equal(window.document.querySelector("#outside")?.textContent, "kept")
+  assert.equal(window.document.querySelector("#inside")?.textContent, "")
+})
+
 void test("sandbox runtime renders repeated items with scoped capability inputs", () => {
   const { window, messages } = createHarness(`
     <p id="empty" data-genui-show="$orders.value.items.length == 0">No orders</p>
