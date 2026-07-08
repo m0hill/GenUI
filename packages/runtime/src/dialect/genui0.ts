@@ -16,6 +16,7 @@ export const genui0AttributeNames = {
   text: "data-genui-text",
   each: "data-genui-each",
   as: "data-genui-as",
+  key: "data-genui-key",
   class: "data-genui-class",
   classPrefix: "data-genui-class-",
   style: "data-genui-style",
@@ -248,6 +249,14 @@ const genui0DirectiveDefinitions = [
     usage: genui0AttributeNames.as,
     instruction: 'Use data-genui-as="order" to read each repeated item as $order.',
     valueKind: "state_name",
+  },
+  {
+    key: "key",
+    pattern: { type: "exact", name: genui0AttributeNames.key },
+    usage: genui0AttributeNames.key,
+    instruction:
+      'Use data-genui-key with data-genui-each to preserve row identity, e.g. data-genui-key="$order.id".',
+    valueKind: "simple",
   },
   {
     key: "class_value",

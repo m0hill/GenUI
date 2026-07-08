@@ -33,8 +33,9 @@ Accepted shape:
 
 - `data-genui-each="$orders.value.items"` names the array to render.
 - `data-genui-as="order"` names the item scope; when omitted, the runtime uses `$item`.
+- `data-genui-key="$order.id"` preserves row identity when the backing array changes.
 - The element's children are the template. The runtime clones them into one instance per
-  item and clears/rebuilds the list on refresh.
+  item. Unkeyed lists rebuild on refresh; keyed lists reconcile existing rows by key.
 - Nested `data-genui-each` is valid. Inner scopes merge with outer scopes, so an action
   can read both `$order.id` and `$line.id`.
 - Scope is a state-read overlay, not a state write. `$order` and `$line` do not get
@@ -43,8 +44,9 @@ Accepted shape:
   the rendered element scope so row actions can build action inputs from item data.
 - Action results stay data-only. The runtime repeats existing sanitized markup over
   data; actions do not return display HTML.
-- Whole-list rerender is the current rule. Keyed diffing can come later only if real app
-  behavior needs it.
+- Keyed reconciliation is the current rule for row identity. It is the foundation for
+  future editable/stateful repeated rows, but `data-genui-bind` inside repeated templates
+  is still intentionally disabled.
 
 Explicitly rejected for now:
 
@@ -116,6 +118,7 @@ Supported directive shapes:
 - `data-genui-text`
 - `data-genui-each`
 - `data-genui-as`
+- `data-genui-key`
 - `data-genui-class`
 - `data-genui-class-*`
 - `data-genui-style`
@@ -353,6 +356,15 @@ Bindings are reactive in both directions for installed static controls:
     - Done in code: `data-genui-on-load` is stripped from repeated templates until row
       lifecycle semantics are designed.
 
+19. Keyed repeated rows.
+    - Done in code: `data-genui-key` is accepted as a safe expression alongside
+      `data-genui-each` and appears in model-facing dialect instructions.
+    - Done in code: keyed repeated rows reconcile existing DOM nodes by key instead of
+      rebuilding the whole list, so reordered rows can keep local DOM state.
+    - Done in code: unkeyed lists keep the previous full-rerender behavior.
+    - Done in code: duplicate or empty runtime keys fall back to the unkeyed render path
+      for that refresh rather than reusing the wrong row.
+
 ## Important Deferred Work
 
 - Model adapters.
@@ -362,7 +374,6 @@ Bindings are reactive in both directions for installed static controls:
 - Trusted widgets.
 - Action-returned HTML fragments.
 - Browser-side sanitizer.
-- Keyed list diffing.
 - `<template data-genui-each>` support.
 - Text interpolation and named model-authored templates.
 

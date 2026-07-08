@@ -182,7 +182,7 @@ void test("sanitizer strips bindings inside repeated templates", () => {
   const sanitized = sanitizeSurfaceHtml(
     [
       `<input data-genui-bind="outside" value="kept">`,
-      `<section data-genui-each="$orders.value.items" data-genui-as="order" data-genui-bind="root" data-genui-on-load="@action('dice.roll', {})">`,
+      `<section data-genui-each="$orders.value.items" data-genui-as="order" data-genui-key="$order.id" data-genui-bind="root" data-genui-on-load="@action('dice.roll', {})">`,
       `<input data-genui-bind="orderName" value="stripped">`,
       `<button data-genui-on-load="@action('dice.roll', {})">Load row</button>`,
       `<span data-genui-text="$order.id"></span>`,
@@ -195,6 +195,7 @@ void test("sanitizer strips bindings inside repeated templates", () => {
   assert.match(safe, /data-genui-bind="outside"/)
   assert.match(safe, /data-genui-each="\$orders.value.items"/)
   assert.match(safe, /data-genui-as="order"/)
+  assert.match(safe, /data-genui-key="\$order.id"/)
   assert.match(safe, /data-genui-text="\$order.id"/)
   assert.doesNotMatch(safe, /data-genui-bind="root"/)
   assert.doesNotMatch(safe, /data-genui-bind="orderName"/)
@@ -234,6 +235,7 @@ void test("sanitizer strips unsafe GenUI expressions", () => {
       `<button data-genui-on-click="@capability('dice.roll', { sides: 6 }); fetch('/x')">Bad</button>`,
       `<span data-genui-state="{ count: 1 }" data-genui-text="$count">1</span>`,
       `<span data-genui-show="$status == 'pending' || ($count >= 3 && !$closed)">Loading</span>`,
+      `<span data-genui-key="window.location">Bad key</span>`,
       `<span data-genui-text="formatCurrency($total, 'USD')">Total</span>`,
       `<span data-genui-text="formatUnknown($total)">Bad format</span>`,
       `<span data-genui-style-behavior="$count" data-genui-attr-onclick="$count">Bad dynamic attrs</span>`,
@@ -251,6 +253,7 @@ void test("sanitizer strips unsafe GenUI expressions", () => {
     safe,
     /data-genui-show="\$status == 'pending' \|\| \(\$count >= 3 &amp;&amp; !\$closed\)"/,
   )
+  assert.doesNotMatch(safe, /data-genui-key/)
   assert.match(safe, /data-genui-text="formatCurrency\(\$total, 'USD'\)"/)
   assert.doesNotMatch(safe, /formatUnknown/)
   assert.doesNotMatch(safe, /data-genui-style-behavior/)
@@ -266,6 +269,12 @@ void test("sanitizer strips unsafe GenUI expressions", () => {
       node: "button",
       attribute: "data-genui-on-click",
       value: "@capability('dice.roll', { sides: 6 }); fetch('/x')",
+      reason: "invalid_genui_expression",
+    },
+    {
+      node: "span",
+      attribute: "data-genui-key",
+      value: "window.location",
       reason: "invalid_genui_expression",
     },
     {

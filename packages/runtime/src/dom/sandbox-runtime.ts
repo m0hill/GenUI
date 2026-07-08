@@ -46,12 +46,23 @@ export const installSandboxRuntime = (
     readonly scope: StateScope
   }
 
+  type EachInstance = {
+    readonly nodes: readonly Node[]
+  }
+
+  type EachRenderState = {
+    readonly template: readonly Node[]
+    readonly instances: Map<string, EachInstance>
+  }
+
   type EachBlock = {
     readonly element: Element
     readonly expression: string
     readonly itemName: string
+    readonly keyExpression: string | undefined
     readonly scope: StateScope
     readonly template: readonly Node[]
+    readonly instances: Map<string, EachInstance>
     directives: Directive[]
   }
 
@@ -73,6 +84,9 @@ export const installSandboxRuntime = (
   const loadActions: LoadAction[] = []
   const boundElements = new Map<Element, readonly string[]>()
   const elementScopes = new WeakMap<Element, StateScope>()
+  const inlineEachStates = new WeakMap<Element, EachRenderState>()
+  const baseClassNames = new WeakMap<Element, string>()
+  const visibleDisplays = new WeakMap<Element, string>()
   const emptyScope: StateScope = {}
 
   const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -464,8 +478,19 @@ export const installSandboxRuntime = (
     const directive = genui0Runtime.directiveFromAttribute({ element, attribute })
     if (directive === undefined) return
 
+    if (directive.type === "class_value" && !baseClassNames.has(element)) {
+      baseClassNames.set(element, directive.baseClassName ?? "")
+    }
+    if (directive.type === "show" && !visibleDisplays.has(element)) {
+      visibleDisplays.set(element, directive.visibleDisplay ?? "")
+    }
+
     targetDirectives.push({
       ...directive,
+      ...(directive.type === "class_value"
+        ? { baseClassName: baseClassNames.get(element) ?? "" }
+        : {}),
+      ...(directive.type === "show" ? { visibleDisplay: visibleDisplays.get(element) ?? "" } : {}),
       scope,
     })
   }
@@ -501,34 +526,157 @@ export const installSandboxRuntime = (
     if (expression === null) return
 
     const itemName = element.getAttribute(genui0AttributeNames.as) ?? "item"
+    const keyExpression = element.getAttribute(genui0AttributeNames.key) ?? undefined
     const template = Array.from(element.childNodes).map((node) => node.cloneNode(true))
     element.replaceChildren()
-    eachBlocks.push({ element, expression, itemName, scope, template, directives: [] })
+    eachBlocks.push({
+      element,
+      expression,
+      itemName,
+      keyExpression,
+      scope,
+      template,
+      instances: new Map(),
+      directives: [],
+    })
+  }
+
+  const cloneTemplate = (template: readonly Node[]): readonly Node[] =>
+    template.map((templateNode) => templateNode.cloneNode(true))
+
+  const renderInstanceNodes = (
+    nodes: readonly Node[],
+    scope: StateScope,
+    targetDirectives: Directive[],
+  ): void => {
+    for (const node of nodes) {
+      if (node instanceof global.Element)
+        renderElementTree(node, scope, targetDirectives, "template")
+    }
+  }
+
+  const reconcileChildNodes = (element: Element, orderedNodes: readonly Node[]): void => {
+    let anchor = element.firstChild
+    for (const node of orderedNodes) {
+      if (node === anchor) {
+        anchor = anchor.nextSibling
+        continue
+      }
+
+      element.insertBefore(node, anchor)
+    }
+
+    const retained = new Set(orderedNodes)
+    for (const child of Array.from(element.childNodes)) {
+      if (!retained.has(child)) element.removeChild(child)
+    }
+  }
+
+  const renderUnkeyedEachTemplate = (
+    element: Element,
+    itemName: string,
+    template: readonly Node[],
+    items: readonly unknown[],
+    parentScope: StateScope,
+    targetDirectives: Directive[],
+  ): void => {
+    element.replaceChildren()
+
+    for (const item of items) {
+      const itemScope: StateScope = { ...parentScope, [itemName]: item }
+      for (const clone of cloneTemplate(template)) {
+        element.append(clone)
+        renderInstanceNodes([clone], itemScope, targetDirectives)
+      }
+    }
+  }
+
+  const keyForItem = (
+    expression: string,
+    scope: StateScope,
+    usedKeys: Set<string>,
+  ): string | undefined => {
+    const key = textValue(evaluate(expression, scope))
+    if (key.length === 0 || usedKeys.has(key)) return undefined
+    usedKeys.add(key)
+    return key
+  }
+
+  const renderKeyedEachTemplate = (
+    element: Element,
+    itemName: string,
+    keyExpression: string,
+    renderState: EachRenderState,
+    items: readonly unknown[],
+    parentScope: StateScope,
+    targetDirectives: Directive[],
+  ): boolean => {
+    const usedKeys = new Set<string>()
+    const rows: { readonly key: string; readonly scope: StateScope }[] = []
+
+    for (const item of items) {
+      const scope: StateScope = { ...parentScope, [itemName]: item }
+      const key = keyForItem(keyExpression, scope, usedKeys)
+      if (key === undefined) return false
+      rows.push({ key, scope })
+    }
+
+    const nextInstances = new Map<string, EachInstance>()
+    const orderedNodes: Node[] = []
+    for (const row of rows) {
+      const existing = renderState.instances.get(row.key)
+      const instance = existing ?? { nodes: cloneTemplate(renderState.template) }
+      renderInstanceNodes(instance.nodes, row.scope, targetDirectives)
+      nextInstances.set(row.key, instance)
+      orderedNodes.push(...instance.nodes)
+    }
+
+    reconcileChildNodes(element, orderedNodes)
+    renderState.instances.clear()
+    for (const [key, instance] of nextInstances) renderState.instances.set(key, instance)
+    return true
   }
 
   const renderEachTemplate = (
     element: Element,
     expression: string,
     itemName: string,
-    template: readonly Node[],
+    keyExpression: string | undefined,
+    renderState: EachRenderState,
     parentScope: StateScope,
     targetDirectives: Directive[],
   ): void => {
-    element.replaceChildren()
-
     const items = evaluate(expression, parentScope)
-    if (!Array.isArray(items)) return
-
-    for (const item of items) {
-      const itemScope: StateScope = { ...parentScope, [itemName]: item }
-      for (const templateNode of template) {
-        const clone = templateNode.cloneNode(true)
-        element.append(clone)
-        if (clone instanceof global.Element) {
-          renderElementTree(clone, itemScope, targetDirectives, "template")
-        }
-      }
+    if (!Array.isArray(items)) {
+      renderState.instances.clear()
+      element.replaceChildren()
+      return
     }
+
+    if (
+      keyExpression !== undefined &&
+      renderKeyedEachTemplate(
+        element,
+        itemName,
+        keyExpression,
+        renderState,
+        items,
+        parentScope,
+        targetDirectives,
+      )
+    ) {
+      return
+    }
+
+    renderState.instances.clear()
+    renderUnkeyedEachTemplate(
+      element,
+      itemName,
+      renderState.template,
+      items,
+      parentScope,
+      targetDirectives,
+    )
   }
 
   function renderEachElement(
@@ -540,8 +688,23 @@ export const installSandboxRuntime = (
     if (expression === null) return
 
     const itemName = element.getAttribute(genui0AttributeNames.as) ?? "item"
-    const template = Array.from(element.childNodes).map((node) => node.cloneNode(true))
-    renderEachTemplate(element, expression, itemName, template, scope, targetDirectives)
+    const keyExpression = element.getAttribute(genui0AttributeNames.key) ?? undefined
+    const renderState =
+      inlineEachStates.get(element) ??
+      ({
+        template: Array.from(element.childNodes).map((node) => node.cloneNode(true)),
+        instances: new Map(),
+      } satisfies EachRenderState)
+    inlineEachStates.set(element, renderState)
+    renderEachTemplate(
+      element,
+      expression,
+      itemName,
+      keyExpression,
+      renderState,
+      scope,
+      targetDirectives,
+    )
   }
 
   const renderEachBlocks = (): void => {
@@ -551,7 +714,8 @@ export const installSandboxRuntime = (
         block.element,
         block.expression,
         block.itemName,
-        block.template,
+        block.keyExpression,
+        { template: block.template, instances: block.instances },
         block.scope,
         block.directives,
       )

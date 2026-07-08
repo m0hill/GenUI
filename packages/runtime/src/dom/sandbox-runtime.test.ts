@@ -621,6 +621,58 @@ void test("sandbox runtime renders repeated items with scoped capability inputs"
   assert.equal(displayStyle(window.document.querySelector("#empty")), "")
 })
 
+void test("sandbox runtime preserves keyed repeated rows across reorder", () => {
+  const { window } = createHarness(`
+    <ul data-genui-each="$orders.value.items" data-genui-as="order" data-genui-key="$order.id">
+      <li class="row" data-genui-class="$order.status">
+        <span class="id" data-genui-text="$order.id"></span>
+        <span class="status" data-genui-text="$order.status"></span>
+        <input class="draft" value="">
+      </li>
+    </ul>
+  `)
+
+  const setOrders = (items: readonly Record<string, string>[]): void => {
+    window.dispatchEvent(
+      new window.MessageEvent("message", {
+        data: {
+          channel: protocolChannel,
+          surfaceId: "surface-test",
+          type: "result",
+          target: "orders",
+          state: { status: "complete", value: { items } },
+        },
+      }),
+    )
+  }
+
+  setOrders([
+    { id: "order-1", status: "paid" },
+    { id: "order-2", status: "pending" },
+  ])
+
+  const firstRows = Array.from(window.document.querySelectorAll("li"))
+  assert.equal(firstRows.length, 2)
+  const keptRow = firstRows[1]
+  assert.notEqual(keptRow, undefined)
+  const keptInput = keptRow?.querySelector("input")
+  assert.notEqual(keptInput, null)
+  if (keptInput !== null) keptInput.value = "draft survives"
+
+  setOrders([
+    { id: "order-2", status: "refunded" },
+    { id: "order-1", status: "paid" },
+  ])
+
+  const nextRows = Array.from(window.document.querySelectorAll("li"))
+  assert.equal(nextRows.length, 2)
+  assert.equal(nextRows[0], keptRow)
+  assert.equal(nextRows[0]?.querySelector(".id")?.textContent, "order-2")
+  assert.equal(nextRows[0]?.querySelector(".status")?.textContent, "refunded")
+  assert.equal(nextRows[0]?.className, "row refunded")
+  assert.equal(nextRows[0]?.querySelector("input")?.value, "draft survives")
+})
+
 void test("sandbox runtime renders nested repeated items with merged scopes", () => {
   const { window, messages } = createHarness(`
     <section data-genui-each="$orders.value.items" data-genui-as="order">

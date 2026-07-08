@@ -178,6 +178,14 @@ void test("genui/0 allows simple local state expressions", () => {
   )
   assert.deepEqual(
     allowGenui0DataAttribute({
+      name: "data-genui-key",
+      value: "$order.id",
+      grantedActions,
+    }),
+    { name: "data-genui-key", value: "$order.id" },
+  )
+  assert.deepEqual(
+    allowGenui0DataAttribute({
       name: "data-genui-show",
       value: "$status == 'pending' || ($count >= 3 && !$closed)",
       grantedActions,
