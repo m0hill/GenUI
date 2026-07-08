@@ -1,8 +1,8 @@
-import { isSafeStyleProperty, isSafeStyleValue } from "../css-style.js"
 import {
+  applyGenui0RuntimeDirective,
   genui0AttributeNames,
-  genui0RenderableDirectiveFromAttribute,
-  type Genui0RenderableDirective,
+  genui0RuntimeDirectiveFromAttribute,
+  type Genui0RuntimeDirective,
 } from "../dialect/genui0.js"
 
 export interface SandboxRuntimeConfig {
@@ -69,10 +69,7 @@ export const installSandboxRuntime = (
 
   type StateScope = Readonly<Record<string, unknown>>
 
-  type Directive = Genui0RenderableDirective & {
-    readonly element: Element
-    readonly visibleDisplay?: string
-    readonly baseClassName?: string
+  type Directive = Genui0RuntimeDirective & {
     readonly scope: StateScope
   }
 
@@ -180,6 +177,9 @@ export const installSandboxRuntime = (
     value !== "" &&
     value !== 0
 
+  const shouldRemoveDynamicValue = (value: unknown): boolean =>
+    value === language.invalid || value === false || value === null || value === undefined
+
   const textValue = (value: unknown): string => {
     if (value === language.invalid || value === null || value === undefined) return ""
     if (typeof value === "string") return value
@@ -280,39 +280,6 @@ export const installSandboxRuntime = (
   const isBoundElement = (target: EventTarget | null): target is Element =>
     target instanceof global.Element && target.hasAttribute(genui0AttributeNames.bind)
 
-  const elementStyle = (element: Element): CSSStyleDeclaration | undefined => {
-    // SAFETY: the sandbox runtime only receives browser DOM elements. Some test DOM
-    // implementations do not type their Element as HTMLElement, but still expose style.
-    return (element as unknown as { readonly style?: CSSStyleDeclaration }).style
-  }
-
-  const applyAttributeValue = (element: Element, attribute: string, value: unknown): void => {
-    if (value === language.invalid || value === false || value === null || value === undefined) {
-      element.removeAttribute(attribute)
-      return
-    }
-
-    element.setAttribute(attribute, value === true ? "" : textValue(value))
-  }
-
-  const applyStyleValue = (element: Element, property: string, value: unknown): void => {
-    const style = elementStyle(element)
-    if (style === undefined || !isSafeStyleProperty(property)) return
-
-    if (value === language.invalid || value === false || value === null || value === undefined) {
-      style.removeProperty(property)
-      return
-    }
-
-    const styleValue = textValue(value)
-    if (!isSafeStyleValue(styleValue)) {
-      style.removeProperty(property)
-      return
-    }
-
-    style.setProperty(property, styleValue)
-  }
-
   const currentDirectives = (): readonly Directive[] => [
     ...directives,
     ...eachBlocks.flatMap((block) => block.directives),
@@ -321,51 +288,11 @@ export const installSandboxRuntime = (
   const refreshDirectives = (): void => {
     for (const directive of currentDirectives()) {
       const value = evaluate(directive.expression, directive.scope)
-
-      if (directive.type === "text") {
-        directive.element.textContent = textValue(value)
-        continue
-      }
-
-      if (directive.type === "show") {
-        const style = elementStyle(directive.element)
-        if (style !== undefined) {
-          style.display = isTruthy(value) ? (directive.visibleDisplay ?? "") : "none"
-        }
-        continue
-      }
-
-      if (directive.type === "class_toggle") {
-        directive.element.classList.toggle(directive.className, isTruthy(value))
-        continue
-      }
-
-      if (directive.type === "class_value") {
-        const dynamicClass = typeof value === "string" ? value.trim() : ""
-        directive.element.className =
-          dynamicClass.length === 0
-            ? (directive.baseClassName ?? "")
-            : [directive.baseClassName ?? "", dynamicClass]
-                .filter((item) => item.length > 0)
-                .join(" ")
-        continue
-      }
-
-      if (directive.type === "style_property") {
-        applyStyleValue(directive.element, directive.property, value)
-        continue
-      }
-
-      if (directive.type === "style_map") {
-        if (isRecord(value)) {
-          for (const [property, propertyValue] of Object.entries(value)) {
-            applyStyleValue(directive.element, property, propertyValue)
-          }
-        }
-        continue
-      }
-
-      applyAttributeValue(directive.element, directive.attribute, value)
+      applyGenui0RuntimeDirective(directive, value, {
+        isTruthy,
+        shouldRemoveDynamicValue,
+        textValue,
+      })
     }
   }
 
@@ -553,15 +480,11 @@ export const installSandboxRuntime = (
     scope: StateScope,
     targetDirectives: Directive[],
   ): void => {
-    const directive = genui0RenderableDirectiveFromAttribute(attribute)
+    const directive = genui0RuntimeDirectiveFromAttribute({ element, attribute })
     if (directive === undefined) return
 
     targetDirectives.push({
       ...directive,
-      element,
-      visibleDisplay:
-        directive.type === "show" ? (elementStyle(element)?.display ?? "") : undefined,
-      baseClassName: directive.type === "class_value" ? element.className : undefined,
       scope,
     })
   }

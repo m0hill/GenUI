@@ -6,7 +6,11 @@ import {
   parseGenui0CapabilityAction,
   parseGenui0SetAction,
 } from "./genui0-language.js"
-import { isSafeStyleProperty, normalizeGenuiStylePropertyName } from "../css-style.js"
+import {
+  isSafeStyleProperty,
+  isSafeStyleValue,
+  normalizeGenuiStylePropertyName,
+} from "../css-style.js"
 import { genuiDialect, type CapabilityDescriptor } from "../types.js"
 
 export const genui0AttributeNames = {
@@ -55,7 +59,7 @@ interface Genui0DirectiveMatch {
   readonly suffix?: string
 }
 
-export type Genui0RenderableDirective =
+type Genui0RenderableDirective =
   | {
       readonly type: "text"
       readonly expression: string
@@ -88,6 +92,18 @@ export type Genui0RenderableDirective =
       readonly expression: string
     }
 
+export type Genui0RuntimeDirective = Genui0RenderableDirective & {
+  readonly element: Element
+  readonly visibleDisplay?: string
+  readonly baseClassName?: string
+}
+
+interface Genui0ApplyDirectiveContext {
+  isTruthy(value: unknown): boolean
+  shouldRemoveDynamicValue(value: unknown): boolean
+  textValue(value: unknown): string
+}
+
 interface Genui0DirectiveDefinition {
   readonly key: string
   readonly pattern: Genui0AttributePattern
@@ -104,6 +120,54 @@ const safeDynamicAttribute = (attribute: string): boolean => {
   const name = attribute.toLowerCase()
   if (name.startsWith("aria-")) return true
   return ["role", "title", "disabled", "checked", "value"].includes(name)
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+const elementStyle = (element: Element): CSSStyleDeclaration | undefined => {
+  // SAFETY: generated surfaces render in browser DOMs. Some test DOM implementations do not type
+  // their Element as HTMLElement, but still expose the same style API.
+  return (element as unknown as { readonly style?: CSSStyleDeclaration }).style
+}
+
+const applyAttributeValue = (
+  element: Element,
+  attribute: string,
+  value: unknown,
+  context: Genui0ApplyDirectiveContext,
+): void => {
+  if (!safeDynamicAttribute(attribute)) return
+
+  if (context.shouldRemoveDynamicValue(value)) {
+    element.removeAttribute(attribute)
+    return
+  }
+
+  element.setAttribute(attribute, value === true ? "" : context.textValue(value))
+}
+
+const applyStyleValue = (
+  element: Element,
+  property: string,
+  value: unknown,
+  context: Genui0ApplyDirectiveContext,
+): void => {
+  const style = elementStyle(element)
+  if (style === undefined || !isSafeStyleProperty(property)) return
+
+  if (context.shouldRemoveDynamicValue(value)) {
+    style.removeProperty(property)
+    return
+  }
+
+  const styleValue = context.textValue(value)
+  if (!isSafeStyleValue(styleValue)) {
+    style.removeProperty(property)
+    return
+  }
+
+  style.setProperty(property, styleValue)
 }
 
 const genui0DirectiveDefinitions = [
@@ -330,6 +394,73 @@ export const genui0RenderableDirectiveFromAttribute = ({
   if (directive.definition.validateName?.(directive.match) === false) return undefined
 
   return directive.definition.renderable?.(directive.match, value)
+}
+
+export const genui0RuntimeDirectiveFromAttribute = ({
+  element,
+  attribute,
+}: {
+  readonly element: Element
+  readonly attribute: Attr
+}): Genui0RuntimeDirective | undefined => {
+  const directive = genui0RenderableDirectiveFromAttribute(attribute)
+  if (directive === undefined) return undefined
+
+  return {
+    ...directive,
+    element,
+    visibleDisplay: directive.type === "show" ? (elementStyle(element)?.display ?? "") : undefined,
+    baseClassName: directive.type === "class_value" ? element.className : undefined,
+  }
+}
+
+export const applyGenui0RuntimeDirective = (
+  directive: Genui0RuntimeDirective,
+  value: unknown,
+  context: Genui0ApplyDirectiveContext,
+): void => {
+  if (directive.type === "text") {
+    directive.element.textContent = context.textValue(value)
+    return
+  }
+
+  if (directive.type === "show") {
+    const style = elementStyle(directive.element)
+    if (style !== undefined) {
+      style.display = context.isTruthy(value) ? (directive.visibleDisplay ?? "") : "none"
+    }
+    return
+  }
+
+  if (directive.type === "class_toggle") {
+    directive.element.classList.toggle(directive.className, context.isTruthy(value))
+    return
+  }
+
+  if (directive.type === "class_value") {
+    const dynamicClass = typeof value === "string" ? value.trim() : ""
+    directive.element.className =
+      dynamicClass.length === 0
+        ? (directive.baseClassName ?? "")
+        : [directive.baseClassName ?? "", dynamicClass].filter((item) => item.length > 0).join(" ")
+    return
+  }
+
+  if (directive.type === "style_property") {
+    applyStyleValue(directive.element, directive.property, value, context)
+    return
+  }
+
+  if (directive.type === "style_map") {
+    if (isRecord(value)) {
+      for (const [property, propertyValue] of Object.entries(value)) {
+        applyStyleValue(directive.element, property, propertyValue, context)
+      }
+    }
+    return
+  }
+
+  applyAttributeValue(directive.element, directive.attribute, value, context)
 }
 
 export const genui0HtmlDialectPolicy = {

@@ -1,13 +1,40 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
+import { Window } from "happy-dom"
 import {
+  applyGenui0RuntimeDirective,
   allowGenui0DataAttribute,
   genui0DirectiveInstructionLines,
   genui0DirectiveUsages,
   genui0Instructions,
+  genui0RuntimeDirectiveFromAttribute,
 } from "./genui0.js"
 
 const grantedCapabilities = new Set(["dice.roll"])
+
+const runtimeContext = {
+  isTruthy(value: unknown): boolean {
+    return value !== false && value !== null && value !== undefined && value !== "" && value !== 0
+  },
+  shouldRemoveDynamicValue(value: unknown): boolean {
+    return value === false || value === null || value === undefined
+  },
+  textValue(value: unknown): string {
+    if (value === null || value === undefined) return ""
+    if (typeof value === "string") return value
+    if (typeof value === "number" || typeof value === "boolean") return String(value)
+    return JSON.stringify(value)
+  },
+}
+
+const runtimeDirective = (element: Element, attributeName: string) => {
+  const attribute = element.getAttributeNode(attributeName)
+  if (attribute === null) throw new Error(`Missing test attribute: ${attributeName}`)
+
+  const directive = genui0RuntimeDirectiveFromAttribute({ element, attribute })
+  if (directive === undefined) throw new Error(`Expected runtime directive: ${attributeName}`)
+  return directive
+}
 
 void test("genui/0 allows only granted capability actions with v0 object inputs", () => {
   assert.deepEqual(
@@ -203,6 +230,57 @@ void test("genui/0 owns repeated-template structural directive constraints", () 
     }),
     { name: "data-genui-text", value: "$order.name" },
   )
+})
+
+void test("genui/0 owns runtime directive application", () => {
+  const window = new Window()
+  const document = window.document
+
+  const text = document.createElement("p") as unknown as Element
+  text.setAttribute("data-genui-text", "$label")
+  applyGenui0RuntimeDirective(runtimeDirective(text, "data-genui-text"), "Ready", runtimeContext)
+  assert.equal(text.textContent, "Ready")
+
+  const show = document.createElement("p") as unknown as Element
+  show.setAttribute("data-genui-show", "$open")
+  const showDirective = runtimeDirective(show, "data-genui-show")
+  applyGenui0RuntimeDirective(showDirective, false, runtimeContext)
+  assert.equal(show.getAttribute("style"), "display: none;")
+  applyGenui0RuntimeDirective(showDirective, true, runtimeContext)
+  assert.equal(show.getAttribute("style") ?? "", "")
+
+  const classValue = document.createElement("p") as unknown as Element
+  classValue.className = "base"
+  classValue.setAttribute("data-genui-class", "$tone")
+  const classValueDirective = runtimeDirective(classValue, "data-genui-class")
+  applyGenui0RuntimeDirective(classValueDirective, "accent", runtimeContext)
+  assert.equal(classValue.className, "base accent")
+  applyGenui0RuntimeDirective(classValueDirective, "", runtimeContext)
+  assert.equal(classValue.className, "base")
+
+  const classToggle = document.createElement("p") as unknown as Element
+  classToggle.setAttribute("data-genui-class-is-active", "$active")
+  const classToggleDirective = runtimeDirective(classToggle, "data-genui-class-is-active")
+  applyGenui0RuntimeDirective(classToggleDirective, true, runtimeContext)
+  assert.equal(classToggle.classList.contains("is-active"), true)
+  applyGenui0RuntimeDirective(classToggleDirective, false, runtimeContext)
+  assert.equal(classToggle.classList.contains("is-active"), false)
+
+  const style = document.createElement("p") as unknown as Element
+  style.setAttribute("data-genui-style-background-color", "$color")
+  const styleDirective = runtimeDirective(style, "data-genui-style-background-color")
+  applyGenui0RuntimeDirective(styleDirective, "red", runtimeContext)
+  assert.equal(style.getAttribute("style"), "background-color: red;")
+  applyGenui0RuntimeDirective(styleDirective, "url(https://example.com/x.png)", runtimeContext)
+  assert.equal(style.getAttribute("style") ?? "", "")
+
+  const attribute = document.createElement("p") as unknown as Element
+  attribute.setAttribute("data-genui-attr-aria-label", "$label")
+  const attributeDirective = runtimeDirective(attribute, "data-genui-attr-aria-label")
+  applyGenui0RuntimeDirective(attributeDirective, "Details", runtimeContext)
+  assert.equal(attribute.getAttribute("aria-label"), "Details")
+  applyGenui0RuntimeDirective(attributeDirective, false, runtimeContext)
+  assert.equal(attribute.hasAttribute("aria-label"), false)
 })
 
 void test("genui/0 instructions describe dialect and capability descriptors", () => {
