@@ -169,7 +169,7 @@ const mountElement = (element: Element, source: string, surface: Surface): void 
     if (existing.source === source && hasMountedIframe(element)) return
 
     if (hasMountedIframe(element)) {
-      existing.instance.replace(surface)
+      void existing.instance.replace(surface)
       mountedSurfaces.set(element, { source, instance: existing.instance })
       return
     }

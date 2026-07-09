@@ -155,6 +155,56 @@ void test("sandbox runtime posts load actions and renders pending/result state",
   assert.equal(window.document.querySelector("li")?.textContent, "order-1")
 })
 
+void test("sandbox runtime skips load actions for snapshot-seeded result targets", () => {
+  const { window, messages } = createHarness(
+    `
+      <section data-genui-on-load="@action('orders.search', {}, { target: 'orders' })">
+        <p id="ready" data-genui-show="$orders.status == 'complete'">Ready</p>
+        <ul data-genui-each="$orders.value.items" data-genui-as="order">
+          <li data-genui-text="$order.id"></li>
+        </ul>
+      </section>
+    `,
+    "surface-restored",
+    {
+      state: {
+        orders: { status: "complete", value: { items: [{ id: "order-1" }] } },
+      },
+      rowStates: {},
+    },
+  )
+
+  assert.equal(
+    messages.some((message) => isRecord(message) && message.type === "capability"),
+    false,
+  )
+  assert.equal(displayStyle(window.document.querySelector("#ready")), "")
+  assert.equal(window.document.querySelector("li")?.textContent, "order-1")
+})
+
+void test("sandbox runtime reruns load actions for pending or error snapshot targets", () => {
+  for (const status of ["pending", "error"] as const) {
+    const { messages } = createHarness(
+      `
+        <section data-genui-on-load="@action('orders.search', {}, { target: 'orders' })">
+          <p data-genui-show="$orders.status == 'pending'">Loading</p>
+        </section>
+      `,
+      `surface-restored-${status}`,
+      {
+        state: {
+          orders: status === "error" ? { status, error: "Failed" } : { status },
+        },
+        rowStates: {},
+      },
+    )
+
+    const message = capabilityPostMessage(messages)
+    assert.equal(message.action, "orders.search")
+    assert.equal(message.target, "orders")
+  }
+})
+
 void test("sandbox runtime exposes result state to later capability inputs", () => {
   const { window, messages } = createHarness(`
     <button data-genui-on-click="@capability('notes.create', { total: $rollResult.value.total })">
@@ -293,17 +343,21 @@ void test("sandbox runtime refreshes local directives from bound input state", (
   assert.equal(attrHyphen?.getAttribute("aria-label"), "blue")
 })
 
-void test("sandbox runtime renders expression v0.5 operators and formatters", () => {
+void test("sandbox runtime renders expression v0.6 operators and formatters", () => {
   const { window } = createHarness(`
     <section data-genui-state="{ count: 3, closed: false, amount: 1234.5, ratio: 0.1234, createdAt: '2026-01-02T12:00:00Z' }">
       <p id="visible" data-genui-show="$count >= 3 && !$closed">Visible</p>
       <p id="hidden" data-genui-show="$count < 3 || $closed">Hidden</p>
       <p id="fallback" data-genui-text="$user.name || 'Guest'"></p>
       <p id="ready" data-genui-text="$count && 'Ready'"></p>
+      <p id="math" data-genui-text="($count + 1) * 2"></p>
+      <p id="concat" data-genui-text="'Count: ' + $count"></p>
       <p id="number" data-genui-text="formatNumber($amount)"></p>
       <p id="currency" data-genui-text="formatCurrency($amount, 'USD')"></p>
       <p id="percent" data-genui-text="formatPercent($ratio)"></p>
       <p id="date" data-genui-text="formatDate($createdAt)"></p>
+      <button id="index" data-genui-on-click="@set('orders.0.total', $count + 7)">Set first order</button>
+      <p id="indexed" data-genui-text="$orders.0.total"></p>
     </section>
   `)
 
@@ -311,10 +365,17 @@ void test("sandbox runtime renders expression v0.5 operators and formatters", ()
   assert.equal(displayStyle(window.document.querySelector("#hidden")), "none")
   assert.equal(window.document.querySelector("#fallback")?.textContent, "Guest")
   assert.equal(window.document.querySelector("#ready")?.textContent, "Ready")
+  assert.equal(window.document.querySelector("#math")?.textContent, "8")
+  assert.equal(window.document.querySelector("#concat")?.textContent, "Count: 3")
   assert.equal(window.document.querySelector("#number")?.textContent, "1,234.5")
   assert.equal(window.document.querySelector("#currency")?.textContent, "$1,234.50")
   assert.equal(window.document.querySelector("#percent")?.textContent, "12.3%")
   assert.equal(window.document.querySelector("#date")?.textContent, "Jan 2, 2026")
+
+  window.document
+    .querySelector("#index")
+    ?.dispatchEvent(new window.Event("click", { bubbles: true }))
+  assert.equal(window.document.querySelector("#indexed")?.textContent, "10")
 })
 
 void test("sandbox runtime reports invalid post-mount expression evaluations", () => {

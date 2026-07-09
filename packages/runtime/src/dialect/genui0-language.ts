@@ -31,6 +31,7 @@ export interface Genui0Language {
   isSafeBindingExpression(value: string): boolean
   parseCapabilityAction(value: string): Genui0CapabilityAction | undefined
   parseSetAction(value: string): Genui0SetAction | undefined
+  objectLiteralKeys(source: string): readonly string[] | undefined
   parseObjectLiteral(source: string, readState: (expression: string) => unknown): unknown
   evaluateExpression(source: string, readState: (expression: string) => unknown): unknown
   parseCapabilityExpression(
@@ -49,8 +50,9 @@ type Punctuation = "{" | "}" | "(" | ")" | "," | ":"
 type EqualityOperator = "==" | "!="
 type OrderingOperator = "<" | "<=" | ">" | ">="
 type LogicalOperator = "&&" | "||"
+type ArithmeticOperator = "+" | "-" | "*" | "/"
 type UnaryOperator = "!"
-type BinaryOperator = EqualityOperator | OrderingOperator | LogicalOperator
+type BinaryOperator = EqualityOperator | OrderingOperator | LogicalOperator | ArithmeticOperator
 type FormatterName = "formatNumber" | "formatCurrency" | "formatPercent" | "formatDate"
 
 type Token =
@@ -122,7 +124,7 @@ type ScalarExpression =
 
 type ObjectEntry = {
   readonly key: string
-  readonly value: ScalarExpression
+  readonly value: ValueExpression
 }
 
 type ObjectExpression = {
@@ -177,7 +179,8 @@ type Expression = ValueExpression | ObjectExpression
 const createGenui0Language = (): Genui0Language => {
   const capabilityNamePatternSource = "[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+"
   const bareIdentifierPatternSource = "_?[A-Za-z][A-Za-z0-9_]*"
-  const statePathPatternSource = "\\$_?[A-Za-z][A-Za-z0-9_]*(?:\\._?[A-Za-z][A-Za-z0-9_]*)*"
+  const statePathPatternSource =
+    "\\$_?[A-Za-z][A-Za-z0-9_]*(?:\\.(?:_?[A-Za-z][A-Za-z0-9_]*|0|[1-9]\\d*))*"
   const numberPrefixPattern = /-?(?:0|[1-9]\d*)(?:\.\d+)?/
 
   const exactPattern = (source: string, flags?: string): RegExp => new RegExp(`^${source}$`, flags)
@@ -226,6 +229,14 @@ const createGenui0Language = (): Genui0Language => {
     return { value: source.slice(start, index), end: index }
   }
 
+  const readIndex = (
+    source: string,
+    start: number,
+  ): { readonly value: string; readonly end: number } | undefined => {
+    const match = /^(?:0|[1-9]\d*)/.exec(source.slice(start))
+    return match === null ? undefined : { value: match[0], end: start + match[0].length }
+  }
+
   const readStatePath = (
     source: string,
     start: number,
@@ -236,7 +247,7 @@ const createGenui0Language = (): Genui0Language => {
     index = first.end
 
     while (source[index] === ".") {
-      const next = readIdentifier(source, index + 1)
+      const next = readIdentifier(source, index + 1) ?? readIndex(source, index + 1)
       if (next === undefined) return undefined
       index = next.end
     }
@@ -306,7 +317,15 @@ const createGenui0Language = (): Genui0Language => {
         continue
       }
 
-      if (character === "-" || /\d/.test(character)) {
+      const previousToken = tokens.at(-1)
+      const canStartSignedNumber =
+        previousToken === undefined ||
+        previousToken.type === "operator" ||
+        (previousToken.type === "punctuation" &&
+          previousToken.value !== ")" &&
+          previousToken.value !== "}")
+
+      if (/\d/.test(character) || (character === "-" && canStartSignedNumber)) {
         const match = numberPrefixPattern.exec(source.slice(index))
         if (match === null || match.index !== 0) return undefined
         const value = match[0]
@@ -365,10 +384,18 @@ const createGenui0Language = (): Genui0Language => {
         continue
       }
 
-      if (character === "<" || character === ">" || character === "!") {
+      if (
+        character === "<" ||
+        character === ">" ||
+        character === "!" ||
+        character === "+" ||
+        character === "-" ||
+        character === "*" ||
+        character === "/"
+      ) {
         tokens.push({
           type: "operator",
-          value: character,
+          value: character as BinaryOperator | UnaryOperator,
           start: index,
           end: index + 1,
         })
@@ -402,11 +429,17 @@ const createGenui0Language = (): Genui0Language => {
 
   const isCapabilityName = (value: string): boolean => capabilityNamePattern.test(value)
   const isStateName = (value: string): boolean => bareIdentifierPattern.test(value)
+  const isStateIndex = (value: string): boolean => /^(?:0|[1-9]\d*)$/.test(value)
   const isStatePath = (value: string): boolean => statePathPattern.test(value)
   const statePathParts = (value: string): readonly string[] | undefined => {
     const source = value.startsWith("$") ? value.slice(1) : value
     const parts = source.split(".")
-    return parts.length > 0 && parts.every(isStateName) ? parts : undefined
+    const [first, ...rest] = parts
+    return first !== undefined &&
+      isStateName(first) &&
+      rest.every((part) => isStateName(part) || isStateIndex(part))
+      ? parts
+      : undefined
   }
   const formatterName = (value: string): FormatterName | undefined =>
     formatterNames.has(value as FormatterName) ? (value as FormatterName) : undefined
@@ -489,7 +522,7 @@ const createGenui0Language = (): Genui0Language => {
       if (colon?.type !== "punctuation" || colon.value !== ":") return undefined
       cursor += 1
 
-      const value = parseScalar(tokens, cursor)
+      const value = parseOr(tokens, cursor)
       if (value === undefined) return undefined
       entries.push({ key: keyName, value: value.expression })
       cursor = value.next
@@ -639,11 +672,67 @@ const createGenui0Language = (): Genui0Language => {
     return parsePrimary(tokens, index)
   }
 
+  const parseMultiplicative = (
+    tokens: readonly Token[],
+    index: number,
+  ): { readonly expression: ValueExpression; readonly next: number } | undefined => {
+    let parsed = parseUnary(tokens, index)
+    if (parsed === undefined) return undefined
+
+    let operator = tokenAt(tokens, parsed.next)
+    while (operator?.type === "operator" && (operator.value === "*" || operator.value === "/")) {
+      const right = parseUnary(tokens, parsed.next + 1)
+      if (right === undefined) return undefined
+      parsed = {
+        expression: {
+          type: "binary",
+          operator: operator.value,
+          left: parsed.expression,
+          right: right.expression,
+          start: parsed.expression.start,
+          end: right.expression.end,
+        },
+        next: right.next,
+      }
+      operator = tokenAt(tokens, parsed.next)
+    }
+
+    return parsed
+  }
+
+  const parseAdditive = (
+    tokens: readonly Token[],
+    index: number,
+  ): { readonly expression: ValueExpression; readonly next: number } | undefined => {
+    let parsed = parseMultiplicative(tokens, index)
+    if (parsed === undefined) return undefined
+
+    let operator = tokenAt(tokens, parsed.next)
+    while (operator?.type === "operator" && (operator.value === "+" || operator.value === "-")) {
+      const right = parseMultiplicative(tokens, parsed.next + 1)
+      if (right === undefined) return undefined
+      parsed = {
+        expression: {
+          type: "binary",
+          operator: operator.value,
+          left: parsed.expression,
+          right: right.expression,
+          start: parsed.expression.start,
+          end: right.expression.end,
+        },
+        next: right.next,
+      }
+      operator = tokenAt(tokens, parsed.next)
+    }
+
+    return parsed
+  }
+
   const parseComparison = (
     tokens: readonly Token[],
     index: number,
   ): { readonly expression: ValueExpression; readonly next: number } | undefined => {
-    const left = parseUnary(tokens, index)
+    const left = parseAdditive(tokens, index)
     if (left === undefined) return undefined
 
     const operator = tokenAt(tokens, left.next)
@@ -659,7 +748,7 @@ const createGenui0Language = (): Genui0Language => {
       return left
     }
 
-    const right = parseUnary(tokens, left.next + 1)
+    const right = parseAdditive(tokens, left.next + 1)
     return right === undefined
       ? undefined
       : {
@@ -882,6 +971,58 @@ const createGenui0Language = (): Genui0Language => {
     return invalid
   }
 
+  const stringifyConcatOperand = (value: unknown): string | typeof invalid => {
+    if (isAbsentRuntimeValue(value)) return ""
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      return String(value)
+    }
+    return invalid
+  }
+
+  const evaluateArithmetic = (
+    operator: ArithmeticOperator,
+    left: unknown,
+    right: unknown,
+  ): string | number | typeof invalid => {
+    if (left === invalid || right === invalid) return invalid
+
+    if (operator === "+") {
+      if (isAbsentRuntimeValue(left) || isAbsentRuntimeValue(right)) {
+        if (typeof left === "string" && !isAbsentRuntimeValue(left)) return left
+        if (typeof right === "string" && !isAbsentRuntimeValue(right)) return right
+        return ""
+      }
+
+      if (typeof left === "string" || typeof right === "string") {
+        const leftText = stringifyConcatOperand(left)
+        const rightText = stringifyConcatOperand(right)
+        return leftText === invalid || rightText === invalid ? invalid : `${leftText}${rightText}`
+      }
+
+      return typeof left === "number" &&
+        typeof right === "number" &&
+        Number.isFinite(left) &&
+        Number.isFinite(right)
+        ? left + right
+        : invalid
+    }
+
+    if (isAbsentRuntimeValue(left) || isAbsentRuntimeValue(right)) return ""
+    if (
+      typeof left !== "number" ||
+      typeof right !== "number" ||
+      !Number.isFinite(left) ||
+      !Number.isFinite(right)
+    ) {
+      return invalid
+    }
+
+    if (operator === "-") return left - right
+    if (operator === "*") return left * right
+    if (right === 0) return invalid
+    return left / right
+  }
+
   const evaluateValue = (
     expression: ValueExpression,
     readState: (expression: string) => unknown,
@@ -918,6 +1059,14 @@ const createGenui0Language = (): Genui0Language => {
         const right = evaluateValue(expression.right, readState)
         if (expression.operator === "==") return Object.is(left, right)
         if (expression.operator === "!=") return !Object.is(left, right)
+        if (
+          expression.operator === "+" ||
+          expression.operator === "-" ||
+          expression.operator === "*" ||
+          expression.operator === "/"
+        ) {
+          return evaluateArithmetic(expression.operator, left, right)
+        }
         return compareOrdered(expression.operator, left, right)
       }
     }
@@ -926,10 +1075,12 @@ const createGenui0Language = (): Genui0Language => {
   const evaluateObject = (
     expression: ObjectExpression,
     readState: (expression: string) => unknown,
-  ): Record<string, unknown> => {
+  ): Record<string, unknown> | typeof invalid => {
     const output: Record<string, unknown> = {}
     for (const entry of expression.entries) {
-      output[entry.key] = evaluateScalar(entry.value, readState)
+      const value = evaluateValue(entry.value, readState)
+      if (value === invalid) return invalid
+      output[entry.key] = value
     }
     return output
   }
@@ -949,6 +1100,11 @@ const createGenui0Language = (): Genui0Language => {
   ): string => source.slice(expression.start, expression.end).trim()
 
   const isSafeScalarExpression = (value: string): boolean => parseFullScalar(value) !== undefined
+
+  const objectLiteralKeys = (source: string): readonly string[] | undefined => {
+    const parsed = parseFullObject(source)
+    return parsed === undefined ? undefined : parsed.entries.map((entry) => entry.key)
+  }
 
   const parseObjectLiteral = (
     source: string,
@@ -1150,6 +1306,7 @@ const createGenui0Language = (): Genui0Language => {
     isSafeBindingExpression,
     parseCapabilityAction,
     parseSetAction,
+    objectLiteralKeys,
     parseObjectLiteral,
     evaluateExpression,
     parseCapabilityExpression,

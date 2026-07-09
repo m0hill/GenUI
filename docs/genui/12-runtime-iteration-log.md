@@ -445,6 +445,20 @@ Bindings are reactive in both directions for installed static controls:
       general attribute allowlist, including `form`, `formenctype`, `formmethod`, and
       `formtarget`.
 
+25. Expression v0.6 and seeded load dedup.
+    - Done in code: the shared genui/0 expression grammar now supports `+`, `-`, `*`,
+      and `/` with normal arithmetic precedence.
+    - Done in code: `+` also supports string concatenation, so generated UI can write
+      labels such as `'Order ' + $order.id` without a server round trip.
+    - Done in code: state paths can read numeric array segments such as
+      `$orders.value.items.0.customer`, and runtime state writes avoid corrupting arrays
+      when `@set` targets an indexed path.
+    - Done in code: object inputs for `@action(...)` can use the same safe expression
+      subset, e.g. `{ page: $page + 1 }`.
+    - Done in code: `data-genui-on-load` skips a mount-time action when its result target
+      was already seeded by a snapshot, so same-surface replacement can restore data
+      without immediately refetching it.
+
 ## Important Deferred Work
 
 - Model adapters.

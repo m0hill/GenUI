@@ -85,16 +85,21 @@ void test("genui/0 language validates safe expressions", () => {
   assert.equal(genui0Language.isSafeSimpleExpression("formatPercent($ratio)"), true)
   assert.equal(genui0Language.isSafeSimpleExpression("formatDate($createdAt)"), true)
   assert.equal(genui0Language.isSafeSimpleExpression("{ count: 1 }"), true)
-  assert.equal(genui0Language.isSafeSimpleExpression("$count + 1"), false)
+  assert.equal(genui0Language.isSafeSimpleExpression("$count + 1"), true)
+  assert.equal(genui0Language.isSafeSimpleExpression("($count + 1) * 2"), true)
+  assert.equal(genui0Language.isSafeSimpleExpression("'Order ' + $orders.0.id"), true)
+  assert.equal(genui0Language.isSafeSimpleExpression("$count ** 2"), false)
   assert.equal(genui0Language.isSafeSimpleExpression("formatNumber($amount, 2)"), false)
   assert.equal(genui0Language.isSafeSimpleExpression("formatUnknown($amount)"), false)
 
   assert.equal(genui0Language.isSafeBindingExpression("count"), true)
   assert.equal(genui0Language.isSafeBindingExpression("$rollResult.value.total"), true)
+  assert.equal(genui0Language.isSafeBindingExpression("$orders.value.items.0.customer"), true)
+  assert.equal(genui0Language.isSafeBindingExpression("$orders.value.items.01.customer"), false)
   assert.equal(genui0Language.isSafeBindingExpression("count + 1"), false)
 })
 
-void test("genui/0 language evaluates expression v0.5 operators and formatters", () => {
+void test("genui/0 language evaluates expression v0.6 operators and formatters", () => {
   const state: Readonly<Record<string, unknown>> = {
     count: 3,
     closed: false,
@@ -103,8 +108,18 @@ void test("genui/0 language evaluates expression v0.5 operators and formatters",
     amount: 1234.5,
     ratio: 0.1234,
     createdAt: "2026-01-02T12:00:00Z",
+    orders: [{ id: "order-1", total: 42 }],
   }
-  const readState = (expression: string): unknown => state[expression.slice(1)]
+  const readState = (expression: string): unknown => {
+    let value: unknown = state
+    for (const part of expression.slice(1).split(".")) {
+      if (typeof value !== "object" || value === null) return ""
+      const descriptor = Object.getOwnPropertyDescriptor(value, part)
+      if (descriptor === undefined || !("value" in descriptor)) return ""
+      value = descriptor.value
+    }
+    return value
+  }
 
   assert.equal(genui0Language.evaluateExpression("$count > 2", readState), true)
   assert.equal(genui0Language.evaluateExpression("$count <= 2", readState), false)
@@ -117,6 +132,15 @@ void test("genui/0 language evaluates expression v0.5 operators and formatters",
   assert.equal(genui0Language.evaluateExpression("$count && 'Ready'", readState), "Ready")
   assert.equal(genui0Language.evaluateExpression("$closed && 'Hidden'", readState), false)
   assert.equal(genui0Language.evaluateExpression("!($status == 'error')", readState), true)
+  assert.equal(genui0Language.evaluateExpression("$count + 2", readState), 5)
+  assert.equal(genui0Language.evaluateExpression("($count + 1) * 2", readState), 8)
+  assert.equal(genui0Language.evaluateExpression("$count / 2", readState), 1.5)
+  assert.equal(genui0Language.evaluateExpression("'Count: ' + $count", readState), "Count: 3")
+  assert.equal(
+    genui0Language.evaluateExpression("'Order ' + $orders.0.id", readState),
+    "Order order-1",
+  )
+  assert.equal(genui0Language.evaluateExpression("$orders.0.total + 8", readState), 50)
   assert.equal(genui0Language.evaluateExpression("formatNumber($amount)", readState), "1,234.5")
   assert.equal(
     genui0Language.evaluateExpression("formatCurrency($amount, 'USD')", readState),
@@ -128,6 +152,8 @@ void test("genui/0 language evaluates expression v0.5 operators and formatters",
     "Jan 2, 2026",
   )
   assert.equal(genui0Language.evaluateExpression("formatNumber($missing)", readState), "")
+  assert.equal(genui0Language.evaluateExpression("$missing + 1", readState), "")
+  assert.equal(genui0Language.evaluateExpression("'Total: ' + $missing", readState), "Total: ")
   assert.equal(genui0Language.evaluateExpression("formatCurrency($missing, 'USD')", readState), "")
   assert.equal(
     genui0Language.evaluateExpression("formatCurrency($amount, $missing)", readState),
@@ -143,6 +169,36 @@ void test("genui/0 language evaluates expression v0.5 operators and formatters",
     genui0Language.evaluateExpression("$amount > $status", readState),
     genui0Language.invalid,
   )
+  assert.equal(genui0Language.evaluateExpression("$amount / 0", readState), genui0Language.invalid)
+  assert.equal(genui0Language.evaluateExpression("$status - 1", readState), genui0Language.invalid)
+})
+
+void test("genui/0 language evaluates v0.6 expressions inside action inputs", () => {
+  const state: Readonly<Record<string, unknown>> = {
+    page: 2,
+    orders: [{ id: "order-1" }],
+  }
+  const readState = (expression: string): unknown => {
+    let value: unknown = state
+    for (const part of expression.slice(1).split(".")) {
+      if (typeof value !== "object" || value === null) return ""
+      const descriptor = Object.getOwnPropertyDescriptor(value, part)
+      if (descriptor === undefined || !("value" in descriptor)) return ""
+      value = descriptor.value
+    }
+    return value
+  }
+
+  assert.deepEqual(
+    genui0Language.parseCapabilityExpression(
+      "@action('orders.page', { page: $page + 1, label: 'Page ' + $page, first: $orders.0.id })",
+      readState,
+    ),
+    {
+      capability: "orders.page",
+      input: { page: 3, label: "Page 2", first: "order-1" },
+    },
+  )
 })
 
 void test("genui/0 language rejects malformed tokenizer input", () => {
@@ -157,6 +213,9 @@ void test("genui/0 language rejects malformed tokenizer input", () => {
     "$a true",
     "$a &&",
     "$a || || $b",
+    "$a +",
+    "$a ** 2",
+    "+1",
     "formatNumber($a,)",
   ]) {
     assert.equal(genui0Language.isSafeSimpleExpression(expression), false, expression)

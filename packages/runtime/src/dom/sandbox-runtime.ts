@@ -114,6 +114,31 @@ export const installSandboxRuntime = (
   const hasOwn = (value: object, key: string): boolean =>
     Object.prototype.hasOwnProperty.call(value, key)
 
+  const isIndexPathPart = (value: string): boolean => /^(?:0|[1-9]\d*)$/.test(value)
+
+  const isWritableContainer = (value: unknown): value is Record<string, unknown> | unknown[] =>
+    isRecord(value) || Array.isArray(value)
+
+  const createWritableContainer = (
+    nextPathPart: string | undefined,
+  ): Record<string, unknown> | unknown[] =>
+    nextPathPart !== undefined && isIndexPathPart(nextPathPart) ? [] : {}
+
+  const writeContainerProperty = (
+    container: Record<string, unknown> | unknown[],
+    property: string,
+    value: unknown,
+  ): boolean => {
+    if (Array.isArray(container)) {
+      if (!isIndexPathPart(property)) return false
+      container[Number(property)] = value
+      return true
+    }
+
+    container[property] = value
+    return true
+  }
+
   const jsonClone = (value: unknown): unknown => {
     try {
       return JSON.parse(JSON.stringify(value))
@@ -178,29 +203,32 @@ export const installSandboxRuntime = (
       return
     }
 
-    let cursor: Record<string, unknown>
+    let cursor: Record<string, unknown> | unknown[]
     const current = target[targetName]
-    if (isRecord(current)) {
+    if (isWritableContainer(current)) {
       cursor = current
     } else {
-      cursor = {}
+      cursor = createWritableContainer(targetRest[0])
       target[targetName] = cursor
     }
 
-    for (const property of targetRest.slice(0, -1)) {
-      const child = cursor[property]
-      if (isRecord(child)) {
-        cursor = child
+    const parents = targetRest.slice(0, -1)
+    for (let index = 0; index < parents.length; index += 1) {
+      const property = parents[index]
+      if (property === undefined) return
+      const child = readOwnProperty(cursor, property)
+      if (child.found && isWritableContainer(child.value)) {
+        cursor = child.value
         continue
       }
 
-      const next: Record<string, unknown> = {}
-      cursor[property] = next
+      const next: Record<string, unknown> | unknown[] = createWritableContainer(parents[index + 1])
+      if (!writeContainerProperty(cursor, property, next)) return
       cursor = next
     }
 
     const last = targetRest.at(-1)
-    if (last !== undefined) cursor[last] = value
+    if (last !== undefined) writeContainerProperty(cursor, last, value)
   }
 
   const readStateFromScope =
@@ -557,8 +585,21 @@ export const installSandboxRuntime = (
   const runAuthoredAction = (expression: string, scope: StateScope): boolean =>
     runLocalAction(expression, scope) || postActionCall(expression, scope)
 
+  const shouldSkipSeededLoadAction = (expression: string): boolean => {
+    const action = genui0Language.parseCapabilityAction(expression)
+    if (action === undefined) return false
+
+    const target = action.target ?? genui0Language.defaultResultTarget(action.capability)
+    const targetState = readPath([target])
+    return seededStateKeys.has(target) && isRecord(targetState) && targetState.status === "complete"
+  }
+
   const runLoadActions = (): void => {
-    for (const action of loadActions) runAuthoredAction(action.expression, action.scope)
+    for (const action of loadActions) {
+      if (!shouldSkipSeededLoadAction(action.expression)) {
+        runAuthoredAction(action.expression, action.scope)
+      }
+    }
   }
 
   const handleClick = (event: MouseEvent): void => {

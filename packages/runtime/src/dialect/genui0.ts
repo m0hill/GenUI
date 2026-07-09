@@ -152,8 +152,8 @@ const isReservedRowPath = (value: string): boolean => {
 const isScopedRowPath = (value: string): boolean => rowPathSource(value).startsWith("row.")
 
 const objectHasKey = (value: string, key: string): boolean => {
-  const parsed = genui0Language.parseObjectLiteral(value, () => genui0Language.invalid)
-  return isRecord(parsed) && Object.prototype.hasOwnProperty.call(parsed, key)
+  const keys = genui0Language.objectLiteralKeys(value)
+  return keys?.includes(key) === true
 }
 
 const elementStyle = (element: Element): CSSStyleDeclaration | undefined => {
@@ -680,7 +680,9 @@ export const genui0Instructions = (actions: readonly Action[]): string => {
     "When target is omitted, the default result target is the camel-cased action name, e.g. orders.search writes to $ordersSearch.",
     "Nested data-genui-each blocks can read outer and inner scope together, e.g. $order.id and $line.id.",
     "Use array length reads such as $orders.value.items.length for empty states.",
-    "Expression v0.5 supports state reads, primitive literals, ==, !=, <, <=, >, >=, !, &&, ||, parentheses, and flat object literals.",
+    "Use array index reads such as $orders.value.items.0.customer for first-item detail panes.",
+    "Expression v0.6 supports state reads, primitive literals, ==, !=, <, <=, >, >=, !, &&, ||, +, -, *, /, parentheses, and flat object literals.",
+    "Use + for arithmetic addition or string concatenation, e.g. $count + 1 or 'Order ' + $order.id.",
     "The && and || operators return operands, so $user.name || 'Guest' is valid fallback text.",
     "Ordering comparisons require matching types; keep numbers as numbers in action results when the UI will compare them.",
     "Missing values render empty or hidden without errors; malformed present values in formatters or ordering comparisons are runtime expression failures.",

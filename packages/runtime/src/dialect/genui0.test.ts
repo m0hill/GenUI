@@ -283,6 +283,14 @@ void test("genui/0 rejects general JavaScript expressions", () => {
       value: "$count + 2",
       grantedActions,
     }),
+    { name: "data-genui-show", value: "$count + 2" },
+  )
+  assert.deepEqual(
+    allowGenui0DataAttribute({
+      name: "data-genui-show",
+      value: "$count ** 2",
+      grantedActions,
+    }),
     { reason: "invalid_genui_expression" },
   )
   assert.deepEqual(
@@ -340,6 +348,14 @@ void test("genui/0 reserves row for keyed row-local state", () => {
     allowGenui0DataAttribute({
       name: "data-genui-state",
       value: "{ row: 'bad' }",
+      grantedActions,
+    }),
+    { reason: "reserved_row_path" },
+  )
+  assert.deepEqual(
+    allowGenui0DataAttribute({
+      name: "data-genui-state",
+      value: "{ row: 'bad', count: $missing + 1 }",
       grantedActions,
     }),
     { reason: "reserved_row_path" },
@@ -502,6 +518,7 @@ void test("genui/0 instructions describe dialect and capability descriptors", ()
   assert.match(instructions, /\$row\.note/)
   assert.match(instructions, /\$order\.id and \$line\.id/)
   assert.match(instructions, /\$orders\.value\.items\.length/)
+  assert.match(instructions, /\$orders\.value\.items\.0\.customer/)
   assert.match(instructions, /inside keyed rows, bind only row paths/)
   assert.match(instructions, /dice\.roll: Roll a die\./)
   assert.match(instructions, /target: 'resultName'/)
@@ -510,7 +527,8 @@ void test("genui/0 instructions describe dialect and capability descriptors", ()
   assert.match(instructions, /\$target\.error/)
   assert.match(instructions, /'pending', 'complete', or 'error'/)
   assert.match(instructions, /orders\.search writes to \$ordersSearch/)
-  assert.match(instructions, /Expression v0\.5/)
+  assert.match(instructions, /Expression v0\.6/)
+  assert.match(instructions, /\$count \+ 1/)
   assert.match(instructions, /\$user\.name \|\| 'Guest'/)
   assert.match(instructions, /Ordering comparisons require matching types/)
   assert.match(instructions, /formatCurrency/)
