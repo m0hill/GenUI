@@ -1,0 +1,119 @@
+# code/0 surfaces
+
+Use `code/0` when a model should author an interactive HTML and JavaScript
+fragment. The fragment runs as code, not as a template language.
+
+```ts
+import { codeDialect, Genui } from "@genui/genui"
+
+const surface = await genui.surface({
+  dialect: codeDialect,
+  content: generatedFragment,
+  actions: ["orders.search", "orders.update_status"],
+})
+```
+
+The runtime stores `content` verbatim. It does not sanitize, rewrite, compile,
+or resolve dependencies in the fragment. Grant projection still removes
+unknown, blocked, duplicate, and confidential actions.
+
+Use `genui.instructions()` to give a model the code/0 contract and the current
+action descriptors. The output includes each action's input JSON Schema.
+
+## Guest content
+
+Return fragment HTML without a document wrapper or Markdown fence. Use standard
+HTML, inline CSS, DOM APIs, and inline `<script type="module">` blocks.
+
+Keep scripts and styles inline. Do not use network APIs, external scripts,
+external stylesheets, parent-page access, persistent storage, or navigation.
+The sandbox blocks these facilities; code that depends on them will fail.
+
+Handle `genui.call()` failures and render a useful error state. Generated code
+must not treat a rendered confirmation or button state as authorization.
+
+## Isolation boundary
+
+`mount()` creates an opaque-origin iframe with these attributes:
+
+```html
+<iframe sandbox="allow-scripts allow-forms" referrerpolicy="no-referrer">
+```
+
+The iframe document contains a UTF-8 declaration, the CSP below, the trusted
+guest bootstrap, and then the generated fragment. The bootstrap always appears
+before generated content.
+
+```text
+default-src 'none';
+script-src 'unsafe-inline';
+style-src 'unsafe-inline';
+img-src <host image policy>;
+connect-src 'none';
+frame-src 'none';
+object-src 'none';
+base-uri 'none';
+form-action 'none'
+```
+
+`imagePolicy` maps to `img-src` as follows:
+
+- `none` maps to `'none'` and is the default.
+- `data` maps to `data:`.
+- `https` maps to `https:`.
+- `https-and-data` maps to `https: data:`.
+
+The iframe boundary is the security control. Content filtering is not part of
+the code/0 security model.
+
+## Guest bridge
+
+The bootstrap installs exactly this public API on `window.genui`:
+
+```js
+genui.surfaceId
+genui.actions
+await genui.call(name, input)
+```
+
+`genui.surfaceId` is the current surface ID. `genui.actions` is the grant
+snapshot posted by the trusted host. Each descriptor contains `name`,
+`description`, `effect`, `requiresApproval`, and optional `intent` and
+`inputSchema` fields.
+
+`genui.call(name, input)` posts a call carrying `surfaceId`, a unique `callId`,
+the action name, and input. It resolves to the successful action output. It
+rejects with `GenuiActionError { code, message }` for an action error.
+
+Results correlate by `callId`. Unknown and duplicate result messages are
+ignored. The guest action list is descriptive; mutating it cannot change the
+host or kernel grant.
+
+## Host enforcement
+
+The host broker rejects calls missing from the surface grant before transport.
+It invokes `confirm(action, rawCall)` for actions requiring client-side consent.
+The kernel independently reloads the surface record, checks current policy and
+grant, validates input, obtains authoritative approval, executes, and validates
+output.
+
+Render consent UI in trusted host code. Use the descriptor and raw input for
+the browser preview. Use canonical validated input for kernel approval.
+
+## Errors and navigation
+
+The bootstrap forwards `window.onerror` and `unhandledrejection` as
+`guest_error` events with a message and a stack when available. Handle these in
+`mount({ onEvent })` and make them visible or send them back to the generating
+model.
+
+A generated iframe may try to navigate itself despite the CSP. After the
+initial document load, any additional iframe `load` is a violation. The host
+kills the iframe, replaces it with an inert error, and emits:
+
+```ts
+{ type: "violation", reason: "navigation" }
+```
+
+Do not restore or continue a surface after this event. Create and mount a new
+surface instead.
