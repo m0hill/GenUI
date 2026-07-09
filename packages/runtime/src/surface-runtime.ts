@@ -25,6 +25,7 @@ interface SurfaceValueInput {
   readonly id: string
   readonly content: string
   readonly actions: readonly Action[]
+  readonly expiresAt?: number
   readonly meta?: Readonly<Record<string, unknown>>
 }
 
@@ -37,6 +38,7 @@ interface MemoryIdempotencyEntry {
 export interface SurfaceRuntime {
   surface(input: SurfaceInput): Promise<Surface>
   reprojectSurface(id: string): Promise<Surface | undefined>
+  revoke(id: string): Promise<void>
   getRecord(id: string): Promise<SurfaceRecord | undefined>
   diagnostics(id: string): Promise<SurfaceProjectionDiagnostics | undefined>
   instructions(actions: readonly Action[]): string
@@ -70,6 +72,7 @@ const copySurfaceInput = (source: SurfaceInput): SurfaceInput => {
     content: source.content,
     actions: Object.freeze([...source.actions]),
     ...(source.dialect === undefined ? {} : { dialect: source.dialect }),
+    ...(source.ttlMs === undefined ? {} : { ttlMs: source.ttlMs }),
     ...(meta === undefined ? {} : { meta }),
   })
 }
@@ -78,6 +81,7 @@ const createSurfaceValue = (input: SurfaceValueInput): Surface => {
   const grant: Grant = Object.freeze({
     surfaceId: input.id,
     actions: copyActions(input.actions),
+    ...(input.expiresAt === undefined ? {} : { expiresAt: input.expiresAt }),
   })
   const meta = copyMeta(input.meta)
   return Object.freeze({
@@ -94,6 +98,7 @@ const copySurface = (surface: Surface): Surface =>
     id: surface.id,
     content: surface.content,
     actions: surface.grant.actions,
+    expiresAt: surface.grant.expiresAt,
     meta: surface.meta,
   })
 
@@ -108,6 +113,18 @@ const assertCodeSurface = (source: SurfaceInput): void => {
   if (source.dialect !== undefined && source.dialect !== codeDialect) {
     throw new Error(`Unsupported generated UI dialect: ${source.dialect}`)
   }
+  if (source.ttlMs !== undefined && (!Number.isSafeInteger(source.ttlMs) || source.ttlMs < 0)) {
+    throw new Error("Surface ttlMs must be a non-negative safe integer.")
+  }
+}
+
+const grantExpiry = (source: SurfaceInput): number | undefined => {
+  if (source.ttlMs === undefined) return undefined
+  const expiresAt = Date.now() + source.ttlMs
+  if (!Number.isSafeInteger(expiresAt)) {
+    throw new Error("Surface ttlMs produces an invalid expiry.")
+  }
+  return expiresAt
 }
 
 /** Create the default in-memory generated surface store. */
@@ -122,6 +139,10 @@ export const memoryStore = (): SurfaceStore => {
     },
     set: (record) => {
       records.set(record.surface.id, copySurfaceRecord(record))
+    },
+    revoke: (id) => {
+      records.delete(id)
+      idempotency.delete(id)
     },
     async runIdempotent(request, operation) {
       const now = Date.now()
@@ -193,6 +214,7 @@ export const createSurfaceRuntime = <Ctx>({
       id: globalThis.crypto.randomUUID(),
       content: projected.content,
       actions: projected.actions,
+      expiresAt: grantExpiry(source),
       meta: source.meta,
     })
     const record = Object.freeze({
@@ -213,6 +235,7 @@ export const createSurfaceRuntime = <Ctx>({
       id,
       content: projected.content,
       actions: projected.actions,
+      expiresAt: record.surface.grant.expiresAt,
       meta: record.source.meta,
     })
     const nextRecord = Object.freeze({
@@ -233,6 +256,7 @@ export const createSurfaceRuntime = <Ctx>({
   return {
     surface,
     reprojectSurface,
+    revoke: async (id) => store.revoke(id),
     getRecord: storedRecord,
     diagnostics,
     instructions: codeInstructions,

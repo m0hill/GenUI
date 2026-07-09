@@ -183,6 +183,7 @@ void test("idempotency store failures return storage_unavailable", async () => {
   const store = {
     get: (id: string) => backing.get(id),
     set: (record: Parameters<SurfaceStore["set"]>[0]) => backing.set(record),
+    revoke: (id: string) => backing.revoke(id),
     runIdempotent: () => {
       throw new Error("idempotency backend unavailable")
     },

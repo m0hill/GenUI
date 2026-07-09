@@ -441,3 +441,7 @@ delete earlier entries.
   same-ID replacement restores automatically while cross-ID transfer requires
   an explicit host snapshot — this keeps the guest API small and prevents
   accidental state leakage between authority records.
+- 2026-07-10 Surface `ttlMs` becomes one absolute `grant.expiresAt` that
+  reprojection never extends; expiry and explicit `revoke(surfaceId)` remove
+  both the authority record and its idempotency entries — revocation stays a
+  small store primitive with predictable retry behavior.

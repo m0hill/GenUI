@@ -29,7 +29,8 @@ const genui = new Genui({
 Keep the instance alive across surface creation and execution. The surface
 record is the server-side source of truth for grants.
 
-A custom `SurfaceStore` implements `get`, `set`, and `runIdempotent`.
+A custom `SurfaceStore` implements `get`, `set`, `revoke`, and `runIdempotent`.
+`revoke` must delete the surface record and its idempotency entries.
 `runIdempotent` must atomically join concurrent calls with the same surface ID,
 call ID, and fingerprint, retain the completed result for the requested window,
 and report conflicting fingerprints. The bundled `memoryStore()` implements
@@ -52,6 +53,23 @@ const surface = await genui.surface({
 
 Return the serializable `Surface` to the browser. Do not let the browser supply
 or mutate the authoritative grant.
+
+Set `ttlMs` when authority should expire automatically. The runtime projects
+one absolute `grant.expiresAt` value and does not extend it during reprojection.
+An expired grant returns `unknown_surface` before validation, approval, or
+execution and removes its stored surface and idempotency state.
+
+```ts
+const temporarySurface = await genui.surface({
+  content,
+  actions: ["orders.search"],
+  ttlMs: 15 * 60_000,
+})
+```
+
+Call `await genui.revoke(surface.id)` to remove authority before its expiry.
+Calls that entered `execute()` before expiry or revocation may complete; later
+calls return `unknown_surface`.
 
 Use `genui.instructions()` for a copyable model prompt. It includes the code/0
 contract and the grantable, non-confidential action schemas.

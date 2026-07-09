@@ -74,6 +74,11 @@ export class Genui<Ctx> {
     return this.#surfaceRuntime.reprojectSurface(id)
   }
 
+  /** Permanently remove a surface's authority and stored idempotency state. */
+  revoke(id: string): Promise<void> {
+    return this.#surfaceRuntime.revoke(id)
+  }
+
   diagnostics(id: string) {
     return this.#surfaceRuntime.diagnostics(id)
   }
@@ -88,6 +93,18 @@ export class Genui<Ctx> {
 
     if (record === undefined) {
       return actionError("unknown_surface", "Surface is not available.")
+    }
+
+    if (
+      record.surface.grant.expiresAt !== undefined &&
+      record.surface.grant.expiresAt <= Date.now()
+    ) {
+      try {
+        await this.#surfaceRuntime.revoke(call.surfaceId)
+      } catch {
+        return actionError("storage_unavailable", "Surface store is unavailable.")
+      }
+      return actionError("unknown_surface", "Surface grant has expired.")
     }
 
     const definition = this.#byName.get(call.action)

@@ -64,6 +64,8 @@ export const renderActionIntent = (intent: string, input: unknown): string =>
 /** Authoritative action set projected for one generated surface. */
 export interface Grant {
   readonly surfaceId: string
+  /** Absolute Unix epoch timestamp in milliseconds after which this grant is invalid. */
+  readonly expiresAt?: number
   readonly actions: readonly Action[]
 }
 
@@ -121,6 +123,8 @@ export interface SurfaceInput {
   /** Dialect-defined source content. */
   readonly content: string
   readonly actions: readonly string[]
+  /** Optional lifetime for the projected grant, in milliseconds. */
+  readonly ttlMs?: number
   readonly meta?: Readonly<Record<string, unknown>>
 }
 
@@ -172,6 +176,8 @@ const isAction = (value: unknown): value is Action =>
 const isGrant = (value: unknown, surfaceId: string): value is Grant =>
   isRecord(value) &&
   value.surfaceId === surfaceId &&
+  (value.expiresAt === undefined ||
+    (Number.isSafeInteger(value.expiresAt) && (value.expiresAt as number) >= 0)) &&
   Array.isArray(value.actions) &&
   value.actions.every(isAction)
 

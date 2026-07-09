@@ -120,6 +120,7 @@ export type IdempotencyResult =
 export interface SurfaceStore {
   get(id: string): MaybePromise<SurfaceRecord | undefined>
   set(record: SurfaceRecord): MaybePromise<void>
+  revoke(id: string): MaybePromise<void>
   runIdempotent(
     request: IdempotencyRequest,
     operation: () => Promise<ActionResult>,

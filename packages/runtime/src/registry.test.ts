@@ -254,6 +254,7 @@ void test("registry returns a structured result when the surface store is unavai
         throw new Error("database is offline")
       },
       set: () => undefined,
+      revoke: () => undefined,
       runIdempotent: async (_request, operation) => ({
         status: "result",
         result: await operation(),
