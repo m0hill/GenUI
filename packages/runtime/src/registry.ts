@@ -8,14 +8,12 @@ import { parseWithSchema } from "./schema.js"
 import { createSurfaceRuntime, type SurfaceRuntime } from "./surface-runtime.js"
 import {
   actionError,
-  codeDialect,
   isValidActionName,
   type Action,
   type ActionCall,
   type ActionDefinition,
   type ActionResult,
   type AnyActionDefinition,
-  type Dialect,
   type ExecuteOptions,
   type Surface,
   type SurfaceInput,
@@ -113,11 +111,11 @@ export class Genui<Ctx> {
     return publicActions(this.#byName.values())
   }
 
-  instructions(dialect: Dialect = codeDialect): string {
+  instructions(): string {
     const projection = projectGrantedActions({
       actions: Array.from(this.#byName.keys()),
       byName: this.#byName,
     })
-    return this.#surfaceRuntime.instructions(projection.actions, dialect)
+    return this.#surfaceRuntime.instructions(projection.actions)
   }
 }

@@ -275,7 +275,6 @@ void test("code/0 orders-admin proof exercises grants, approval, nested data, an
     ),
   )
   const searchedOrders = ordersResultValue(searchResult.result)
-  assert.equal(searchResult.target, "ordersSearch")
   assert.equal(searchedOrders.items.length, 1)
   assert.equal(searchedOrders.items[0]?.lines.length, 2)
 

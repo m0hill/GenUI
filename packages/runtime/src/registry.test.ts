@@ -4,13 +4,10 @@ import { action, Genui } from "./registry.js"
 import { memoryStore } from "./surface-runtime.js"
 import {
   codeDialect,
-  genuiDialect,
   type ActionErrorCode,
   type ActionResult,
   type StandardSchemaV1,
   type Surface,
-  type SurfaceRecord,
-  type SurfaceStore,
 } from "./types.js"
 import { isRecord, testSchema } from "./test-schema.test-support.js"
 
@@ -77,7 +74,7 @@ const assertErrorCode = (result: ActionResult, code: ActionErrorCode): void => {
   assert.equal(result.error.message.includes("\n"), false)
 }
 
-void test("registry projects a grant and sanitizes HTML under that grant", async () => {
+void test("registry projects a grant without rewriting generated code", async () => {
   const registry = new Genui<TestCtx>({
     actions: [
       action({
@@ -99,26 +96,21 @@ void test("registry projects a grant and sanitizes HTML under that grant", async
     ],
   })
 
+  const content = `<button>Roll</button><script type="module">genui.call("dice.roll", { sides: 6 })</script>`
   const surface = await registry.surface({
-    content: [
-      `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`,
-      `<button data-genui-on-click="@capability('demo.blocked', {})">Blocked</button>`,
-      `<script>alert(1)</script>`,
-    ].join(""),
+    content,
     actions: ["dice.roll", "missing.action", "dice.roll", "demo.blocked"],
     meta: { source: "test" },
   })
 
-  assert.equal(surface.dialect, genuiDialect)
+  assert.equal(surface.dialect, codeDialect)
   assert.doesNotMatch(surface.id, /^surface-\d+$/)
   assert.equal(surface.grant.surfaceId, surface.id)
   assert.deepEqual(
     surface.grant.actions.map((capability) => capability.name),
     ["dice.roll"],
   )
-  assert.match(surface.content, /data-genui-on-click="@capability\('dice\.roll'/)
-  assert.doesNotMatch(surface.content, /demo\.blocked/)
-  assert.doesNotMatch(surface.content, /<script/i)
+  assert.equal(surface.content, content)
   assert.deepEqual(JSON.parse(JSON.stringify(surface)), surface)
   assert.deepEqual(await registry.diagnostics(surface.id), {
     actions: ["dice.roll", "missing.action", "dice.roll", "demo.blocked"],
@@ -128,17 +120,6 @@ void test("registry projects a grant and sanitizes HTML under that grant", async
       { name: "dice.roll", reason: "duplicate" },
       { name: "demo.blocked", reason: "blocked" },
     ],
-    html: {
-      dropped: [
-        {
-          node: "button",
-          attribute: "data-genui-on-click",
-          value: "@capability('demo.blocked', {})",
-          reason: "ungranted_action",
-        },
-        { node: "script", reason: "forbidden_element" },
-      ],
-    },
   })
 })
 
@@ -170,7 +151,7 @@ void test("registry stores code surface content verbatim under its projected gra
     surface.grant.actions.map((descriptor) => descriptor.name),
     ["dice.roll"],
   )
-  assert.deepEqual((await registry.diagnostics(surface.id))?.html.dropped, [])
+  assert.deepEqual((await registry.diagnostics(surface.id))?.dropped, [])
   assert.deepEqual((await store.get(surface.id))?.source, {
     dialect: codeDialect,
     content,
@@ -183,10 +164,10 @@ void test("surface dialect type permits future dialect identifiers", () => {
     id: "surface-test",
     content: "",
     grant: { surfaceId: "surface-test", actions: [] },
-    dialect: "genui/future",
+    dialect: "code/future",
   }
 
-  assert.equal(surface.dialect, "genui/future")
+  assert.equal(surface.dialect, "code/future")
 })
 
 void test("same HTML receives different authority from different grants", async () => {
@@ -202,15 +183,15 @@ void test("same HTML receives different authority from different grants", async 
       }),
     ],
   })
-  const html = `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`
+  const html = `<button>Roll</button><script type="module">genui.call("dice.roll", { sides: 6 })</script>`
   const armed = await registry.surface({ content: html, actions: ["dice.roll"] })
   const defanged = await registry.surface({ content: html, actions: [] })
 
   assert.notEqual(armed.id, defanged.id)
   assert.equal(armed.grant.surfaceId, armed.id)
   assert.equal(defanged.grant.surfaceId, defanged.id)
-  assert.match(armed.content, /data-genui-on-click/)
-  assert.doesNotMatch(defanged.content, /data-genui-on-click/)
+  assert.equal(armed.content, html)
+  assert.equal(defanged.content, html)
 
   assert.deepEqual(
     await registry.execute(
@@ -243,7 +224,7 @@ void test("registry executes surfaces restored from a shared store", async () =>
   const creator = new Genui<TestCtx>({ actions, store })
   const executor = new Genui<TestCtx>({ actions, store })
   const surface = await creator.surface({
-    content: `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`,
+    content: `<button>Roll</button>`,
     actions: ["dice.roll"],
   })
 
@@ -254,53 +235,6 @@ void test("registry executes surfaces restored from a shared store", async () =>
     ),
     { ok: true, value: { total: 6 } },
   )
-})
-
-void test("registry upgrades legacy surface records without diagnostics", async () => {
-  const html = `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`
-  const actions = [
-    action({
-      name: "dice.roll",
-      description: "Roll a die.",
-      effect: "read",
-      input: rollInput,
-      output: rollOutput,
-      execute: (_ctx: TestCtx, input: RollInput) => ({ total: input.sides }),
-    }),
-  ]
-  const sourceStore = memoryStore()
-  const creator = new Genui<TestCtx>({ actions, store: sourceStore })
-  const surface = await creator.surface({ content: html, actions: ["dice.roll"] })
-  const record = await sourceStore.get(surface.id)
-  assert.notEqual(record, undefined)
-  if (record === undefined) return
-
-  let stored = {
-    surface: record.surface,
-    source: record.source,
-  } as unknown as SurfaceRecord
-  const legacyStore: SurfaceStore = {
-    get: () => stored,
-    set: (record) => {
-      stored = record
-    },
-  }
-  const executor = new Genui<TestCtx>({ actions, store: legacyStore })
-
-  assert.deepEqual(
-    await executor.execute(
-      { surfaceId: surface.id, callId: "call-1", action: "dice.roll", input: { sides: 6 } },
-      { userId: "u1" },
-    ),
-    { ok: true, value: { total: 6 } },
-  )
-  assert.equal("diagnostics" in stored, true)
-  assert.deepEqual(await executor.diagnostics(surface.id), {
-    actions: ["dice.roll"],
-    granted: ["dice.roll"],
-    dropped: [],
-    html: { dropped: [] },
-  })
 })
 
 void test("registry returns a structured result when the surface store is unavailable", async () => {
@@ -340,7 +274,7 @@ void test("registry returns a structured result when the surface store is unavai
 
 void test("registry reprojects stored surface source under current policy", async () => {
   const store = memoryStore()
-  const html = `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`
+  const html = `<button>Roll</button><script type="module">genui.call("dice.roll", { sides: 6 })</script>`
   const creator = new Genui<TestCtx>({
     store: store,
     actions: [
@@ -375,23 +309,13 @@ void test("registry reprojects stored surface source under current policy", asyn
     actions: ["dice.roll"],
     granted: [],
     dropped: [{ name: "dice.roll", reason: "blocked" }],
-    html: {
-      dropped: [
-        {
-          node: "button",
-          attribute: "data-genui-on-click",
-          value: "@capability('dice.roll', { sides: 6 })",
-          reason: "ungranted_action",
-        },
-      ],
-    },
   })
 
   const reprojected = await hardened.reproject(created.id)
 
   assert.equal(reprojected?.id, created.id)
   assert.deepEqual(reprojected?.grant.actions, [])
-  assert.doesNotMatch(reprojected?.content ?? "", /data-genui-on-click/)
+  assert.equal(reprojected?.content, html)
 })
 
 void test("returned surface mutations cannot change registry authority", async () => {
@@ -407,7 +331,7 @@ void test("returned surface mutations cannot change registry authority", async (
     ],
   })
   const surface = await registry.surface({
-    content: `<button data-genui-on-click="@capability('dice.roll', {})">Roll</button>`,
+    content: `<button>Roll</button>`,
     actions: [],
   })
   const forgedDescriptor = {
@@ -511,7 +435,7 @@ void test("action descriptors carry declared input JSON Schema", async () => {
   assert.deepEqual(registry.actions()[0]?.inputSchema, inputJsonSchema)
 
   const surface = await registry.surface({
-    content: `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`,
+    content: `<button>Roll</button>`,
     actions: ["dice.roll"],
   })
   assert.deepEqual(surface.grant.actions[0]?.inputSchema, inputJsonSchema)
@@ -540,10 +464,7 @@ void test("surface grants carry action intent only when defined", async () => {
   })
 
   const surface = await registry.surface({
-    content: [
-      `<button data-genui-on-click="@capability('dice.roll', {})">Roll</button>`,
-      `<button data-genui-on-click="@capability('notes.create', { text: 'hi' })">Create</button>`,
-    ].join(""),
+    content: `<button>Roll</button><button>Create</button>`,
     actions: ["dice.roll", "notes.create"],
   })
 
@@ -571,7 +492,7 @@ void test("registry executes granted capabilities and validates inputs and outpu
     ],
   })
   const surface = await registry.surface({
-    content: `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`,
+    content: `<button>Roll</button>`,
     actions: ["dice.roll"],
   })
 
@@ -620,7 +541,7 @@ void test("registry approval is the authoritative execution gate", async () => {
     ],
   })
   const surface = await registry.surface({
-    content: `<button data-genui-on-click="@capability('notes.create', { text: 'hi' })">Create</button>`,
+    content: `<button>Create</button>`,
     actions: ["notes.create"],
   })
   const call = {
@@ -671,7 +592,7 @@ void test("registry approval receives canonical validated input", async () => {
     ],
   })
   const surface = await registry.surface({
-    content: `<button data-genui-on-click="@capability('notes.create', { text: 'hello' })">Create</button>`,
+    content: `<button>Create</button>`,
     actions: ["notes.create"],
   })
 
@@ -713,7 +634,7 @@ void test("dangerous actions require approval by default", async () => {
     ],
   })
   const surface = await registry.surface({
-    content: `<button data-genui-on-click="@capability('system.destroy', {})">Destroy</button>`,
+    content: `<button>Destroy</button>`,
     actions: ["system.destroy"],
   })
   const descriptor = surface.grant.actions[0]
@@ -755,11 +676,9 @@ void test("sensitive actions never enter a surface grant", async () => {
       }),
     ],
   })
+  const content = `<button>Profile</button><script type="module">genui.call("secrets.read", {})</script>`
   const surface = await registry.surface({
-    content: [
-      `<button data-genui-on-click="@capability('profile.read', {})">Profile</button>`,
-      `<button data-genui-on-click="@capability('secrets.read', {})">Secret</button>`,
-    ].join(""),
+    content,
     actions: ["profile.read", "secrets.read"],
   })
 
@@ -776,21 +695,11 @@ void test("sensitive actions never enter a surface grant", async () => {
   )
   assert.match(registry.instructions(), /profile\.read/)
   assert.doesNotMatch(registry.instructions(), /secrets\.read/)
-  assert.doesNotMatch(surface.content, /secrets\.read/)
+  assert.equal(surface.content, content)
   assert.deepEqual(await registry.diagnostics(surface.id), {
     actions: ["profile.read", "secrets.read"],
     granted: ["profile.read"],
     dropped: [{ name: "secrets.read", reason: "confidential" }],
-    html: {
-      dropped: [
-        {
-          node: "button",
-          attribute: "data-genui-on-click",
-          value: "@capability('secrets.read', {})",
-          reason: "ungranted_action",
-        },
-      ],
-    },
   })
 })
 
@@ -856,7 +765,7 @@ void test("registry returns every expected capability error as a value", async (
     ],
   })
   const surface = await registry.surface({
-    content: `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`,
+    content: `<button>Roll</button>`,
     actions: [
       "dice.roll",
       "demo.approve",

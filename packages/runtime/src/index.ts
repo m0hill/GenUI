@@ -1,6 +1,6 @@
 export { action, Genui } from "./registry.js"
 export { memoryStore } from "./surface-runtime.js"
-export { codeDialect, genuiDialect, renderActionIntent } from "./types.js"
+export { codeDialect, renderActionIntent } from "./types.js"
 export type { GenuiOptions } from "./registry.js"
 export type {
   Action,
@@ -18,11 +18,7 @@ export type {
   JsonSchema,
   MaybePromise,
   Policy,
-  SanitizationDrop,
-  SanitizationDropReason,
-  SanitizationResult,
   Surface,
-  SurfaceHtmlDiagnostics,
   SurfaceInput,
   SurfaceProjectionDiagnostics,
   SurfaceRecord,

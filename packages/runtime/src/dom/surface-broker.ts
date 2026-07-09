@@ -7,8 +7,6 @@ import {
   type Surface,
 } from "../types.js"
 import { protocolChannel } from "./protocol.js"
-import { normalizeResultTarget } from "./result-routing.js"
-import { resultStateFromActionResult, type ResultState } from "./result-state.js"
 import { parseSandboxMessage, type ActionSandboxMessage } from "./sandbox-message-schema.js"
 
 const defaultMaxHeight = 1_200
@@ -18,22 +16,17 @@ export type SurfaceViolationReason =
   | "bad_message"
   | "surface_mismatch"
   | "ungranted_call"
-  | "unsafe_link"
   | "navigation"
-  | "snapshot_timeout"
-  | "runtime_expression"
 
 export type SurfaceEvent =
-  | { readonly type: "call"; readonly call: ActionCall; readonly target: string }
+  | { readonly type: "call"; readonly call: ActionCall }
   | {
       readonly type: "result"
       readonly callId: string
       readonly action: string
-      readonly target: string
       readonly result: ActionResult
     }
   | { readonly type: "resize"; readonly height: number }
-  | { readonly type: "link"; readonly href: string }
   | { readonly type: "guest_error"; readonly message: string; readonly stack?: string }
   | {
       readonly type: "violation"
@@ -57,9 +50,7 @@ export interface SurfaceResultMessage {
   readonly surfaceId: string
   readonly callId: string
   readonly action: string
-  readonly target: string
   readonly result: ActionResult
-  readonly state: ResultState
 }
 
 export type SurfaceBrokerEffect =
@@ -80,7 +71,6 @@ export interface SurfaceBroker {
 }
 
 interface BrokerActionRequest {
-  readonly target: string
   readonly action: Action
   readonly call: ActionCall
   readonly controller: AbortController
@@ -90,15 +80,6 @@ interface BrokerActionRequest {
 const clampHeight = (height: number, maxHeight: number): number =>
   Math.max(0, Math.min(Math.ceil(height), maxHeight))
 
-const safeLinkHref = (href: string): string | undefined => {
-  try {
-    const url = new URL(href.trim())
-    return url.protocol === "https:" ? url.href : undefined
-  } catch {
-    return undefined
-  }
-}
-
 const emit = (event: SurfaceEvent): SurfaceBrokerEffect => ({ type: "emit", event })
 
 const task = (
@@ -106,7 +87,7 @@ const task = (
   pending?: Promise<readonly SurfaceBrokerEffect[]>,
 ): SurfaceBrokerTask => (pending === undefined ? { effects } : { effects, pending })
 
-/** Owns host-side protocol handling and capability-call state transitions for one surface. */
+/** Owns host-side capability enforcement for one mounted surface. */
 export const createSurfaceBroker = (
   initialSurface: Surface,
   options: SurfaceBrokerOptions,
@@ -121,11 +102,9 @@ export const createSurfaceBroker = (
     revision: number,
     callId: string,
     action: string,
-    target: string,
     result: ActionResult,
   ): readonly SurfaceBrokerEffect[] => {
     if (disposed || surfaceRevision !== revision || currentSurface.id !== surfaceId) return []
-
     return [
       {
         type: "post_result",
@@ -135,12 +114,10 @@ export const createSurfaceBroker = (
           surfaceId,
           callId,
           action,
-          target,
           result,
-          state: resultStateFromActionResult(result),
         },
       },
-      emit({ type: "result", callId, action, target, result }),
+      emit({ type: "result", callId, action, result }),
     ]
   }
 
@@ -158,7 +135,6 @@ export const createSurfaceBroker = (
             request.surfaceRevision,
             request.call.callId,
             request.call.action,
-            request.target,
             actionError("approval_denied", "Action was denied."),
           )
         }
@@ -172,7 +148,6 @@ export const createSurfaceBroker = (
         request.surfaceRevision,
         request.call.callId,
         request.call.action,
-        request.target,
         result ?? actionError("execution_failed", "Action returned an invalid result."),
       )
     } catch {
@@ -181,7 +156,6 @@ export const createSurfaceBroker = (
         request.surfaceRevision,
         request.call.callId,
         request.call.action,
-        request.target,
         actionError("execution_failed", "Action failed."),
       )
     } finally {
@@ -196,9 +170,8 @@ export const createSurfaceBroker = (
 
   const handleAction = (message: ActionSandboxMessage): SurfaceBrokerTask => {
     const surfaceId = currentSurface.id
-    const target = normalizeResultTarget(message.target, message.action)
-    const grantedAction = currentSurface.grant.actions.find(
-      (action) => action.name === message.action,
+    const action = currentSurface.grant.actions.find(
+      (descriptor) => descriptor.name === message.action,
     )
     const call: ActionCall = {
       surfaceId,
@@ -207,7 +180,7 @@ export const createSurfaceBroker = (
       input: message.input,
     }
 
-    if (grantedAction === undefined) {
+    if (action === undefined) {
       return task([
         emit({
           type: "violation",
@@ -219,17 +192,15 @@ export const createSurfaceBroker = (
           surfaceRevision,
           message.callId,
           message.action,
-          target,
           actionError("not_granted", "Action is not granted to this surface."),
         ),
       ])
     }
 
     return task(
-      [emit({ type: "call", call, target })],
+      [emit({ type: "call", call })],
       executeAction({
-        target,
-        action: grantedAction,
+        action,
         call,
         controller: new AbortController(),
         surfaceRevision,
@@ -239,45 +210,17 @@ export const createSurfaceBroker = (
 
   const handleSandboxMessage = (data: unknown): SurfaceBrokerTask => {
     if (disposed) return task([])
-
     const parsed = parseSandboxMessage(data)
-    if (!parsed.ok) {
-      return task([emit({ type: "violation", reason: parsed.reason })])
-    }
+    if (!parsed.ok) return task([emit({ type: "violation", reason: parsed.reason })])
     const message = parsed.value
 
     if (message.surfaceId !== currentSurface.id) {
       return task([emit({ type: "violation", reason: "surface_mismatch" })])
     }
-
     if (message.type === "resize") {
       const height = clampHeight(message.height, options.maxHeight ?? defaultMaxHeight)
       return task([{ type: "set_height", height }, emit({ type: "resize", height })])
     }
-
-    if (message.type === "link") {
-      const href = safeLinkHref(message.href)
-      return href === undefined
-        ? task([
-            emit({
-              type: "violation",
-              reason: "unsafe_link",
-              detail: "Blocked unsafe link URL.",
-            }),
-          ])
-        : task([emit({ type: "link", href })])
-    }
-
-    if (message.type === "violation") {
-      return task([
-        emit({
-          type: "violation",
-          reason: message.reason,
-          ...(message.detail === undefined ? {} : { detail: message.detail }),
-        }),
-      ])
-    }
-
     if (message.type === "guest_error") {
       return task([
         emit({
@@ -287,7 +230,6 @@ export const createSurfaceBroker = (
         }),
       ])
     }
-
     return handleAction(message)
   }
 

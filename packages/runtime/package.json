@@ -10,18 +10,16 @@
   },
   "scripts": {
     "browser:install": "playwright install chromium",
-    "sandbox:build": "node ./scripts/build-sandbox-asset.mjs",
-    "test": "pnpm run sandbox:build && nub --test $(find src -name '*.test.ts' -print)",
-    "check": "pnpm run sandbox:build && pnpm run lint && pnpm run format:check && tsc --noEmit && nub --test $(find src -name '*.test.ts' -print)",
-    "typecheck": "pnpm run sandbox:build && tsc --noEmit",
+    "test": "nub --test $(find src -name '*.test.ts' -print)",
+    "check": "pnpm run lint && pnpm run format:check && tsc --noEmit && nub --test $(find src -name '*.test.ts' -print)",
+    "typecheck": "tsc --noEmit",
     "lint": "oxlint src --type-aware",
     "lint:fix": "oxlint src --type-aware --fix",
-    "format": "oxfmt src scripts package.json tsconfig.json",
-    "format:check": "oxfmt --check src scripts package.json tsconfig.json"
+    "format": "oxfmt src package.json tsconfig.json",
+    "format:check": "oxfmt --check src package.json tsconfig.json"
   },
   "dependencies": {
-    "@genui/protocol": "workspace:*",
-    "parse5": "^8.0.1"
+    "@genui/protocol": "workspace:*"
   },
   "devDependencies": {
     "esbuild": "^0.28.1",

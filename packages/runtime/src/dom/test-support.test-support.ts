@@ -4,7 +4,7 @@ import {
   type Element as HappyElement,
   type HTMLIFrameElement as HappyIFrameElement,
 } from "happy-dom"
-import type { Action, Surface } from "../types.js"
+import { codeDialect, type Action, type Surface } from "../types.js"
 import { isRecord, jsonRoundTrip } from "../test-support.test-support.js"
 import { protocolChannel } from "./protocol.js"
 
@@ -30,26 +30,19 @@ export const testSurface = (actions: Surface["grant"]["actions"], html = ""): Su
     id,
     content: html,
     grant: { surfaceId: id, actions },
-    dialect: "genui/0",
+    dialect: codeDialect,
   }
 }
 
-export const testCodeSurface = (actions: Surface["grant"]["actions"], html = ""): Surface => ({
-  ...testSurface(actions, html),
-  dialect: "code/0",
-})
-
-export const sandboxCapabilityMessage = (
+export const sandboxActionMessage = (
   surface: Surface,
   action = "dice.roll",
 ): Readonly<Record<string, unknown>> => ({
   channel: protocolChannel,
-  type: "capability",
   surfaceId: surface.id,
   callId: "call-1",
   action,
   input: { sides: 6 },
-  target: "rollResult",
 })
 
 export const createSandboxWindow = (
@@ -57,30 +50,11 @@ export const createSandboxWindow = (
 ): { readonly window: Window; readonly messages: unknown[] } => {
   const window = new Window()
   const messages: unknown[] = []
-
   window.document.body.innerHTML = html
   window.parent.postMessage = (message: unknown): void => {
     messages.push(message)
   }
-
   return { window, messages }
-}
-
-export const capabilityPostMessage = (
-  messages: readonly unknown[],
-): Readonly<Record<string, unknown>> => {
-  const message = messages.find(
-    (candidate) => isRecord(candidate) && candidate.type === "capability",
-  )
-  if (!isRecord(message)) throw new Error("Expected a capability postMessage.")
-  return message
-}
-
-export const displayStyle = (element: unknown): string => {
-  if (element === null || element === undefined) throw new Error("Expected an element with style.")
-  // SAFETY: these fixtures select HTML elements created by happy-dom. Its Element type is not
-  // assignable to lib.dom's HTMLElement even though the runtime exposes the same style API here.
-  return (element as unknown as HTMLElement).style.display
 }
 
 export const createMountTarget = (): {
@@ -94,15 +68,14 @@ export const createMountTarget = (): {
 }
 
 export const asDomElement = (element: HappyElement): Element => {
-  // SAFETY: happy-dom implements the DOM Element operations used by mount; its TypeScript
-  // classes are distinct from lib.dom classes even though the runtime API is compatible here.
+  // SAFETY: happy-dom implements the Element operations used by mount.
   return element as unknown as Element
 }
 
 export const mountedIframe = (element: HappyElement): HappyIFrameElement => {
   const iframe = element.querySelector("iframe")
   if (iframe === null || iframe.tagName !== "IFRAME") throw new Error("Expected mounted iframe.")
-  // SAFETY: the tag check above confirms this happy-dom element is an iframe instance.
+  // SAFETY: the tag check confirms this happy-dom element is an iframe.
   return iframe as HappyIFrameElement
 }
 
@@ -120,7 +93,7 @@ export const dispatchSandboxMessage = (
   window.dispatchEvent(
     new window.MessageEvent("message", {
       data,
-      // SAFETY: happy-dom's contentWindow type is compatible with MessageEvent.source here.
+      // SAFETY: happy-dom's contentWindow is compatible with MessageEvent.source here.
       source: iframe.contentWindow as BrowserWindow | null,
     }),
   )
@@ -134,7 +107,6 @@ export const deferred = <Value>(): {
   const promise = new Promise<Value>((resolve) => {
     resolvePromise = resolve
   })
-
   return {
     promise,
     resolve(value) {

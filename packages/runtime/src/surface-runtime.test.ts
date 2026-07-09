@@ -17,38 +17,28 @@ const actionDefinition = (name: string, policy?: Policy): AnyActionDefinition<un
   execute: () => ({}),
 })
 
-void test("surface runtime owns grant projection, sanitization, records, and diagnostics", async () => {
+void test("surface runtime preserves code and owns grant records and diagnostics", async () => {
   const runtime = createSurfaceRuntime({
     byName: new Map([
       ["dice.roll", actionDefinition("dice.roll")],
       ["demo.blocked", actionDefinition("demo.blocked", "block")],
     ]),
   })
-
   const source = {
-    content: [
-      `<button data-genui-on-click="@capability('dice.roll', {})">Roll</button>`,
-      `<button data-genui-on-click="@capability('demo.blocked', {})">Blocked</button>`,
-      `<script>alert(1)</script>`,
-    ].join(""),
+    content: `<button>Roll</button><script type="module">genui.call("dice.roll", {})</script>`,
     actions: ["dice.roll", "missing.action", "dice.roll", "demo.blocked"],
     meta: { origin: "test" },
   }
   const surface = await runtime.surface(source)
   const record = await runtime.getRecord(surface.id)
 
-  assert.equal("source" in surface, false)
+  assert.equal(surface.content, source.content)
   assert.deepEqual(
-    surface.grant.actions.map((item) => item.name),
+    surface.grant.actions.map((action) => action.name),
     ["dice.roll"],
   )
-  assert.match(surface.content, /dice\.roll/)
-  assert.doesNotMatch(surface.content, /demo\.blocked/)
-  assert.doesNotMatch(surface.content, /<script/i)
-  assert.equal(record?.source.content, source.content)
-  assert.deepEqual(record?.source.actions, source.actions)
-  assert.deepEqual(record?.source.meta, source.meta)
-  const expectedDiagnostics = {
+  assert.deepEqual(record?.source, source)
+  assert.deepEqual(record?.diagnostics, {
     actions: source.actions,
     granted: ["dice.roll"],
     dropped: [
@@ -56,29 +46,16 @@ void test("surface runtime owns grant projection, sanitization, records, and dia
       { name: "dice.roll", reason: "duplicate" },
       { name: "demo.blocked", reason: "blocked" },
     ],
-    html: {
-      dropped: [
-        {
-          node: "button",
-          attribute: "data-genui-on-click",
-          value: "@capability('demo.blocked', {})",
-          reason: "ungranted_action",
-        },
-        { node: "script", reason: "forbidden_element" },
-      ],
-    },
-  }
-  assert.deepEqual(record?.diagnostics, expectedDiagnostics)
-  assert.deepEqual(await runtime.diagnostics(surface.id), expectedDiagnostics)
+  })
 })
 
-void test("surface runtime reprojects from preserved source under current policy", async () => {
+void test("surface runtime reprojects authority without rewriting source", async () => {
   const byName = new Map<string, AnyActionDefinition<unknown>>([
     ["dice.roll", actionDefinition("dice.roll")],
   ])
   const runtime = createSurfaceRuntime({ byName })
   const source = {
-    content: `<button data-genui-on-click="@capability('dice.roll', {})">Roll</button>`,
+    content: `<button>Roll</button><script type="module">genui.call("dice.roll", {})</script>`,
     actions: ["dice.roll"],
   }
   const created = await runtime.surface(source)
@@ -87,25 +64,19 @@ void test("surface runtime reprojects from preserved source under current policy
   const reprojected = await runtime.reprojectSurface(created.id)
 
   assert.equal(reprojected?.id, created.id)
-  assert.deepEqual(
-    reprojected?.grant.actions.map((item) => item.name),
-    [],
-  )
-  assert.doesNotMatch(reprojected?.content ?? "", /data-genui-on-click/)
-  assert.deepEqual((await runtime.getRecord(created.id))?.source, source)
+  assert.equal(reprojected?.content, source.content)
+  assert.deepEqual(reprojected?.grant.actions, [])
   assert.deepEqual(await runtime.diagnostics(created.id), {
     actions: ["dice.roll"],
     granted: [],
     dropped: [{ name: "dice.roll", reason: "blocked" }],
-    html: {
-      dropped: [
-        {
-          node: "button",
-          attribute: "data-genui-on-click",
-          value: "@capability('dice.roll', {})",
-          reason: "ungranted_action",
-        },
-      ],
-    },
   })
+})
+
+void test("surface runtime accepts only the shipped dialect", async () => {
+  const runtime = createSurfaceRuntime({ byName: new Map() })
+  await assert.rejects(
+    runtime.surface({ dialect: "code/1", content: "", actions: [] }),
+    /Unsupported generated UI dialect: code\/1/,
+  )
 })
