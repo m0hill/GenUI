@@ -1,5 +1,6 @@
 import type {
   Action,
+  ActionResult,
   Confidentiality,
   Effect,
   JsonSchema,
@@ -102,10 +103,27 @@ export interface ActionDefinition<Ctx, Input = unknown, Output = unknown> {
 /** Erased action shape stored by a GenUI instance after the schema boundary is recorded. */
 export type AnyActionDefinition<Ctx> = ActionDefinition<Ctx, unknown, unknown>
 
+/** Store key for one effectful call's bounded idempotency window. */
+export interface IdempotencyRequest {
+  readonly surfaceId: string
+  readonly callId: string
+  readonly fingerprint: string
+  readonly windowMs: number
+}
+
+/** Result of atomically joining or starting an idempotent action call. */
+export type IdempotencyResult =
+  | { readonly status: "result"; readonly result: ActionResult }
+  | { readonly status: "conflict" }
+
 /** Storage boundary for generated surface authority records. */
 export interface SurfaceStore {
   get(id: string): MaybePromise<SurfaceRecord | undefined>
   set(record: SurfaceRecord): MaybePromise<void>
+  runIdempotent(
+    request: IdempotencyRequest,
+    operation: () => Promise<ActionResult>,
+  ): MaybePromise<IdempotencyResult>
 }
 
 /** Optional execution hooks supplied by the host application. */

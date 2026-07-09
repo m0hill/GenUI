@@ -254,6 +254,10 @@ void test("registry returns a structured result when the surface store is unavai
         throw new Error("database is offline")
       },
       set: () => undefined,
+      runIdempotent: async (_request, operation) => ({
+        status: "result",
+        result: await operation(),
+      }),
     },
   })
 
@@ -555,15 +559,26 @@ void test("registry approval is the authoritative execution gate", async () => {
   assert.equal(executed, 0)
 
   assertErrorCode(
-    await registry.execute(call, { userId: "u1" }, { approve: () => false }),
+    await registry.execute(
+      { ...call, callId: "call-2" },
+      { userId: "u1" },
+      { approve: () => false },
+    ),
     "approval_denied",
   )
   assert.equal(executed, 0)
 
-  assert.deepEqual(await registry.execute(call, { userId: "u1" }, { approve: () => true }), {
-    ok: true,
-    value: { accepted: "hi" },
-  })
+  assert.deepEqual(
+    await registry.execute(
+      { ...call, callId: "call-3" },
+      { userId: "u1" },
+      { approve: () => true },
+    ),
+    {
+      ok: true,
+      value: { accepted: "hi" },
+    },
+  )
   assert.equal(executed, 1)
 })
 
@@ -649,10 +664,17 @@ void test("dangerous actions require approval by default", async () => {
   }
   assertErrorCode(await registry.execute(call, { userId: "u1" }), "approval_denied")
   assert.equal(executed, false)
-  assert.deepEqual(await registry.execute(call, { userId: "u1" }, { approve: () => true }), {
-    ok: true,
-    value: { destroyed: true },
-  })
+  assert.deepEqual(
+    await registry.execute(
+      { ...call, callId: "call-dangerous-approved" },
+      { userId: "u1" },
+      { approve: () => true },
+    ),
+    {
+      ok: true,
+      value: { destroyed: true },
+    },
+  )
   assert.equal(executed, true)
 })
 

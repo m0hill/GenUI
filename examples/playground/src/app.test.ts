@@ -72,7 +72,7 @@ void test("playground executes reads and forwards write approval to the kernel",
     ok: false,
     error: { code: "approval_denied", message: "Action was denied." },
   })
-  assert.deepEqual(await execute(updateCall, true), {
+  assert.deepEqual(await execute({ ...updateCall, callId: "update-2" }, true), {
     ok: true,
     value: { id: "ord-1001", customer: "Aster Labs", status: "shipped", total: 148 },
   })

@@ -74,6 +74,11 @@ The browser's `confirm` hook is best-effort trusted UX over raw call input. The
 kernel's `approve` hook is authoritative and runs after validation with the
 canonical input.
 
+`write` and `dangerous` calls are idempotent by `(surfaceId, callId)` for five
+minutes after completion. Concurrent retries share one result and do not ask
+for approval or execute twice. Reusing a call ID with a different action or raw
+JSON input returns `invalid_input`. `local` and `read` actions are not deduped.
+
 ## Approval intent
 
 Add `intent` to render concise trusted approval copy:

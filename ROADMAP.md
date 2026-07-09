@@ -432,3 +432,7 @@ delete earlier entries.
 - 2026-07-10 Oversized or non-JSON action input returns `invalid_input` — the
   payload is malformed for the JSON capability boundary, while `rate_limited`
   remains specific to concurrent-call pressure.
+- 2026-07-10 Effectful call idempotency uses atomic
+  `SurfaceStore.runIdempotent` with a five-minute post-completion window and an
+  action-plus-raw-JSON fingerprint — concurrent retries share one result while
+  conflicting call ID reuse returns `invalid_input`.

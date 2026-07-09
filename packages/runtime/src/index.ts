@@ -15,6 +15,8 @@ export type {
   Effect,
   ExecuteOptions,
   Grant,
+  IdempotencyRequest,
+  IdempotencyResult,
   JsonSchema,
   MaybePromise,
   Policy,

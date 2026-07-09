@@ -23,11 +23,11 @@ import {
 
 const maxInFlightCallsPerSurface = 8
 const maxActionInputBytes = 64 * 1_024
+const idempotencyWindowMs = 5 * 60 * 1_000
 
-const serializedInputSize = (input: unknown): number | undefined => {
+const serializeActionInput = (input: unknown): string | undefined => {
   try {
-    const serialized = JSON.stringify(input)
-    return serialized === undefined ? undefined : new TextEncoder().encode(serialized).byteLength
+    return JSON.stringify(input)
   } catch {
     return undefined
   }
@@ -100,11 +100,11 @@ export class Genui<Ctx> {
       return actionError("not_granted", "Action is not granted to this surface.")
     }
 
-    const inputSize = serializedInputSize(call.input)
-    if (inputSize === undefined) {
+    const serializedInput = serializeActionInput(call.input)
+    if (serializedInput === undefined) {
       return actionError("invalid_input", "Action input must be JSON-serializable.")
     }
-    if (inputSize > maxActionInputBytes) {
+    if (new TextEncoder().encode(serializedInput).byteLength > maxActionInputBytes) {
       return actionError("invalid_input", "Action input exceeds 64 KiB.")
     }
 
@@ -114,12 +114,17 @@ export class Genui<Ctx> {
     }
     this.#inFlightBySurface.set(call.surfaceId, inFlight + 1)
 
-    try {
+    const executeOnce = async (): Promise<ActionResult> => {
       const input = await parseWithSchema(definition.input, call.input)
       if (!input.ok) return actionError("invalid_input", input.message)
 
       if (actionPolicy(definition) === "ask") {
-        const approved = await options?.approve?.(granted, input.value)
+        let approved = false
+        try {
+          approved = (await options?.approve?.(granted, input.value)) === true
+        } catch {
+          return actionError("execution_failed", "Action approval failed.")
+        }
         if (approved !== true) return actionError("approval_denied", "Action was denied.")
       }
 
@@ -133,6 +138,28 @@ export class Genui<Ctx> {
       } catch {
         return actionError("execution_failed", "Action failed.")
       }
+    }
+
+    try {
+      if (definition.effect === "write" || definition.effect === "dangerous") {
+        try {
+          const idempotent = await this.#surfaceRuntime.runIdempotent(
+            {
+              surfaceId: call.surfaceId,
+              callId: call.callId,
+              fingerprint: `${call.action}\n${serializedInput}`,
+              windowMs: idempotencyWindowMs,
+            },
+            executeOnce,
+          )
+          return idempotent.status === "conflict"
+            ? actionError("invalid_input", "Call ID was reused with different input.")
+            : idempotent.result
+        } catch {
+          return actionError("storage_unavailable", "Idempotency store is unavailable.")
+        }
+      }
+      return await executeOnce()
     } finally {
       const remaining = (this.#inFlightBySurface.get(call.surfaceId) ?? 1) - 1
       if (remaining === 0) this.#inFlightBySurface.delete(call.surfaceId)

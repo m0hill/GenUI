@@ -29,6 +29,12 @@ const genui = new Genui({
 Keep the instance alive across surface creation and execution. The surface
 record is the server-side source of truth for grants.
 
+A custom `SurfaceStore` implements `get`, `set`, and `runIdempotent`.
+`runIdempotent` must atomically join concurrent calls with the same surface ID,
+call ID, and fingerprint, retain the completed result for the requested window,
+and report conflicting fingerprints. The bundled `memoryStore()` implements
+this contract for one process.
+
 ## Create code surfaces
 
 Accept generated content as a string. Choose the action names the surface may

@@ -3,9 +3,12 @@ import { codeInstructions } from "./code/instructions.js"
 import {
   codeDialect,
   type Action,
+  type ActionResult,
   type AnyActionDefinition,
   type DroppedAction,
   type Grant,
+  type IdempotencyRequest,
+  type IdempotencyResult,
   type Surface,
   type SurfaceInput,
   type SurfaceProjectionDiagnostics,
@@ -25,12 +28,22 @@ interface SurfaceValueInput {
   readonly meta?: Readonly<Record<string, unknown>>
 }
 
+interface MemoryIdempotencyEntry {
+  readonly fingerprint: string
+  expiresAt: number | undefined
+  readonly result: Promise<ActionResult>
+}
+
 export interface SurfaceRuntime {
   surface(input: SurfaceInput): Promise<Surface>
   reprojectSurface(id: string): Promise<Surface | undefined>
   getRecord(id: string): Promise<SurfaceRecord | undefined>
   diagnostics(id: string): Promise<SurfaceProjectionDiagnostics | undefined>
   instructions(actions: readonly Action[]): string
+  runIdempotent(
+    request: IdempotencyRequest,
+    operation: () => Promise<ActionResult>,
+  ): Promise<IdempotencyResult>
 }
 
 const copyDropped = (dropped: readonly DroppedAction[]): readonly DroppedAction[] =>
@@ -100,6 +113,7 @@ const assertCodeSurface = (source: SurfaceInput): void => {
 /** Create the default in-memory generated surface store. */
 export const memoryStore = (): SurfaceStore => {
   const records = new Map<string, SurfaceRecord>()
+  const idempotency = new Map<string, Map<string, MemoryIdempotencyEntry>>()
 
   return {
     get: (id) => {
@@ -108,6 +122,42 @@ export const memoryStore = (): SurfaceStore => {
     },
     set: (record) => {
       records.set(record.surface.id, copySurfaceRecord(record))
+    },
+    async runIdempotent(request, operation) {
+      const now = Date.now()
+      for (const [surfaceId, calls] of idempotency) {
+        for (const [callId, entry] of calls) {
+          if (entry.expiresAt !== undefined && entry.expiresAt <= now) calls.delete(callId)
+        }
+        if (calls.size === 0) idempotency.delete(surfaceId)
+      }
+
+      let calls = idempotency.get(request.surfaceId)
+      if (calls === undefined) {
+        calls = new Map()
+        idempotency.set(request.surfaceId, calls)
+      }
+      const existing = calls.get(request.callId)
+      if (existing !== undefined) {
+        if (existing.fingerprint !== request.fingerprint) return { status: "conflict" }
+        return { status: "result", result: await existing.result }
+      }
+
+      const result = Promise.resolve().then(operation)
+      const entry: MemoryIdempotencyEntry = {
+        fingerprint: request.fingerprint,
+        expiresAt: undefined,
+        result,
+      }
+      calls.set(request.callId, entry)
+      try {
+        const value = await result
+        entry.expiresAt = Date.now() + request.windowMs
+        return { status: "result", result: value }
+      } catch (error) {
+        if (calls.get(request.callId) === entry) calls.delete(request.callId)
+        throw error
+      }
     },
   }
 }
@@ -186,5 +236,6 @@ export const createSurfaceRuntime = <Ctx>({
     getRecord: storedRecord,
     diagnostics,
     instructions: codeInstructions,
+    runIdempotent: async (request, operation) => store.runIdempotent(request, operation),
   }
 }

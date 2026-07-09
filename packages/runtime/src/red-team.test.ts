@@ -173,16 +173,15 @@ void test("red team: a surface cannot exceed eight in-flight calls", async () =>
     ),
   )
 
-  const ninth = await calls[8]
   await eightStarted
-  assert.equal(ninth?.ok ? undefined : ninth?.error.code, "rate_limited")
   assert.equal(executions, 8)
 
   release?.()
-  const completed = await Promise.all(calls.slice(0, 8))
-  assert.equal(
-    completed.every((result) => result.ok),
-    true,
+  const completed = await Promise.all(calls)
+  assert.equal(completed.filter((result) => result.ok).length, 8)
+  assert.deepEqual(
+    completed.flatMap((result) => (result.ok ? [] : [result.error.code])),
+    ["rate_limited"],
   )
 })
 
