@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { action, Genui } from "./registry.js"
-import type { ActionCall, ActionResult, Surface } from "./types.js"
+import { codeDialect, type ActionCall, type ActionResult, type Surface } from "./types.js"
 import { createSurfaceBroker, type SurfaceBrokerEffect } from "./dom/surface-broker.js"
 import type { SurfaceBrokerTask } from "./dom/surface-broker.js"
 import { protocolChannel } from "./dom/protocol.js"
@@ -128,44 +128,38 @@ class OrdersStore {
 }
 
 const ordersSurfaceHtml = `
-  <form data-genui-on-submit="@action('orders.search', { query: $query }, { target: 'orders' })">
-    <input data-genui-bind="query" value="Acme">
+  <form id="orders-search">
+    <input name="query" value="Acme">
     <button>Search</button>
   </form>
-  <p data-genui-show="$orders.status == 'pending'">Updating</p>
-  <p data-genui-show="$orders.status == 'error'" data-genui-text="$orders.error"></p>
-  <p data-genui-show="$orders.value.items.length == 0">No orders found</p>
-  <table>
-    <tbody data-genui-each="$orders.value.items" data-genui-as="order">
-      <tr>
-        <td data-genui-text="$order.id"></td>
-        <td data-genui-text="$order.customer"></td>
-        <td data-genui-text="$order.status"></td>
-        <td>
-          <ul data-genui-each="$order.lines" data-genui-as="line">
-            <li>
-              <span data-genui-text="$line.sku"></span>
-              <span data-genui-text="$line.quantity"></span>
-            </li>
-          </ul>
-        </td>
-        <td>
-          <button data-genui-on-click="@action('orders.refund', { id: $order.id }, { target: 'orders' })">Refund</button>
-          <button data-genui-on-click="@action('orders.add_note', { id: $order.id, note: 'Priority follow-up' }, { target: 'orders' })">Add note</button>
-        </td>
-      </tr>
-    </tbody>
-  </table>
+  <p id="orders-status"></p>
+  <table><tbody id="orders-rows"></tbody></table>
+  <script type="module">
+    const form = document.querySelector("#orders-search")
+    const rows = document.querySelector("#orders-rows")
+    const render = (items) => {
+      rows.replaceChildren(...items.map((order) => {
+        const row = document.createElement("tr")
+        row.dataset.orderId = order.id
+        row.textContent = order.customer + " " + order.status + " " +
+          order.lines.map((line) => line.sku + ":" + line.quantity).join(", ")
+        return row
+      }))
+    }
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault()
+      const result = await genui.call("orders.search", { query: form.elements.query.value })
+      render(result.items)
+    })
+  </script>
 `
 
 const actionMessage = (surface: Surface, action: string, input: unknown, callId: string) => ({
   channel: protocolChannel,
-  type: "capability",
   surfaceId: surface.id,
   callId,
   action,
   input,
-  target: "orders",
 })
 
 const taskEffects = async (task: SurfaceBrokerTask): Promise<readonly SurfaceBrokerEffect[]> => [
@@ -191,7 +185,7 @@ const ordersResultValue = (result: ActionResult): OrdersResult => {
   return parsed.value
 }
 
-void test("orders-admin proof exercises grants, approval, nested data, and refresh mutations", async () => {
+void test("code/0 orders-admin proof exercises grants, approval, nested data, and mutations", async () => {
   const registry = new Genui<OrdersContext>({
     actions: [
       action({
@@ -223,10 +217,12 @@ void test("orders-admin proof exercises grants, approval, nested data, and refre
   })
   const ctx: OrdersContext = { userId: "user-1", store: new OrdersStore() }
   const surface = await registry.surface({
+    dialect: codeDialect,
     content: ordersSurfaceHtml,
     actions: ["orders.search", "orders.refund", "orders.add_note"],
   })
   const limitedSurface = await registry.surface({
+    dialect: codeDialect,
     content: ordersSurfaceHtml,
     actions: ["orders.search"],
   })
@@ -255,8 +251,9 @@ void test("orders-admin proof exercises grants, approval, nested data, and refre
     surface.grant.actions.map((capability) => capability.name),
     ["orders.search", "orders.refund", "orders.add_note"],
   )
-  assert.equal(surface.content.includes("$orders.value.items.length == 0"), true)
-  assert.equal(surface.content.includes('data-genui-each="$order.lines"'), true)
+  assert.equal(surface.content, ordersSurfaceHtml)
+  assert.equal(surface.content.includes('genui.call("orders.search"'), true)
+  assert.equal(surface.content.includes("order.lines.map"), true)
 
   const directDenied = await registry.execute(
     {
@@ -278,7 +275,7 @@ void test("orders-admin proof exercises grants, approval, nested data, and refre
     ),
   )
   const searchedOrders = ordersResultValue(searchResult.result)
-  assert.equal(searchResult.target, "orders")
+  assert.equal(searchResult.target, "ordersSearch")
   assert.equal(searchedOrders.items.length, 1)
   assert.equal(searchedOrders.items[0]?.lines.length, 2)
 
