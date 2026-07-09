@@ -1,6 +1,9 @@
 /** Current generated UI dialect understood by this runtime. */
 export const genuiDialect = "genui/0"
 
+/** Buildless sandboxed HTML and JavaScript dialect. */
+export const codeDialect = "code/0"
+
 const actionNamePattern = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$/i
 
 /** Return whether a string is a valid wire-level action name. */
@@ -70,7 +73,7 @@ export interface Grant {
 /** Serializable generated UI document after dialect projection and grant projection. */
 export interface Surface {
   readonly id: string
-  /** Dialect-defined surface content; genui/0 uses sanitized fragment HTML. */
+  /** Dialect-defined surface content. */
   readonly content: string
   readonly grant: Grant
   readonly dialect: Dialect
@@ -115,7 +118,9 @@ export const actionError = (code: ActionErrorCode, message: string): ActionResul
 
 /** Input accepted by a registry when creating a dialect-projected surface. */
 export interface SurfaceInput {
-  /** Dialect-defined source content; genui/0 expects fragment HTML. */
+  /** Defaults to genui/0 during the code/0 migration. */
+  readonly dialect?: Dialect
+  /** Dialect-defined source content. */
   readonly content: string
   readonly actions: readonly string[]
   readonly meta?: Readonly<Record<string, unknown>>

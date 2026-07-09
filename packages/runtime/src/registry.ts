@@ -3,12 +3,14 @@ import { parseWithSchema } from "./schema.js"
 import { createSurfaceRuntime, type SurfaceRuntime } from "./surface-runtime.js"
 import {
   actionError,
+  codeDialect,
   isValidActionName,
   type Action,
   type ActionCall,
   type ActionDefinition,
   type ActionResult,
   type AnyActionDefinition,
+  type Dialect,
   type ExecuteOptions,
   type Surface,
   type SurfaceInput,
@@ -106,7 +108,7 @@ export class Genui<Ctx> {
     return publicActions(this.#byName.values())
   }
 
-  instructions(): string {
-    return this.#surfaceRuntime.instructions(this.actions())
+  instructions(dialect: Dialect = codeDialect): string {
+    return this.#surfaceRuntime.instructions(this.actions(), dialect)
   }
 }

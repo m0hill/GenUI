@@ -10,6 +10,7 @@ import type {
 
 export {
   actionError,
+  codeDialect,
   genuiDialect,
   isValidActionName,
   parseActionCall,

@@ -3,6 +3,7 @@ import { test } from "node:test"
 import { action, Genui } from "./registry.js"
 import { memoryStore } from "./surface-runtime.js"
 import {
+  codeDialect,
   genuiDialect,
   type ActionErrorCode,
   type ActionResult,
@@ -138,6 +139,42 @@ void test("registry projects a grant and sanitizes HTML under that grant", async
         { node: "script", reason: "forbidden_element" },
       ],
     },
+  })
+})
+
+void test("registry stores code surface content verbatim under its projected grant", async () => {
+  const store = memoryStore()
+  const registry = new Genui<TestCtx>({
+    store,
+    actions: [
+      action({
+        name: "dice.roll",
+        description: "Roll a die.",
+        effect: "read",
+        input: rollInput,
+        execute: (_ctx, input) => ({ total: input.sides }),
+      }),
+    ],
+  })
+  const content = `<button onclick="run()">Roll</button><script type="module">window.run = () => genui.call("dice.roll", { sides: 6 })</script>`
+
+  const surface = await registry.surface({
+    dialect: codeDialect,
+    content,
+    actions: ["dice.roll"],
+  })
+
+  assert.equal(surface.dialect, codeDialect)
+  assert.equal(surface.content, content)
+  assert.deepEqual(
+    surface.grant.actions.map((descriptor) => descriptor.name),
+    ["dice.roll"],
+  )
+  assert.deepEqual((await registry.diagnostics(surface.id))?.html.dropped, [])
+  assert.deepEqual((await store.get(surface.id))?.source, {
+    dialect: codeDialect,
+    content,
+    actions: ["dice.roll"],
   })
 })
 
@@ -439,7 +476,6 @@ void test("descriptors expose only the public capability projection", () => {
     "requiresApproval",
   ])
   assert.equal(descriptors[1]?.requiresApproval, true)
-  assert.match(registry.instructions(), /Generated UI dialect: genui\/0/)
   assert.match(registry.instructions(), /dice\.roll/)
   assert.doesNotMatch(registry.instructions(), /demo\.blocked/)
 })
