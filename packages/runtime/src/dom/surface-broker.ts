@@ -19,6 +19,7 @@ export type SurfaceViolationReason =
   | "surface_mismatch"
   | "ungranted_call"
   | "unsafe_link"
+  | "navigation"
   | "snapshot_timeout"
   | "runtime_expression"
 
@@ -33,6 +34,7 @@ export type SurfaceEvent =
     }
   | { readonly type: "resize"; readonly height: number }
   | { readonly type: "link"; readonly href: string }
+  | { readonly type: "guest_error"; readonly message: string; readonly stack?: string }
   | {
       readonly type: "violation"
       readonly reason: SurfaceViolationReason
@@ -272,6 +274,16 @@ export const createSurfaceBroker = (
           type: "violation",
           reason: message.reason,
           ...(message.detail === undefined ? {} : { detail: message.detail }),
+        }),
+      ])
+    }
+
+    if (message.type === "guest_error") {
+      return task([
+        emit({
+          type: "guest_error",
+          message: message.message,
+          ...(message.stack === undefined ? {} : { stack: message.stack }),
         }),
       ])
     }

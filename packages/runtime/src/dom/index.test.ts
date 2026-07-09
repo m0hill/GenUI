@@ -12,8 +12,67 @@ import {
   flushAsync,
   mountedIframe,
   sandboxCapabilityMessage,
+  testCodeSurface,
   testSurface,
 } from "./test-support.test-support.js"
+
+void test("mount renders code surfaces with bootstrap before verbatim guest content", () => {
+  const { element } = createMountTarget()
+  const content = `<button id="run">Run</button><script type="module">window.guestRan = true</script>`
+  const surface = testCodeSurface([diceDescriptor], content)
+  const instance = mount(asDomElement(element), surface, {
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+  })
+  const iframe = mountedIframe(element)
+
+  assert.equal(iframe.getAttribute("sandbox"), "allow-scripts allow-forms")
+  assert.equal(iframe.getAttribute("referrerpolicy"), "no-referrer")
+  assert.match(
+    iframe.srcdoc,
+    /default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'/,
+  )
+  assert.equal(iframe.srcdoc.includes(content), true)
+  assert.ok(iframe.srcdoc.indexOf("Object.defineProperty(window") < iframe.srcdoc.indexOf(content))
+
+  instance.dispose()
+})
+
+void test("mount handshakes code grants and trips on a second iframe load", () => {
+  const { window, element } = createMountTarget()
+  const events: SurfaceEvent[] = []
+  const surface = testCodeSurface([diceDescriptor], `<p>Safe surface</p>`)
+  const instance = mount(asDomElement(element), surface, {
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+    onEvent: (event) => events.push(event),
+  })
+  const iframe = mountedIframe(element)
+  const hostMessages: unknown[] = []
+  if (iframe.contentWindow === null) throw new Error("Expected an iframe content window.")
+  iframe.contentWindow.postMessage = (message: unknown): void => {
+    hostMessages.push(message)
+  }
+
+  iframe.dispatchEvent(new window.Event("load"))
+  assert.deepEqual(hostMessages, [
+    {
+      channel: protocolChannel,
+      type: "grant",
+      surfaceId: surface.id,
+      actions: surface.grant.actions,
+    },
+  ])
+  assert.notEqual(element.querySelector("iframe"), null)
+
+  iframe.dispatchEvent(new window.Event("load"))
+  assert.equal(element.querySelector("iframe"), null)
+  assert.equal(
+    element.querySelector('[role="alert"]')?.textContent,
+    "Generated UI navigation blocked.",
+  )
+  assert.deepEqual(events, [{ type: "violation", reason: "navigation" }])
+
+  instance.dispose()
+})
 
 void test("mount renders a sandboxed iframe and replaces/disposes it", async () => {
   const { element } = createMountTarget()

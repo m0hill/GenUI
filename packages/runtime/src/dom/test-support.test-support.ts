@@ -34,6 +34,11 @@ export const testSurface = (actions: Surface["grant"]["actions"], html = ""): Su
   }
 }
 
+export const testCodeSurface = (actions: Surface["grant"]["actions"], html = ""): Surface => ({
+  ...testSurface(actions, html),
+  dialect: "code/0",
+})
+
 export const sandboxCapabilityMessage = (
   surface: Surface,
   action = "dice.roll",

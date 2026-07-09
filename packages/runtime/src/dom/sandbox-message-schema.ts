@@ -4,7 +4,7 @@ import { protocolChannel, type SurfaceSnapshot } from "./protocol.js"
 
 export interface ActionSandboxMessage extends ActionCall {
   readonly channel: typeof protocolChannel
-  readonly type: "capability"
+  readonly type?: "capability"
   readonly target?: string
 }
 
@@ -30,6 +30,14 @@ interface ViolationSandboxMessage {
   readonly detail?: string
 }
 
+interface GuestErrorSandboxMessage {
+  readonly channel: typeof protocolChannel
+  readonly type: "guest_error"
+  readonly surfaceId: string
+  readonly message: string
+  readonly stack?: string
+}
+
 export interface SnapshotSandboxMessage {
   readonly channel: typeof protocolChannel
   readonly type: "snapshot"
@@ -43,6 +51,7 @@ export type SandboxMessage =
   | ResizeSandboxMessage
   | LinkSandboxMessage
   | ViolationSandboxMessage
+  | GuestErrorSandboxMessage
 
 export type ParseSandboxMessageResult =
   | { readonly ok: true; readonly value: SandboxMessage }
@@ -51,6 +60,8 @@ export type ParseSandboxMessageResult =
 const maxProtocolIdentifierLength = 256
 const maxHrefLength = 2_048
 const maxViolationDetailLength = 240
+const maxGuestErrorMessageLength = 2_048
+const maxGuestErrorStackLength = 8_192
 
 const boundedString = (value: unknown, maxLength: number): string | undefined =>
   typeof value === "string" && value.length <= maxLength ? value : undefined
@@ -119,6 +130,17 @@ const parseCapabilityMessage = (
   }
 }
 
+const parseCodeActionMessage = (
+  value: Readonly<Record<string, unknown>>,
+): ActionSandboxMessage | undefined => {
+  const call = parseActionCall(value)
+  if (call === undefined) return undefined
+  if (call.surfaceId.length > maxProtocolIdentifierLength) return undefined
+  if (call.callId.length > maxProtocolIdentifierLength) return undefined
+
+  return { channel: protocolChannel, ...call }
+}
+
 const parseViolationMessage = (
   value: Readonly<Record<string, unknown>>,
 ): ViolationSandboxMessage | undefined => {
@@ -135,6 +157,25 @@ const parseViolationMessage = (
     surfaceId,
     reason: value.reason,
     ...(detail === undefined ? {} : { detail }),
+  }
+}
+
+const parseGuestErrorMessage = (
+  value: Readonly<Record<string, unknown>>,
+): GuestErrorSandboxMessage | undefined => {
+  const surfaceId = boundedString(value.surfaceId, maxProtocolIdentifierLength)
+  const message = truncatedString(value.message, maxGuestErrorMessageLength)
+  const stack =
+    value.stack === undefined ? undefined : truncatedString(value.stack, maxGuestErrorStackLength)
+  if (surfaceId === undefined || message === undefined) return undefined
+  if (value.stack !== undefined && stack === undefined) return undefined
+
+  return {
+    channel: protocolChannel,
+    type: "guest_error",
+    surfaceId,
+    message,
+    ...(stack === undefined ? {} : { stack }),
   }
 }
 
@@ -207,6 +248,20 @@ export const parseSandboxMessage = (value: unknown): ParseSandboxMessageResult =
 
   if (value.type === "violation") {
     const message = parseViolationMessage(value)
+    return message === undefined
+      ? { ok: false, reason: "bad_message" }
+      : { ok: true, value: message }
+  }
+
+  if (value.type === "guest_error") {
+    const message = parseGuestErrorMessage(value)
+    return message === undefined
+      ? { ok: false, reason: "bad_message" }
+      : { ok: true, value: message }
+  }
+
+  if (value.type === undefined) {
+    const message = parseCodeActionMessage(value)
     return message === undefined
       ? { ok: false, reason: "bad_message" }
       : { ok: true, value: message }

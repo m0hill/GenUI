@@ -69,6 +69,52 @@ void test("surface broker runs granted capability calls through transport", asyn
   ])
 })
 
+void test("surface broker handles code guest calls and error reports", async () => {
+  const current = { ...testSurface([diceDescriptor]), dialect: "code/0" }
+  const calls: ActionCall[] = []
+  const broker = createSurfaceBroker(current, {
+    transport: async (call): Promise<ActionResult> => {
+      calls.push(call)
+      return { ok: true, value: { total: 6 } }
+    },
+  })
+
+  const callTask = broker.handleSandboxMessage({
+    channel: protocolChannel,
+    surfaceId: current.id,
+    callId: "code-call-1",
+    action: "dice.roll",
+    input: { sides: 6 },
+  })
+  assert.deepEqual(emittedEvents(callTask.effects), [
+    {
+      type: "call",
+      target: "diceRoll",
+      call: {
+        surfaceId: current.id,
+        callId: "code-call-1",
+        action: "dice.roll",
+        input: { sides: 6 },
+      },
+    },
+  ])
+  await pendingEffects(callTask)
+  assert.equal(calls.length, 1)
+
+  assert.deepEqual(
+    emittedEvents(
+      broker.handleSandboxMessage({
+        channel: protocolChannel,
+        type: "guest_error",
+        surfaceId: current.id,
+        message: "Guest failed",
+        stack: "guest.js:1",
+      }).effects,
+    ),
+    [{ type: "guest_error", message: "Guest failed", stack: "guest.js:1" }],
+  )
+})
+
 void test("surface broker rejects malformed transport results", async () => {
   const current = testSurface([diceDescriptor])
   const broker = createSurfaceBroker(current, {

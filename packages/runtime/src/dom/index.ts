@@ -1,10 +1,12 @@
 import {
+  codeDialect,
   genuiDialect,
   type Action,
   type ActionCall,
   type ActionResult,
   type Surface,
 } from "../types.js"
+import { codeBootstrapScript } from "../code/bootstrap.js"
 import { emptySurfaceSnapshot, protocolChannel, type SurfaceSnapshot } from "./protocol.js"
 import { sandboxBridgeScript } from "./sandbox-bridge.js"
 import { parseSnapshotSandboxMessage } from "./sandbox-message-schema.js"
@@ -57,7 +59,7 @@ const imageSourcePolicy = (policy: ImagePolicy): string => {
   return "'none'"
 }
 
-const surfaceDocument = (
+const genuiSurfaceDocument = (
   surface: Surface,
   imagePolicy: ImagePolicy,
   snapshot?: SurfaceSnapshot,
@@ -70,8 +72,26 @@ const surfaceDocument = (
 <body>${surface.content}<script>${sandboxBridgeScript(surface.id, snapshot)}</script></body>
 </html>`
 
+const codeSurfaceDocument = (surface: Surface, imagePolicy: ImagePolicy): string => `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src ${imageSourcePolicy(imagePolicy)}; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+</head>
+<body><script>${codeBootstrapScript({ channel: protocolChannel, surfaceId: surface.id })}</script>${surface.content}</body>
+</html>`
+
+const surfaceDocument = (
+  surface: Surface,
+  imagePolicy: ImagePolicy,
+  snapshot?: SurfaceSnapshot,
+): string =>
+  surface.dialect === codeDialect
+    ? codeSurfaceDocument(surface, imagePolicy)
+    : genuiSurfaceDocument(surface, imagePolicy, snapshot)
+
 const assertSupportedSurfaceDialect = (surface: Surface): void => {
-  if (surface.dialect !== genuiDialect) {
+  if (surface.dialect !== genuiDialect && surface.dialect !== codeDialect) {
     throw new Error(`Unsupported generated UI dialect: ${surface.dialect}`)
   }
 }
@@ -82,8 +102,11 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
 
   const ownerDocument = element.ownerDocument
   let disposed = false
+  let terminated = false
+  let expectedDocumentLoads = 0
   let nextSnapshotRequestId = 1
   let replacementQueue = Promise.resolve()
+  let errorElement: Element | undefined
   const snapshotTimeoutMs =
     typeof options.snapshotTimeoutMs === "number" &&
     Number.isFinite(options.snapshotTimeoutMs) &&
@@ -108,7 +131,7 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
   const emit = (event: SurfaceEvent): void => options.onEvent?.(event)
 
   const applyEffect = (effect: SurfaceBrokerEffect): void => {
-    if (disposed) return
+    if (disposed || terminated) return
 
     if (effect.type === "emit") {
       emit(effect.event)
@@ -149,7 +172,9 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
 
   const requestSnapshot = (surfaceId: string): Promise<SurfaceSnapshot | undefined> => {
     const target = iframe.contentWindow
-    if (disposed || target === null) return Promise.resolve(undefined)
+    if (disposed || terminated || broker.surface.dialect === codeDialect || target === null) {
+      return Promise.resolve(undefined)
+    }
 
     const requestId = `snapshot-${nextSnapshotRequestId++}`
     return new Promise<SurfaceSnapshot | undefined>((resolve) => {
@@ -192,17 +217,55 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
   }
 
   const handleMessage = (event: MessageEvent<unknown>): void => {
-    if (disposed || event.source !== iframe.contentWindow) return
+    if (disposed || terminated || event.source !== iframe.contentWindow) return
     if (handleSnapshotMessage(event.data)) return
     applyTask(broker.handleSandboxMessage(event.data))
   }
 
+  const postGrant = (): void => {
+    const currentSurface = broker.surface
+    iframe.contentWindow?.postMessage(
+      {
+        channel: protocolChannel,
+        type: "grant",
+        surfaceId: currentSurface.id,
+        actions: currentSurface.grant.actions,
+      },
+      "*",
+    )
+  }
+
+  const handleLoad = (): void => {
+    if (disposed || terminated) return
+    if (expectedDocumentLoads > 0) {
+      expectedDocumentLoads -= 1
+      if (broker.surface.dialect === codeDialect) postGrant()
+      return
+    }
+    if (broker.surface.dialect !== codeDialect) return
+
+    emit({ type: "violation", reason: "navigation" })
+    terminated = true
+    broker.dispose()
+    finishPendingSnapshots()
+    ownerDocument.defaultView?.removeEventListener("message", handleMessage)
+    iframe.removeEventListener("load", handleLoad)
+
+    const error = ownerDocument.createElement("div")
+    error.setAttribute("role", "alert")
+    error.textContent = "Generated UI navigation blocked."
+    errorElement = error
+    element.replaceChildren(error)
+  }
+
+  const setDocument = (surface: Surface, snapshot?: SurfaceSnapshot): void => {
+    expectedDocumentLoads += 1
+    iframe.srcdoc = surfaceDocument(surface, imagePolicy, snapshot)
+  }
+
   ownerDocument.defaultView?.addEventListener("message", handleMessage)
-  iframe.srcdoc = surfaceDocument(
-    broker.surface,
-    imagePolicy,
-    options.snapshot ?? emptySurfaceSnapshot(),
-  )
+  iframe.addEventListener("load", handleLoad)
+  setDocument(broker.surface, options.snapshot ?? emptySurfaceSnapshot())
 
   element.replaceChildren(iframe)
 
@@ -216,23 +279,21 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
     replace(nextSurface, replaceOptions = {}) {
       assertSupportedSurfaceDialect(nextSurface)
       const replacement = replacementQueue.then(async () => {
-        if (disposed) return
+        if (disposed || terminated) return
 
         const currentSurface = broker.surface
         const snapshot =
-          replaceOptions.snapshot !== undefined
-            ? replaceOptions.snapshot
-            : nextSurface.id === currentSurface.id
-              ? await requestSnapshot(currentSurface.id)
-              : undefined
+          currentSurface.dialect === codeDialect
+            ? undefined
+            : replaceOptions.snapshot !== undefined
+              ? replaceOptions.snapshot
+              : nextSurface.id === currentSurface.id
+                ? await requestSnapshot(currentSurface.id)
+                : undefined
 
-        if (disposed) return
+        if (disposed || terminated) return
         broker.replace(nextSurface)
-        iframe.srcdoc = surfaceDocument(
-          broker.surface,
-          imagePolicy,
-          snapshot ?? emptySurfaceSnapshot(),
-        )
+        setDocument(broker.surface, snapshot ?? emptySurfaceSnapshot())
       })
       replacementQueue = replacement.catch(() => undefined)
       return replacement
@@ -242,7 +303,9 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
       broker.dispose()
       finishPendingSnapshots()
       ownerDocument.defaultView?.removeEventListener("message", handleMessage)
+      iframe.removeEventListener("load", handleLoad)
       iframe.remove()
+      errorElement?.remove()
     },
   }
 }
