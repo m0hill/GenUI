@@ -1,8 +1,6 @@
 packages:
   - "packages/*"
-  - "examples/*"
 allowBuilds:
-  "@google/genai": false
   "@parcel/watcher": false
   esbuild: true
   protobufjs: false

@@ -1,10 +1,4 @@
 node_modules/
 dist/
 *.tsbuildinfo
-auth.json
-.env
 .DS_Store
-.sessions/
-public/styles.css
-examples/*/public/styles.css
-examples/*/public/generated-ui.js
