@@ -232,7 +232,7 @@ void test("orders-admin proof exercises grants, approval, nested data, and refre
   })
   const transportCalls: ActionCall[] = []
   const brokerApprovals: ActionCall[] = []
-  const registryApprovals: ActionCall[] = []
+  const registryApprovalInputs: unknown[] = []
   let brokerApproves = true
 
   const broker = createSurfaceBroker(surface, {
@@ -243,8 +243,8 @@ void test("orders-admin proof exercises grants, approval, nested data, and refre
     transport: async (call): Promise<ActionResult> => {
       transportCalls.push(call)
       return registry.execute(call, ctx, {
-        approve: (_descriptor, approvedCall) => {
-          registryApprovals.push(approvedCall)
+        approve: (_descriptor, input) => {
+          registryApprovalInputs.push(input)
           return true
         },
       })
@@ -352,8 +352,5 @@ void test("orders-admin proof exercises grants, approval, nested data, and refre
     brokerApprovals.map((call) => call.callId),
     ["call-refund-denied", "call-refund"],
   )
-  assert.deepEqual(
-    registryApprovals.map((call) => call.callId),
-    ["call-refund"],
-  )
+  assert.deepEqual(registryApprovalInputs, [{ id: "order-1" }])
 })

@@ -1,8 +1,8 @@
 import {
   genuiDialect,
+  type Action,
   type ActionCall,
   type ActionResult,
-  type ExecuteOptions,
   type Surface,
 } from "../types.js"
 import { emptySurfaceSnapshot, protocolChannel, type SurfaceSnapshot } from "./protocol.js"
@@ -20,7 +20,8 @@ export type { SurfaceSnapshot } from "./protocol.js"
 
 export interface MountOptions {
   readonly transport: (call: ActionCall, options: TransportOptions) => Promise<ActionResult>
-  readonly confirm?: NonNullable<ExecuteOptions["approve"]>
+  /** Best-effort host UX confirmation over the raw sandbox call. */
+  readonly confirm?: (action: Action, call: ActionCall) => boolean | Promise<boolean>
   readonly imagePolicy?: ImagePolicy
   readonly maxHeight?: number
   readonly onEvent?: (event: SurfaceEvent) => void

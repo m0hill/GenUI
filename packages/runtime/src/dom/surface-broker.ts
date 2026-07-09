@@ -3,7 +3,6 @@ import {
   type Action,
   type ActionCall,
   type ActionResult,
-  type ExecuteOptions,
   type Surface,
 } from "../types.js"
 import { protocolChannel } from "./protocol.js"
@@ -45,7 +44,7 @@ export interface TransportOptions {
 
 export interface SurfaceBrokerOptions {
   readonly transport: (call: ActionCall, options: TransportOptions) => Promise<ActionResult>
-  readonly confirm?: NonNullable<ExecuteOptions["approve"]>
+  readonly confirm?: (action: Action, call: ActionCall) => boolean | Promise<boolean>
   readonly maxHeight?: number
 }
 

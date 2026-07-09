@@ -423,3 +423,6 @@ delete earlier entries.
   preview on raw input; kernel `approve` = authoritative gate on validated
   input) — an earlier draft implied the browser broker had the parsed input,
   which is impossible since validation is server-side.
+- 2026-07-10 Kernel `approve` receives `(action, canonicalInput)` while call
+  metadata stays in the host's surrounding request scope — this keeps the
+  authoritative hook focused on the exact value being approved.

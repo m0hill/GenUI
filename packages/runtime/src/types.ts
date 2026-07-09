@@ -1,11 +1,4 @@
-import type {
-  Action,
-  ActionCall,
-  Effect,
-  MaybePromise,
-  Policy,
-  SurfaceRecord,
-} from "@genui/protocol"
+import type { Action, Effect, MaybePromise, Policy, SurfaceRecord } from "@genui/protocol"
 
 export { actionError, genuiDialect, isValidActionName, renderActionIntent } from "@genui/protocol"
 export type {
@@ -100,5 +93,6 @@ export interface SurfaceStore {
 
 /** Optional execution hooks supplied by the host application. */
 export interface ExecuteOptions {
-  approve?(action: Action, call: ActionCall): boolean | Promise<boolean>
+  /** Authoritatively approve an action using its schema-validated canonical input. */
+  approve?(action: Action, input: unknown): boolean | Promise<boolean>
 }

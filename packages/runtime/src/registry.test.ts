@@ -572,6 +572,56 @@ void test("registry approval is the authoritative execution gate", async () => {
   assert.equal(executed, 1)
 })
 
+void test("registry approval receives canonical validated input", async () => {
+  const normalizedTextInput = testSchema<TextInput>((value) => {
+    if (!isRecord(value) || typeof value.text !== "string") {
+      return { ok: false, message: "text must be a string." }
+    }
+    return { ok: true, value: { text: value.text.trim() } }
+  })
+  let approvedInput: unknown
+  let executedInput: unknown
+  const registry = new Genui<TestCtx>({
+    actions: [
+      action({
+        name: "notes.create",
+        description: "Create a note.",
+        effect: "write",
+        policy: "ask",
+        input: normalizedTextInput,
+        execute: (_ctx, input) => {
+          executedInput = input
+          return { accepted: input.text }
+        },
+      }),
+    ],
+  })
+  const surface = await registry.surface({
+    content: `<button data-genui-on-click="@capability('notes.create', { text: 'hello' })">Create</button>`,
+    actions: ["notes.create"],
+  })
+
+  const result = await registry.execute(
+    {
+      surfaceId: surface.id,
+      callId: "call-canonical",
+      action: "notes.create",
+      input: { text: "  hello  " },
+    },
+    { userId: "u1" },
+    {
+      approve: (_action, input) => {
+        approvedInput = input
+        return true
+      },
+    },
+  )
+
+  assert.deepEqual(approvedInput, { text: "hello" })
+  assert.deepEqual(executedInput, { text: "hello" })
+  assert.deepEqual(result, { ok: true, value: { accepted: "hello" } })
+})
+
 void test("registry returns every expected capability error as a value", async () => {
   const registry = new Genui<TestCtx>({
     actions: [

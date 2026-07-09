@@ -82,13 +82,13 @@ export class Genui<Ctx> {
       return actionError("not_granted", "Action is not granted to this surface.")
     }
 
-    if (actionPolicy(definition) === "ask") {
-      const approved = await options?.approve?.(granted, call)
-      if (approved !== true) return actionError("approval_denied", "Action was denied.")
-    }
-
     const input = await parseWithSchema(definition.input, call.input)
     if (!input.ok) return actionError("invalid_input", input.message)
+
+    if (actionPolicy(definition) === "ask") {
+      const approved = await options?.approve?.(granted, input.value)
+      if (approved !== true) return actionError("approval_denied", "Action was denied.")
+    }
 
     try {
       const value = await definition.execute(ctx, input.value)
