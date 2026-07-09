@@ -20,8 +20,8 @@ pnpm workspace:
 - `packages/runtime` — `@genui/genui`: the capability kernel (actions, grants,
   policy, execution) plus the DOM host (sandboxed iframe mounting and the
   postMessage broker).
-- `examples/` — a minimal playground host is planned (ROADMAP.md M4). The
-  earlier Hono/Datastar chat example was removed; it lives in git history.
+- `examples/playground` — a credential-free Hono host with paste mode, model
+  instructions, working fixtures, and a visible surface-event log.
 
 ## Develop
 
@@ -29,4 +29,5 @@ pnpm workspace:
 pnpm install
 pnpm check   # format + lint + typecheck + tests for all packages
 pnpm test
+pnpm dev     # playground at http://localhost:3000
 ```
