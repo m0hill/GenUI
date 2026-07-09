@@ -69,6 +69,25 @@ void test("surface broker runs granted capability calls through transport", asyn
   ])
 })
 
+void test("surface broker rejects malformed transport results", async () => {
+  const current = testSurface([diceDescriptor])
+  const broker = createSurfaceBroker(current, {
+    transport: async () => JSON.parse(`{"ok":"yes"}`),
+  })
+
+  const effects = await pendingEffects(
+    broker.handleSandboxMessage(sandboxCapabilityMessage(current)),
+  )
+  const post = resultPost(effects)
+
+  assert.equal(
+    post?.type === "post_result" && !post.message.result.ok
+      ? post.message.result.error.code
+      : undefined,
+    "execution_failed",
+  )
+})
+
 void test("surface broker refuses ungranted capability calls before transport", () => {
   const current = testSurface([])
   let transportCalled = false

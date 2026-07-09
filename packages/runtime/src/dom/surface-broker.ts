@@ -1,5 +1,6 @@
 import {
   actionError,
+  parseActionResult,
   type Action,
   type ActionCall,
   type ActionResult,
@@ -161,13 +162,16 @@ export const createSurfaceBroker = (
         }
       }
 
+      const result = parseActionResult(
+        await options.transport(request.call, { signal: request.controller.signal }),
+      )
       return resultEffects(
         request.call.surfaceId,
         request.surfaceRevision,
         request.call.callId,
         request.call.action,
         request.target,
-        await options.transport(request.call, { signal: request.controller.signal }),
+        result ?? actionError("execution_failed", "Action returned an invalid result."),
       )
     } catch {
       return resultEffects(

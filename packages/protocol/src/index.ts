@@ -182,3 +182,86 @@ export interface SurfaceRecord {
   readonly source: SurfaceInput
   readonly diagnostics: SurfaceProjectionDiagnostics
 }
+
+const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+const hasOwn = (value: Readonly<Record<string, unknown>>, key: string): boolean =>
+  Object.prototype.hasOwnProperty.call(value, key)
+
+const isAction = (value: unknown): value is Action =>
+  isRecord(value) &&
+  typeof value.name === "string" &&
+  isValidActionName(value.name) &&
+  typeof value.description === "string" &&
+  (value.effect === "local" ||
+    value.effect === "read" ||
+    value.effect === "write" ||
+    value.effect === "dangerous") &&
+  (value.confidentiality === undefined ||
+    value.confidentiality === "normal" ||
+    value.confidentiality === "sensitive") &&
+  typeof value.requiresApproval === "boolean" &&
+  (value.intent === undefined || typeof value.intent === "string") &&
+  (value.inputSchema === undefined || isRecord(value.inputSchema))
+
+const isGrant = (value: unknown, surfaceId: string): value is Grant =>
+  isRecord(value) &&
+  value.surfaceId === surfaceId &&
+  Array.isArray(value.actions) &&
+  value.actions.every(isAction)
+
+/** Parse an untrusted value as a serialized generated UI surface. */
+export const parseSurface = (value: unknown): Surface | undefined => {
+  if (!isRecord(value)) return undefined
+  if (typeof value.id !== "string") return undefined
+  if (typeof value.content !== "string") return undefined
+  if (typeof value.dialect !== "string") return undefined
+  if (!isGrant(value.grant, value.id)) return undefined
+  if (value.meta !== undefined && !isRecord(value.meta)) return undefined
+  const surface = {
+    id: value.id,
+    content: value.content,
+    dialect: value.dialect,
+    grant: value.grant,
+  }
+  return value.meta === undefined ? surface : { ...surface, meta: value.meta }
+}
+
+/** Parse an untrusted value as a transport-independent action call. */
+export const parseActionCall = (value: unknown): ActionCall | undefined => {
+  if (!isRecord(value)) return undefined
+  if (typeof value.surfaceId !== "string") return undefined
+  if (typeof value.callId !== "string") return undefined
+  if (typeof value.action !== "string" || !isValidActionName(value.action)) return undefined
+  if (!hasOwn(value, "input")) return undefined
+  return {
+    surfaceId: value.surfaceId,
+    callId: value.callId,
+    action: value.action,
+    input: value.input,
+  }
+}
+
+const isActionErrorCode = (value: unknown): value is ActionErrorCode =>
+  value === "unknown_surface" ||
+  value === "not_granted" ||
+  value === "blocked" ||
+  value === "invalid_input" ||
+  value === "invalid_output" ||
+  value === "approval_denied" ||
+  value === "storage_unavailable" ||
+  value === "execution_failed"
+
+/** Parse an untrusted value as an action execution result envelope. */
+export const parseActionResult = (value: unknown): ActionResult | undefined => {
+  if (!isRecord(value) || typeof value.ok !== "boolean") return undefined
+  if (value.ok) return hasOwn(value, "value") ? { ok: true, value: value.value } : undefined
+  if (!isRecord(value.error)) return undefined
+  if (!isActionErrorCode(value.error.code)) return undefined
+  if (typeof value.error.message !== "string") return undefined
+  return {
+    ok: false,
+    error: { code: value.error.code, message: value.error.message },
+  }
+}

@@ -1,5 +1,5 @@
 import { isRecord } from "../record.js"
-import type { ActionCall } from "../types.js"
+import { parseActionCall, type ActionCall } from "../types.js"
 import { protocolChannel, type SurfaceSnapshot } from "./protocol.js"
 
 export interface ActionSandboxMessage extends ActionCall {
@@ -108,13 +108,13 @@ const parseCapabilityMessage = (
   }
   if (value.target !== undefined && target === undefined) return undefined
 
+  const call = parseActionCall({ ...value, surfaceId, callId, action: actionName })
+  if (call === undefined) return undefined
+
   return {
     channel: protocolChannel,
     type: "capability",
-    surfaceId,
-    callId,
-    action: actionName,
-    input: value.input,
+    ...call,
     ...(target === undefined ? {} : { target }),
   }
 }

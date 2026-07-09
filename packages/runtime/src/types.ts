@@ -8,7 +8,15 @@ import type {
   SurfaceRecord,
 } from "@genui/protocol"
 
-export { actionError, genuiDialect, isValidActionName, renderActionIntent } from "@genui/protocol"
+export {
+  actionError,
+  genuiDialect,
+  isValidActionName,
+  parseActionCall,
+  parseActionResult,
+  parseSurface,
+  renderActionIntent,
+} from "@genui/protocol"
 export type {
   Action,
   ActionCall,
