@@ -20,6 +20,7 @@
     "format:check": "oxfmt --check src scripts package.json tsconfig.json"
   },
   "dependencies": {
+    "@genui/protocol": "workspace:*",
     "parse5": "^8.0.1"
   },
   "devDependencies": {
