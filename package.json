@@ -3,13 +3,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "pnpm --filter @genui/protocol test && pnpm --filter @genui/genui test",
-    "check": "pnpm run format:check && pnpm --filter @genui/protocol check && pnpm --filter @genui/genui check",
-    "typecheck": "pnpm --filter @genui/protocol typecheck && pnpm --filter @genui/genui typecheck",
-    "lint": "pnpm --filter @genui/protocol lint && pnpm --filter @genui/genui lint",
-    "lint:fix": "pnpm --filter @genui/protocol lint:fix && pnpm --filter @genui/genui lint:fix",
-    "format": "oxfmt package.json tsconfig.json .oxlintrc.json .oxfmtrc.json packages/protocol/package.json packages/protocol/tsconfig.json packages/protocol/src packages/runtime/package.json packages/runtime/tsconfig.json packages/runtime/src",
-    "format:check": "oxfmt --check package.json tsconfig.json .oxlintrc.json .oxfmtrc.json packages/protocol/package.json packages/protocol/tsconfig.json packages/protocol/src packages/runtime/package.json packages/runtime/tsconfig.json packages/runtime/src"
+    "dev": "pnpm --filter @genui/playground dev",
+    "test": "pnpm --filter @genui/protocol test && pnpm --filter @genui/genui test && pnpm --filter @genui/playground test",
+    "check": "pnpm run format:check && pnpm --filter @genui/protocol check && pnpm --filter @genui/genui check && pnpm --filter @genui/playground check",
+    "typecheck": "pnpm --filter @genui/protocol typecheck && pnpm --filter @genui/genui typecheck && pnpm --filter @genui/playground typecheck",
+    "lint": "pnpm --filter @genui/protocol lint && pnpm --filter @genui/genui lint && pnpm --filter @genui/playground lint",
+    "lint:fix": "pnpm --filter @genui/protocol lint:fix && pnpm --filter @genui/genui lint:fix && pnpm --filter @genui/playground lint:fix",
+    "format": "oxfmt package.json tsconfig.json .oxlintrc.json .oxfmtrc.json packages/protocol/package.json packages/protocol/tsconfig.json packages/protocol/src packages/runtime/package.json packages/runtime/tsconfig.json packages/runtime/src examples/playground/package.json examples/playground/tsconfig.json examples/playground/src examples/playground/scripts",
+    "format:check": "oxfmt --check package.json tsconfig.json .oxlintrc.json .oxfmtrc.json packages/protocol/package.json packages/protocol/tsconfig.json packages/protocol/src packages/runtime/package.json packages/runtime/tsconfig.json packages/runtime/src examples/playground/package.json examples/playground/tsconfig.json examples/playground/src examples/playground/scripts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

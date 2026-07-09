@@ -1,0 +1,28 @@
+{
+  "name": "@genui/playground",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node ./scripts/build-client.mjs",
+    "check": "pnpm run lint && pnpm run format:check && tsc --noEmit && pnpm run test",
+    "dev": "pnpm run build && nub watch src/server.ts",
+    "format": "oxfmt src scripts package.json tsconfig.json",
+    "format:check": "oxfmt --check src scripts package.json tsconfig.json",
+    "lint": "oxlint src --type-aware",
+    "lint:fix": "oxlint src --type-aware --fix",
+    "start": "pnpm run build && nub src/server.ts",
+    "test": "pnpm run build && nub --test $(find src -name '*.test.ts' -print)",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@genui/genui": "workspace:*",
+    "@genui/protocol": "workspace:*",
+    "@hono/node-server": "^2.0.8",
+    "hono": "^4.12.28"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1",
+    "playwright": "^1.61.1"
+  }
+}

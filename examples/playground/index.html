@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GenUI playground</title>
+    <style>
+      :root {
+        color: #182230;
+        background: #f2f4f7;
+        font: 15px/1.5 system-ui, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; }
+      header { background: #101828; color: white; padding: 20px max(24px, calc((100% - 1200px) / 2)); }
+      header h1 { font-size: 22px; margin: 0; }
+      header p { color: #d0d5dd; margin: 4px 0 0; }
+      main { display: grid; gap: 16px; grid-template-columns: minmax(320px, 0.9fr) minmax(420px, 1.1fr); margin: 24px auto; max-width: 1200px; padding: 0 24px; }
+      .panel { background: white; border: 1px solid #d0d5dd; border-radius: 10px; padding: 16px; }
+      .panel h2 { font-size: 16px; margin: 0 0 12px; }
+      textarea { display: block; font: 12px/1.5 ui-monospace, monospace; min-height: 360px; resize: vertical; width: 100%; }
+      button, textarea { border: 1px solid #98a2b3; border-radius: 6px; padding: 8px 10px; }
+      button { background: white; cursor: pointer; font: inherit; }
+      button.primary { background: #175cd3; border-color: #175cd3; color: white; }
+      .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+      #host-status { display: block; margin-top: 8px; min-height: 1.5em; }
+      #host-status[data-error="true"] { color: #b42318; }
+      #surface { min-height: 260px; }
+      #event-log { background: #101828; border-radius: 6px; color: #e4e7ec; font: 12px/1.45 ui-monospace, monospace; margin: 0; min-height: 120px; overflow: auto; padding: 12px 12px 12px 36px; white-space: pre-wrap; }
+      @media (max-width: 820px) { main { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>GenUI playground</h1>
+      <p>Paste a code/0 fragment, mount it in the real sandbox, and inspect every boundary event.</p>
+    </header>
+    <main>
+      <section class="panel" aria-labelledby="source-title">
+        <h2 id="source-title">Surface source</h2>
+        <form id="surface-form">
+          <textarea id="surface-source" aria-label="code/0 fragment" spellcheck="false"></textarea>
+          <div class="actions">
+            <button class="primary" id="create-surface">Create surface</button>
+            <button id="fixture-orders" type="button">Orders fixture</button>
+            <button id="fixture-error" type="button">Guest error fixture</button>
+            <button id="copy-instructions" type="button">Copy model instructions</button>
+          </div>
+        </form>
+        <output id="host-status" aria-live="polite"></output>
+      </section>
+      <div>
+        <section class="panel" aria-labelledby="surface-title">
+          <h2 id="surface-title">Sandboxed surface</h2>
+          <div id="surface"></div>
+        </section>
+        <section class="panel" aria-labelledby="events-title" style="margin-top: 16px">
+          <h2 id="events-title">Surface events</h2>
+          <ol id="event-log" aria-live="polite"></ol>
+        </section>
+      </div>
+    </main>
+    <script type="module" src="/client.js"></script>
+  </body>
+</html>
