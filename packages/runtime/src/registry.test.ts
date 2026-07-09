@@ -444,6 +444,43 @@ void test("descriptors expose only the public capability projection", () => {
   assert.doesNotMatch(registry.instructions(), /demo\.blocked/)
 })
 
+void test("action descriptors carry declared input JSON Schema", async () => {
+  const inputJsonSchema = {
+    type: "object",
+    properties: { sides: { type: "number", minimum: 2 } },
+    required: ["sides"],
+    additionalProperties: false,
+  } as const
+  const outputJsonSchema = {
+    type: "object",
+    properties: { total: { type: "number" } },
+    required: ["total"],
+    additionalProperties: false,
+  } as const
+  const registry = new Genui<TestCtx>({
+    actions: [
+      action({
+        name: "dice.roll",
+        description: "Roll a die.",
+        effect: "read",
+        input: rollInput,
+        inputJsonSchema,
+        output: rollOutput,
+        outputJsonSchema,
+        execute: (_ctx, input) => ({ total: input.sides }),
+      }),
+    ],
+  })
+
+  assert.deepEqual(registry.actions()[0]?.inputSchema, inputJsonSchema)
+
+  const surface = await registry.surface({
+    content: `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`,
+    actions: ["dice.roll"],
+  })
+  assert.deepEqual(surface.grant.actions[0]?.inputSchema, inputJsonSchema)
+})
+
 void test("surface grants carry action intent only when defined", async () => {
   const registry = new Genui<TestCtx>({
     actions: [

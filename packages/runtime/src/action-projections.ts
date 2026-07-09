@@ -32,6 +32,7 @@ const actionFor = (definition: AnyActionDefinition<unknown>): Action => ({
   confidentiality: actionConfidentiality(definition),
   requiresApproval: actionPolicy(definition) === "ask",
   ...(definition.intent === undefined ? {} : { intent: definition.intent }),
+  ...(definition.inputJsonSchema === undefined ? {} : { inputSchema: definition.inputJsonSchema }),
 })
 
 /** Project all non-blocked action definitions into descriptors visible outside GenUI. */

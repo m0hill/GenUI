@@ -15,6 +15,7 @@ export type {
   Effect,
   ExecuteOptions,
   Grant,
+  JsonSchema,
   MaybePromise,
   Policy,
   SanitizationDrop,

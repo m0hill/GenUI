@@ -2,6 +2,7 @@ import type {
   Action,
   Confidentiality,
   Effect,
+  JsonSchema,
   MaybePromise,
   Policy,
   SurfaceRecord,
@@ -19,6 +20,7 @@ export type {
   DroppedActionReason,
   Effect,
   Grant,
+  JsonSchema,
   MaybePromise,
   Policy,
   SanitizationDrop,
@@ -87,7 +89,9 @@ export interface ActionDefinition<Ctx, Input = unknown, Output = unknown> {
   readonly confidentiality?: Confidentiality
   readonly policy?: Policy
   readonly input: StandardSchemaV1<unknown, Input>
+  readonly inputJsonSchema?: JsonSchema
   readonly output?: StandardSchemaV1<unknown, Output>
+  readonly outputJsonSchema?: JsonSchema
   execute(ctx: Ctx, input: Input): Output | Promise<Output>
 }
 

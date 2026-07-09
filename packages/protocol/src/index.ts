@@ -21,6 +21,9 @@ export type Policy = "allow" | "ask" | "block"
 /** Whether an action may expose its result to the default generated-code renderer. */
 export type Confidentiality = "normal" | "sensitive"
 
+/** Dependency-free JSON Schema object used in model-facing action contracts. */
+export type JsonSchema = Readonly<Record<string, unknown>>
+
 /** Public action projection visible to models, sandboxes, and approval UI. */
 export interface Action {
   readonly name: string
@@ -28,6 +31,7 @@ export interface Action {
   readonly effect: Effect
   readonly confidentiality?: Confidentiality
   readonly requiresApproval: boolean
+  readonly inputSchema?: JsonSchema
   /** Optional raw human-facing confirmation template rendered by hosts. */
   readonly intent?: string
 }
