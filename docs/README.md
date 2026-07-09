@@ -6,8 +6,5 @@
   approval intent, and confidentiality once per action.
 - [code0.md](code0.md) — author and isolate buildless HTML and JavaScript
   surfaces, use the guest bridge, and handle errors and navigation.
-
-Planned guides, written as milestones land (see `ROADMAP.md` §7):
-
-- `hosting.md` (after M4) — integrating a host: creating surfaces, `mount()`,
-  transport, confirm, events.
+- [hosting.md](hosting.md) — create and execute surfaces on a server, mount
+  them in a browser, connect approval, and expose repair events.
