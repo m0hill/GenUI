@@ -1,6 +1,6 @@
 export { action, Genui } from "./registry.js"
 export { memoryStore } from "./surface-runtime.js"
-export { genuiDialect } from "./types.js"
+export { genuiDialect, renderActionIntent } from "./types.js"
 export type { GenuiOptions } from "./registry.js"
 export type {
   Action,

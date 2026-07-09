@@ -210,6 +210,7 @@ export const genui = new Genui<GenuiActionContext>({
     action({
       name: "demo.notes.create",
       description: "Create an in-memory demo note for this local app session.",
+      intent: 'create note "{input.text}"',
       effect: "write",
       policy: "ask",
       input: z.object({ text: z.string().trim().min(1).max(500) }),

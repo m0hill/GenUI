@@ -1,5 +1,12 @@
+import {
+  renderActionIntent,
+  type ActionCall,
+  type Action,
+  type ActionErrorCode,
+  type ActionResult,
+  type Surface,
+} from "@genui/genui"
 import { mount, type TransportOptions } from "@genui/genui/dom"
-import type { ActionCall, Action, ActionErrorCode, ActionResult, Surface } from "@genui/genui"
 
 const surfaceSelector = "[data-genui-surface]"
 const startupPollMs = 1_000
@@ -36,7 +43,8 @@ const isAction = (value: unknown): value is Action =>
   typeof value.name === "string" &&
   typeof value.description === "string" &&
   typeof value.effect === "string" &&
-  typeof value.requiresApproval === "boolean"
+  typeof value.requiresApproval === "boolean" &&
+  (value.intent === undefined || typeof value.intent === "string")
 
 const isSurface = (value: unknown): value is Surface => {
   if (!isRecord(value)) return false
@@ -150,6 +158,11 @@ const transport = (call: ActionCall, options: TransportOptions): Promise<ActionR
 const confirm = (descriptor: Action, call: ActionCall): boolean => {
   if (!descriptor.requiresApproval) return true
 
+  const title =
+    descriptor.intent === undefined
+      ? `Allow generated UI to run ${descriptor.name}?`
+      : `Allow generated UI to ${renderActionIntent(descriptor.intent, call.input)}?`
+
   const preview = (() => {
     try {
       return JSON.stringify(call.input ?? {}).slice(0, 240)
@@ -158,9 +171,7 @@ const confirm = (descriptor: Action, call: ActionCall): boolean => {
     }
   })()
   const details = preview.length > 0 ? `\n\nInput: ${preview}` : ""
-  return window.confirm(
-    `Allow generated UI to run ${descriptor.name}?\n\n${descriptor.description}${details}`,
-  )
+  return window.confirm(`${title}\n\n${descriptor.description}${details}`)
 }
 
 const mountElement = (element: Element, source: string, surface: Surface): void => {

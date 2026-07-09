@@ -26,6 +26,7 @@ const actionFor = (definition: AnyActionDefinition<unknown>): Action => ({
   description: definition.description,
   effect: definition.effect,
   requiresApproval: actionPolicy(definition) === "ask",
+  ...(definition.intent === undefined ? {} : { intent: definition.intent }),
 })
 
 /** Project all non-blocked action definitions into descriptors visible outside GenUI. */

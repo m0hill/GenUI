@@ -443,6 +443,46 @@ void test("descriptors expose only the public capability projection", () => {
   assert.doesNotMatch(registry.instructions(), /demo\.blocked/)
 })
 
+void test("surface grants carry action intent only when defined", async () => {
+  const registry = new Genui<TestCtx>({
+    actions: [
+      action({
+        name: "dice.roll",
+        description: "Roll a die.",
+        effect: "read",
+        input: emptyInput,
+        execute: () => ({ total: 6 }),
+      }),
+      action({
+        name: "notes.create",
+        description: "Create a note.",
+        intent: "Create note {input.text}",
+        effect: "write",
+        policy: "ask",
+        input: textInput,
+        execute: (_ctx, input) => ({ accepted: input.text }),
+      }),
+    ],
+  })
+
+  const surface = await registry.surface({
+    content: [
+      `<button data-genui-on-click="@capability('dice.roll', {})">Roll</button>`,
+      `<button data-genui-on-click="@capability('notes.create', { text: 'hi' })">Create</button>`,
+    ].join(""),
+    actions: ["dice.roll", "notes.create"],
+  })
+
+  const roll = surface.grant.actions.find((item) => item.name === "dice.roll")
+  const create = surface.grant.actions.find((item) => item.name === "notes.create")
+  assert.notEqual(roll, undefined)
+  assert.notEqual(create, undefined)
+  if (roll === undefined || create === undefined) return
+
+  assert.equal("intent" in roll, false)
+  assert.equal(create.intent, "Create note {input.text}")
+})
+
 void test("registry executes granted capabilities and validates inputs and outputs", async () => {
   const registry = new Genui<TestCtx>({
     actions: [

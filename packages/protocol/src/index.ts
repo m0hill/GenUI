@@ -24,7 +24,34 @@ export interface Action {
   readonly description: string
   readonly effect: Effect
   readonly requiresApproval: boolean
+  /** Optional raw human-facing confirmation template rendered by hosts. */
+  readonly intent?: string
 }
+
+const intentPlaceholderPattern = /\{input\.([^{}]+)\}/g
+
+const readIntentPath = (input: unknown, path: string): unknown => {
+  let value = input
+
+  for (const segment of path.split(".")) {
+    if (segment.length === 0 || typeof value !== "object" || value === null) return undefined
+    if (!Object.prototype.hasOwnProperty.call(value, segment)) return undefined
+    value = Reflect.get(value, segment)
+  }
+
+  return value
+}
+
+const renderIntentValue = (value: unknown): string =>
+  typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+    ? String(value)
+    : "?"
+
+/** Render a human-facing action intent template against an action call input. */
+export const renderActionIntent = (intent: string, input: unknown): string =>
+  intent.replace(intentPlaceholderPattern, (_placeholder, path: string) =>
+    renderIntentValue(readIntentPath(input, path)),
+  )
 
 /** Authoritative action set projected for one generated surface. */
 export interface Grant {

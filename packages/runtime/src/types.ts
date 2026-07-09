@@ -7,7 +7,7 @@ import type {
   SurfaceRecord,
 } from "@genui/protocol"
 
-export { actionError, genuiDialect, isValidActionName } from "@genui/protocol"
+export { actionError, genuiDialect, isValidActionName, renderActionIntent } from "@genui/protocol"
 export type {
   Action,
   ActionCall,
@@ -80,6 +80,8 @@ export interface StandardSchemaV1<Input = unknown, Output = Input> {
 export interface ActionDefinition<Ctx, Input = unknown, Output = unknown> {
   readonly name: string
   readonly description: string
+  /** Optional raw human-facing confirmation template rendered by hosts. */
+  readonly intent?: string
   readonly effect: Effect
   readonly policy?: Policy
   readonly input: StandardSchemaV1<unknown, Input>
