@@ -1,0 +1,160 @@
+import assert from "node:assert/strict"
+import { test } from "node:test"
+import { createSandboxWindow, isRecord, jsonRoundTrip } from "../dom/test-support.test-support.js"
+import { codeBootstrapScript } from "./bootstrap.js"
+
+const channel = "genui/dom/0"
+const surfaceId = "surface-code"
+
+interface GuestApi {
+  readonly surfaceId: string
+  readonly actions: readonly unknown[]
+  call(name: string, input: unknown): Promise<unknown>
+}
+
+const createHarness = (): ReturnType<typeof createSandboxWindow> & { readonly genui: GuestApi } => {
+  const harness = createSandboxWindow("")
+  harness.window.eval(codeBootstrapScript({ channel, surfaceId }))
+  const genui = Reflect.get(harness.window, "genui")
+  if (!isRecord(genui) || typeof genui.call !== "function") {
+    throw new Error("Expected the code guest API.")
+  }
+
+  return { ...harness, genui: genui as unknown as GuestApi }
+}
+
+void test("code bootstrap installs the pinned API and accepts a grant handshake", () => {
+  const { genui, window } = createHarness()
+  const actions = [
+    {
+      name: "orders.search",
+      description: "Search orders.",
+      effect: "read",
+      requiresApproval: false,
+      inputSchema: {
+        type: "object",
+        properties: { status: { type: "string" } },
+      },
+    },
+  ]
+
+  assert.equal(genui.surfaceId, surfaceId)
+  assert.deepEqual(jsonRoundTrip(genui.actions), [])
+
+  window.dispatchEvent(
+    new window.MessageEvent("message", {
+      data: { channel, type: "grant", surfaceId, actions },
+    }),
+  )
+
+  assert.deepEqual(jsonRoundTrip(genui.actions), actions)
+})
+
+void test("code bootstrap correlates calls and ignores unknown or duplicate results", async () => {
+  const { genui, messages, window } = createHarness()
+  let settled = false
+  const result = genui.call("orders.search", { status: "open" }).then((value) => {
+    settled = true
+    return value
+  })
+  const call = messages.find((message) => isRecord(message) && typeof message.callId === "string")
+  assert.ok(isRecord(call))
+  assert.deepEqual(jsonRoundTrip(call), {
+    channel,
+    surfaceId,
+    callId: call.callId,
+    action: "orders.search",
+    input: { status: "open" },
+  })
+
+  window.dispatchEvent(
+    new window.MessageEvent("message", {
+      data: {
+        channel,
+        type: "result",
+        surfaceId,
+        callId: "unknown-call",
+        result: { ok: true, value: "wrong" },
+      },
+    }),
+  )
+  await Promise.resolve()
+  assert.equal(settled, false)
+
+  const response = {
+    channel,
+    type: "result",
+    surfaceId,
+    callId: call.callId,
+    result: { ok: true, value: [{ id: "order-1" }] },
+  }
+  window.dispatchEvent(new window.MessageEvent("message", { data: response }))
+  assert.deepEqual(jsonRoundTrip(await result), [{ id: "order-1" }])
+
+  window.dispatchEvent(new window.MessageEvent("message", { data: response }))
+})
+
+void test("code bootstrap rejects failed calls with GenuiActionError", async () => {
+  const { genui, messages, window } = createHarness()
+  const result = genui.call("orders.update_status", { id: "order-1", status: "shipped" })
+  const call = messages.find((message) => isRecord(message) && typeof message.callId === "string")
+  assert.ok(isRecord(call))
+
+  window.dispatchEvent(
+    new window.MessageEvent("message", {
+      data: {
+        channel,
+        type: "result",
+        surfaceId,
+        callId: call.callId,
+        result: {
+          ok: false,
+          error: { code: "approval_denied", message: "Action was denied." },
+        },
+      },
+    }),
+  )
+
+  await assert.rejects(result, (error: unknown) => {
+    assert.ok(isRecord(error))
+    assert.equal(error.name, "GenuiActionError")
+    assert.equal(error.code, "approval_denied")
+    assert.equal(error.message, "Action was denied.")
+    return true
+  })
+})
+
+void test("code bootstrap reports guest errors and unhandled rejections", () => {
+  const { messages, window } = createHarness()
+  const onerror = Reflect.get(window, "onerror")
+  if (typeof onerror !== "function") throw new Error("Expected a window.onerror handler.")
+  Reflect.apply(onerror, window, ["Synchronous boom", "", 0, 0, { stack: "sync stack" }])
+
+  const rejection = new window.Event("unhandledrejection")
+  Object.defineProperty(rejection, "reason", {
+    value: { message: "Asynchronous boom", stack: "async stack" },
+  })
+  window.dispatchEvent(rejection)
+
+  assert.deepEqual(
+    messages
+      .filter((message) => isRecord(message) && message.type === "guest_error")
+      .map(jsonRoundTrip),
+    [
+      {
+        channel,
+        surfaceId,
+        type: "guest_error",
+        message: "Synchronous boom",
+        stack: "sync stack",
+      },
+      {
+        channel,
+        surfaceId,
+        type: "guest_error",
+        message: "Asynchronous boom",
+        stack: "async stack",
+      },
+    ],
+  )
+})
