@@ -7,7 +7,7 @@ import type {
   SurfaceRecord,
 } from "@genui/protocol"
 
-export { actionError, genuiDialect } from "@genui/protocol"
+export { actionError, genuiDialect, isValidActionName } from "@genui/protocol"
 export type {
   Action,
   ActionCall,

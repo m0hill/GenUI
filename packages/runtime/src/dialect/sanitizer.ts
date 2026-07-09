@@ -4,13 +4,13 @@ import {
   allowGenui0DataAttribute,
   genui0AttributeForbiddenInRepeatedTemplate,
   genui0AttributeStartsRepeatedTemplate,
-} from "./dialect/genui0.js"
+} from "./genui0.js"
 import type {
   Action,
   SanitizationDrop,
   SanitizationDropReason,
   SanitizationResult,
-} from "./types.js"
+} from "@genui/protocol"
 
 type ParentNode = DefaultTreeAdapterMap["parentNode"]
 type ChildNode = DefaultTreeAdapterMap["childNode"]

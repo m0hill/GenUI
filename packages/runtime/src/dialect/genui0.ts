@@ -4,8 +4,8 @@ import {
   isSafeStyleValue,
   normalizeGenuiStylePropertyName,
   normalizeStylePropertyName,
-} from "../css-style.js"
-import { genuiDialect, type Action, type SanitizationDropReason } from "../types.js"
+} from "./css-style.js"
+import { genuiDialect, type Action, type SanitizationDropReason } from "@genui/protocol"
 
 export const genui0AttributeNames = {
   state: "data-genui-state",

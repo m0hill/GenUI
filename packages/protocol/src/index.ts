@@ -1,6 +1,11 @@
 /** Current generated UI dialect understood by this runtime. */
 export const genuiDialect = "genui/0"
 
+const actionNamePattern = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$/i
+
+/** Return whether a string is a valid wire-level action name. */
+export const isValidActionName = (name: string): boolean => actionNamePattern.test(name)
+
 /** Versioned generated UI interaction dialect identifier. */
 export type Dialect = string
 

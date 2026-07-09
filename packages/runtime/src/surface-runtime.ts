@@ -1,11 +1,12 @@
 import { projectGrantedActions } from "./action-projections.js"
-import { sanitizeSurfaceHtml } from "./sanitizer.js"
+import type { CoreDialect } from "./dialect-contract.js"
+import { genui0SurfaceDialect } from "./dialect/genui0-surface.js"
 import {
   type Action,
   type AnyActionDefinition,
+  type Dialect,
   type DroppedAction,
   type SanitizationDrop,
-  genuiDialect,
   type Grant,
   type Surface,
   type SurfaceInput,
@@ -23,9 +24,11 @@ interface ProjectedSurfaceInput {
 interface CreateSurfaceRuntimeOptions<Ctx> {
   readonly byName: ReadonlyMap<string, AnyActionDefinition<Ctx>>
   readonly store?: SurfaceStore
+  readonly dialect?: CoreDialect
 }
 
 interface CreateSurfaceRecordInput {
+  readonly dialect: Dialect
   readonly html: string
   readonly actions: readonly Action[]
   readonly source: SurfaceInput
@@ -34,6 +37,7 @@ interface CreateSurfaceRecordInput {
 
 interface ReplaceSurfaceRecordInput {
   readonly record: SurfaceRecord
+  readonly dialect: Dialect
   readonly html: string
   readonly actions: readonly Action[]
   readonly diagnostics: SurfaceProjectionDiagnostics
@@ -45,6 +49,7 @@ type MaybeLegacySurfaceRecord = Omit<SurfaceRecord, "diagnostics"> & {
 
 interface CreateSurfaceValueInput {
   readonly id: string
+  readonly dialect: Dialect
   readonly html: string
   readonly actions: readonly Action[]
   readonly meta?: Readonly<Record<string, unknown>>
@@ -55,6 +60,7 @@ export interface SurfaceRuntime {
   reprojectSurface(id: string): Promise<Surface | undefined>
   getRecord(id: string): Promise<SurfaceRecord | undefined>
   diagnostics(id: string): Promise<SurfaceProjectionDiagnostics | undefined>
+  instructions(actions: readonly Action[]): string
 }
 
 const copyDropped = (dropped: readonly DroppedAction[]): readonly DroppedAction[] =>
@@ -110,8 +116,8 @@ const createSurfaceValue = (input: CreateSurfaceValueInput): Surface => {
 
   return Object.freeze(
     meta === undefined
-      ? { id: input.id, html: input.html, grant, dialect: genuiDialect }
-      : { id: input.id, html: input.html, grant, dialect: genuiDialect, meta },
+      ? { id: input.id, html: input.html, grant, dialect: input.dialect }
+      : { id: input.id, html: input.html, grant, dialect: input.dialect, meta },
   )
 }
 
@@ -120,6 +126,7 @@ const createSurfaceId = (): string => globalThis.crypto.randomUUID()
 const copySurface = (surface: Surface): Surface =>
   createSurfaceValue({
     id: surface.id,
+    dialect: surface.dialect,
     html: surface.html,
     actions: surface.grant.actions,
     meta: surface.meta,
@@ -136,6 +143,7 @@ const createSurfaceRecord = (input: CreateSurfaceRecordInput): SurfaceRecord => 
   const source = copySurfaceInput(input.source)
   const surface = createSurfaceValue({
     id: createSurfaceId(),
+    dialect: input.dialect,
     html: input.html,
     actions: input.actions,
     meta: source.meta,
@@ -152,6 +160,7 @@ const replaceSurfaceRecord = (input: ReplaceSurfaceRecordInput): SurfaceRecord =
   Object.freeze({
     surface: createSurfaceValue({
       id: input.record.surface.id,
+      dialect: input.dialect,
       html: input.html,
       actions: input.actions,
       meta: input.record.source.meta,
@@ -179,10 +188,11 @@ export const memoryStore = (): SurfaceStore => {
 export const createSurfaceRuntime = <Ctx>({
   byName,
   store = memoryStore(),
+  dialect = genui0SurfaceDialect,
 }: CreateSurfaceRuntimeOptions<Ctx>): SurfaceRuntime => {
   const project = (source: SurfaceInput): ProjectedSurfaceInput => {
     const grantProjection = projectGrantedActions({ actions: source.actions, byName })
-    const sanitized = sanitizeSurfaceHtml(source.html, grantProjection.actions)
+    const sanitized = dialect.project(source.html, grantProjection.actions)
     return {
       html: sanitized.html,
       actions: grantProjection.actions,
@@ -224,6 +234,7 @@ export const createSurfaceRuntime = <Ctx>({
   const surface = async (input: SurfaceInput): Promise<Surface> => {
     const projected = project(input)
     const record = createSurfaceRecord({
+      dialect: dialect.id,
       html: projected.html,
       actions: projected.actions,
       source: input,
@@ -241,6 +252,7 @@ export const createSurfaceRuntime = <Ctx>({
     const projected = project(record.source)
     const nextRecord = replaceSurfaceRecord({
       record,
+      dialect: dialect.id,
       html: projected.html,
       actions: projected.actions,
       diagnostics: projected.diagnostics,
@@ -262,5 +274,6 @@ export const createSurfaceRuntime = <Ctx>({
     reprojectSurface,
     getRecord: storedRecord,
     diagnostics,
+    instructions: (actions) => dialect.instructions(actions),
   }
 }

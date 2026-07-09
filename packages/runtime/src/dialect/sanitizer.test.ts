@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { sanitizeSurfaceHtml } from "./sanitizer.js"
-import type { Action } from "./types.js"
+import type { Action } from "../types.js"
 
 const granted: readonly Action[] = [
   {

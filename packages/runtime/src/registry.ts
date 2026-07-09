@@ -1,10 +1,9 @@
 import { actionPolicy, findGrantedAction, publicActions } from "./action-projections.js"
-import { genui0Dialect } from "./dialect/genui0.js"
-import { genui0Language } from "./dialect/genui0-language.js"
 import { parseWithSchema } from "./schema.js"
 import { createSurfaceRuntime, type SurfaceRuntime } from "./surface-runtime.js"
 import {
   actionError,
+  isValidActionName,
   type Action,
   type ActionCall,
   type ActionDefinition,
@@ -36,7 +35,7 @@ export class Genui<Ctx> {
     const byName = new Map<string, AnyActionDefinition<Ctx>>()
 
     for (const action of options.actions) {
-      if (!genui0Language.isCapabilityName(action.name)) {
+      if (!isValidActionName(action.name)) {
         throw new Error(`Invalid action name: ${action.name}`)
       }
       if (byName.has(action.name)) {
@@ -108,6 +107,6 @@ export class Genui<Ctx> {
   }
 
   instructions(): string {
-    return genui0Dialect.instructions(this.actions())
+    return this.#surfaceRuntime.instructions(this.actions())
   }
 }

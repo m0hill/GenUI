@@ -1,3 +1,5 @@
+import { isValidActionName } from "@genui/protocol"
+
 export interface Genui0CapabilityAction {
   readonly capability: string
   readonly inputExpression: string
@@ -177,7 +179,6 @@ type Expression = ValueExpression | ObjectExpression
 
 /** Build the genui/0 expression grammar used by sanitizer checks and the sandbox runtime. */
 const createGenui0Language = (): Genui0Language => {
-  const capabilityNamePatternSource = "[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+"
   const bareIdentifierPatternSource = "_?[A-Za-z][A-Za-z0-9_]*"
   const statePathPatternSource =
     "\\$_?[A-Za-z][A-Za-z0-9_]*(?:\\.(?:_?[A-Za-z][A-Za-z0-9_]*|0|[1-9]\\d*))*"
@@ -185,7 +186,6 @@ const createGenui0Language = (): Genui0Language => {
 
   const exactPattern = (source: string, flags?: string): RegExp => new RegExp(`^${source}$`, flags)
 
-  const capabilityNamePattern = exactPattern(capabilityNamePatternSource, "i")
   const bareIdentifierPattern = exactPattern(bareIdentifierPatternSource)
   const statePathPattern = exactPattern(statePathPatternSource)
   const invalid = Symbol("genui0.invalid")
@@ -427,7 +427,7 @@ const createGenui0Language = (): Genui0Language => {
     return tokens
   }
 
-  const isCapabilityName = (value: string): boolean => capabilityNamePattern.test(value)
+  const isCapabilityName = isValidActionName
   const isStateName = (value: string): boolean => bareIdentifierPattern.test(value)
   const isStateIndex = (value: string): boolean => /^(?:0|[1-9]\d*)$/.test(value)
   const isStatePath = (value: string): boolean => statePathPattern.test(value)
