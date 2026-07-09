@@ -96,7 +96,7 @@ void test("surface broker reports guest errors and clamps resize", () => {
   )
 })
 
-void test("surface broker refuses ungranted calls before transport", () => {
+void test("red team: ungranted calls return not_granted without transport", () => {
   const current = testSurface([])
   let transportCalled = false
   const broker = createSurfaceBroker(current, {

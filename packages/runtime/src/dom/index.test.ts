@@ -173,3 +173,37 @@ void test("mount refuses unsupported surface dialects", () => {
     /Unsupported generated UI dialect: code\/1/,
   )
 })
+
+void test("red team: forged postMessage identities and sources are ignored", () => {
+  const { window, element } = createMountTarget()
+  const surface = testSurface([diceDescriptor])
+  const events: SurfaceEvent[] = []
+  let transportCalled = false
+  const instance = mount(asDomElement(element), surface, {
+    transport: async (): Promise<ActionResult> => {
+      transportCalled = true
+      return { ok: true, value: {} }
+    },
+    onEvent: (event) => events.push(event),
+  })
+  const iframe = mountedIframe(element)
+
+  dispatchSandboxMessage(window, iframe, {
+    ...sandboxActionMessage(surface),
+    channel: "forged/channel",
+  })
+  dispatchSandboxMessage(window, iframe, {
+    ...sandboxActionMessage(surface),
+    surfaceId: "forged-surface",
+  })
+  window.dispatchEvent(
+    new window.MessageEvent("message", {
+      data: sandboxActionMessage(surface),
+      source: window,
+    }),
+  )
+
+  assert.equal(transportCalled, false)
+  assert.deepEqual(events, [])
+  instance.dispose()
+})

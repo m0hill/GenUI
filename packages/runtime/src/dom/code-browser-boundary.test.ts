@@ -103,7 +103,7 @@ after(async () => {
   await browser?.close()
 })
 
-void test("code surface renders, calls, rejects ungranted authority, and trips navigation", async (context) => {
+void test("red team: self-navigation kills the surface and emits a violation", async (context) => {
   const page = await newPage()
   context.after(async () => {
     await page.close()

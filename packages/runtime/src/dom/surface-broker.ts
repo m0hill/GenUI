@@ -11,12 +11,7 @@ import { parseSandboxMessage, type ActionSandboxMessage } from "./sandbox-messag
 
 const defaultMaxHeight = 1_200
 
-export type SurfaceViolationReason =
-  | "unknown_channel"
-  | "bad_message"
-  | "surface_mismatch"
-  | "ungranted_call"
-  | "navigation"
+export type SurfaceViolationReason = "bad_message" | "ungranted_call" | "navigation"
 
 export type SurfaceEvent =
   | { readonly type: "call"; readonly call: ActionCall }
@@ -211,12 +206,14 @@ export const createSurfaceBroker = (
   const handleSandboxMessage = (data: unknown): SurfaceBrokerTask => {
     if (disposed) return task([])
     const parsed = parseSandboxMessage(data)
-    if (!parsed.ok) return task([emit({ type: "violation", reason: parsed.reason })])
+    if (!parsed.ok) {
+      return parsed.reason === "unknown_channel"
+        ? task([])
+        : task([emit({ type: "violation", reason: "bad_message" })])
+    }
     const message = parsed.value
 
-    if (message.surfaceId !== currentSurface.id) {
-      return task([emit({ type: "violation", reason: "surface_mismatch" })])
-    }
+    if (message.surfaceId !== currentSurface.id) return task([])
     if (message.type === "resize") {
       const height = clampHeight(message.height, options.maxHeight ?? defaultMaxHeight)
       return task([{ type: "set_height", height }, emit({ type: "resize", height })])

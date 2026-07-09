@@ -50,7 +50,7 @@ void test("code bootstrap installs the pinned API and accepts a grant handshake"
   assert.deepEqual(jsonRoundTrip(genui.actions), actions)
 })
 
-void test("code bootstrap correlates calls and ignores unknown or duplicate results", async () => {
+void test("red team: unknown, replayed, and duplicate results are ignored", async () => {
   const { genui, messages, window } = createHarness()
   let settled = false
   const result = genui.call("orders.search", { status: "open" }).then((value) => {
@@ -91,7 +91,33 @@ void test("code bootstrap correlates calls and ignores unknown or duplicate resu
   window.dispatchEvent(new window.MessageEvent("message", { data: response }))
   assert.deepEqual(jsonRoundTrip(await result), [{ id: "order-1" }])
 
+  let secondSettled = false
+  const secondResult = genui.call("orders.search", { status: "shipped" }).then((value) => {
+    secondSettled = true
+    return value
+  })
+  const calls = messages.filter(
+    (message) => isRecord(message) && typeof message.callId === "string",
+  )
+  const secondCall = calls[1]
+  assert.ok(isRecord(secondCall))
+
   window.dispatchEvent(new window.MessageEvent("message", { data: response }))
+  await Promise.resolve()
+  assert.equal(secondSettled, false)
+
+  window.dispatchEvent(
+    new window.MessageEvent("message", {
+      data: {
+        channel,
+        type: "result",
+        surfaceId,
+        callId: secondCall.callId,
+        result: { ok: true, value: [{ id: "order-2" }] },
+      },
+    }),
+  )
+  assert.deepEqual(jsonRoundTrip(await secondResult), [{ id: "order-2" }])
 })
 
 void test("code bootstrap rejects failed calls with GenuiActionError", async () => {
