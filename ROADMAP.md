@@ -103,7 +103,7 @@ Known kernel defects to fix (verified against source, see M1):
 ## 4. Target architecture
 
 Keep the current two packages until the shape stabilizes; split further only
-when a real consumer needs it (§9). Internal layout:
+when a real consumer needs it (§10). Internal layout:
 
 ```
 @genui/protocol          wire types, JSON-Schema type, codecs (M2)
@@ -214,7 +214,8 @@ actions never appear in a grant. All existing tests updated and green.
    hand-rolled parsing.
 
 Acceptance: codec round-trip tests (valid passes, each malformed field
-rejects); protocol dependency-free test still green.
+rejects); protocol dependency-free test still green; `docs/actions.md`
+written per §7.
 
 ### M3 — The code/0 renderer
 
@@ -241,6 +242,7 @@ Acceptance: happy-dom unit tests for broker/tripwire logic; a real-browser
 (Playwright, pattern in `src/dom/browser-boundary.test.ts`) test that mounts a
 code surface which renders, calls a granted action, receives the result,
 gets denied an ungranted action, and triggers the navigation tripwire.
+`docs/code0.md` written per §7.
 
 ### M4 — Build the playground host (`examples/playground`)
 
@@ -248,7 +250,7 @@ A deliberately small host app that proves the whole framework end-to-end
 **without needing model credentials**. Plain Hono server + one
 plain-HTML/vanilla-TS page. No Datastar, no Tailwind, no UI framework.
 Smallness is a goal, not a budget — every feature beyond this list is out of
-scope (§8).
+scope (§9).
 
 1. Server: a demo action set (e.g. `orders.search` read, `orders.get` read,
    `orders.update_status` write with an `intent` template, one `sensitive`
@@ -276,7 +278,7 @@ actions; the `write` action triggers the approval flow; a fixture with a
 thrown guest error shows in the event log, not a silent dead surface; a
 Playwright smoke test drives paste → mount → action call → result. Port
 `orders-admin-proof.test.ts` to code/0 as the runtime-level regression proof
-before M5 deletes the old one.
+before M5 deletes the old one. `docs/hosting.md` written per §7.
 
 ### M5 — Demolition
 
@@ -288,7 +290,8 @@ Delete: `src/dialect/**`, `src/dom/sandbox-runtime*`, `src/dom/result-state*`,
 (`"genui/0"`) constant from `@genui/protocol` — `"code/0"` is the only
 shipped dialect id after this milestone. Simplify `surface-runtime.ts`: drop
 the legacy-record normalization (`MaybeLegacySurfaceRecord`) — there are no
-legacy deployments. Refresh `README.md` if any of it went stale.
+legacy deployments. Refresh `README.md` and sweep `docs/` for anything the
+demolition made stale (§7).
 
 Acceptance: `git grep -iE "genui0|genui/0|data-genui"` matches only
 ROADMAP.md; full `pnpm check` green in every package; the playground still
@@ -314,7 +317,7 @@ reveal, keeping it minimal:
 
 In priority order: (1) `callId` idempotency for `write`/`dangerous` actions in
 the kernel (dedupe window via the store; requires a store method — design it
-minimally, record the decision in §10). (2) Guest state snapshot/restore:
+minimally, record the decision in §11). (2) Guest state snapshot/restore:
 `genui.snapshot(fn)` registration + host `snapshot()`/restore across
 `replace()`, mirroring the old snapshot protocol. (3) Grant TTL/revocation:
 `revoke(surfaceId)` store support + expiry check in `execute()`.
@@ -337,7 +340,29 @@ minimally, record the decision in §10). (2) Guest state snapshot/restore:
 - Runner: `nub --test` (see package.json scripts). `pnpm check` per package =
   lint + format + typecheck + tests. That is the gate for every commit.
 
-## 7. Commit pattern
+## 7. Documentation
+
+`docs/documentation.md` is the writing guide. Read it before creating or
+editing any Markdown, including this file. `docs/README.md` is the
+documentation index; every guide must be listed there.
+
+The framework needs three durable guides, each written in the milestone that
+establishes its convention and updated in the same commit as any change that
+invalidates it:
+
+- `docs/actions.md` (after M2) — defining actions: name, description, schema
+  and JSON-Schema projection, effect, policy, intent, confidentiality.
+- `docs/code0.md` (after M3) — the normative code/0 contract: document
+  skeleton, CSP, bridge API, error channel, navigation tripwire. This guide
+  and the bootstrap implementation must never disagree.
+- `docs/hosting.md` (after M4) — integrating a host: creating surfaces,
+  `mount()`, transport, confirm, events; the playground is the worked example.
+
+ROADMAP.md is a plan, not a guide. When a milestone completes, its durable
+rules live in the guides above — do not make readers mine this file for
+current API truth. Doc-only fixes may land as their own commits at any time.
+
+## 8. Commit pattern
 
 - One logical change per commit. A milestone is typically 2–6 commits, never
   one giant one at dawn.
@@ -350,7 +375,7 @@ minimally, record the decision in §10). (2) Guest state snapshot/restore:
 - Work directly on `main`. No branches, no force-push, no history rewrites.
 - Do not push unless a remote is configured and pushing was requested.
 
-## 8. Hard scope guards — do NOT
+## 9. Hard scope guards — do NOT
 
 - Do not add expression languages, template directives, data-attribute DSLs,
   or sanitizer-enforced dialects. If a guest needs logic, it writes JavaScript.
@@ -359,7 +384,7 @@ minimally, record the decision in §10). (2) Guest state snapshot/restore:
 - Do not add a React renderer, Worker/remote-view renderer, or component
   catalog. Those are future proofs, gated on the kernel being finished.
 - Do not add runtime dependencies to `@genui/protocol` (ever) or to the kernel
-  (without a §10 entry explaining why).
+  (without a §11 entry explaining why).
 - Do not build multi-tenant auth, rate-limit infrastructure beyond the M6 cap,
   or persistence backends beyond the in-memory store.
 - Do not grow the playground beyond what M4 specifies — no chat UI, no
@@ -371,15 +396,15 @@ minimally, record the decision in §10). (2) Guest state snapshot/restore:
 - Do not reintroduce anything from `docs/genui` or `examples/chat` git
   history.
 
-## 9. When you are unsure
+## 10. When you are unsure
 
 1. Re-read §2. Pick the option that satisfies more of it.
 2. Prefer the smaller diff, the fewer concepts, the standard platform feature.
 3. If two options remain, pick either, ship it, and append the decision to
-   §10 with one sentence of rationale. Do not stall, and do not expand scope
+   §11 with one sentence of rationale. Do not stall, and do not expand scope
    to dodge the decision.
 
-## 10. Decision log
+## 11. Decision log
 
 Append entries as `- YYYY-MM-DD <decision> — <rationale>`. Do not edit or
 delete earlier entries.
