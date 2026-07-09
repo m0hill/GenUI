@@ -133,6 +133,26 @@ Call `mounted.dispose()` before removing the host view. Use `replace()` to load
 a new supported surface into a live mount. Pending calls are aborted on replace
 or dispose.
 
+Guests opt into state preservation with `genui.snapshot(fn)`. Call
+`await mounted.snapshot()` to capture the registered JSON value. Replacing a
+surface with the same ID captures and restores state automatically:
+
+```ts
+await mounted.replace({ ...surface, content: regeneratedContent })
+```
+
+Different surface IDs do not share state by default. Pass an explicit snapshot
+only when the host intends that transfer:
+
+```ts
+await mounted.replace(nextSurface, { snapshot: previousState })
+```
+
+Use `snapshot` in the initial `mount()` options to seed a new document. Set
+`snapshotTimeoutMs` when the default one-second response deadline is not
+appropriate. A missed deadline resolves to `undefined` and emits a
+`snapshot_timeout` violation.
+
 ## Expose failures
 
 Render `onEvent` output somewhere the user or developer can inspect and copy.

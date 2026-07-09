@@ -11,7 +11,11 @@ import { parseSandboxMessage, type ActionSandboxMessage } from "./sandbox-messag
 
 const defaultMaxHeight = 1_200
 
-export type SurfaceViolationReason = "bad_message" | "ungranted_call" | "navigation"
+export type SurfaceViolationReason =
+  | "bad_message"
+  | "ungranted_call"
+  | "navigation"
+  | "snapshot_timeout"
 
 export type SurfaceEvent =
   | { readonly type: "call"; readonly call: ActionCall }
@@ -227,6 +231,7 @@ export const createSurfaceBroker = (
         }),
       ])
     }
+    if (message.type === "snapshot") return task([])
     return handleAction(message)
   }
 

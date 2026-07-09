@@ -1,6 +1,11 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { createSandboxWindow, isRecord, jsonRoundTrip } from "../dom/test-support.test-support.js"
+import {
+  createSandboxWindow,
+  flushAsync,
+  isRecord,
+  jsonRoundTrip,
+} from "../dom/test-support.test-support.js"
 import { codeBootstrapScript } from "./bootstrap.js"
 
 const channel = "genui/dom/0"
@@ -10,11 +15,20 @@ interface GuestApi {
   readonly surfaceId: string
   readonly actions: readonly unknown[]
   call(name: string, input: unknown): Promise<unknown>
+  snapshot(provider: (restored?: unknown) => unknown): void
 }
 
-const createHarness = (): ReturnType<typeof createSandboxWindow> & { readonly genui: GuestApi } => {
+const createHarness = (
+  restore?: unknown,
+): ReturnType<typeof createSandboxWindow> & { readonly genui: GuestApi } => {
   const harness = createSandboxWindow("")
-  harness.window.eval(codeBootstrapScript({ channel, surfaceId }))
+  harness.window.eval(
+    codeBootstrapScript({
+      channel,
+      surfaceId,
+      ...(restore === undefined ? {} : { restore }),
+    }),
+  )
   const genui = Reflect.get(harness.window, "genui")
   if (!isRecord(genui) || typeof genui.call !== "function") {
     throw new Error("Expected the code guest API.")
@@ -182,5 +196,65 @@ void test("code bootstrap reports guest errors and unhandled rejections", () => 
         stack: "async stack",
       },
     ],
+  )
+})
+
+void test("code bootstrap restores and captures registered guest state", async () => {
+  const { genui, messages, window } = createHarness({ count: 2 })
+  let state = { count: 0 }
+  genui.snapshot((restored) => {
+    if (isRecord(restored) && typeof restored.count === "number") {
+      state = { count: restored.count }
+    }
+    return state
+  })
+  assert.deepEqual(state, { count: 2 })
+
+  state = { count: 3 }
+  window.dispatchEvent(
+    new window.MessageEvent("message", {
+      data: { channel, type: "snapshot_request", surfaceId, requestId: "snapshot-1" },
+    }),
+  )
+  await flushAsync()
+
+  assert.deepEqual(
+    jsonRoundTrip(messages.find((message) => isRecord(message) && message.type === "snapshot")),
+    {
+      channel,
+      surfaceId,
+      type: "snapshot",
+      requestId: "snapshot-1",
+      ok: true,
+      value: { count: 3 },
+    },
+  )
+})
+
+void test("code bootstrap reports snapshot provider failures", async () => {
+  const { genui, messages, window } = createHarness()
+  genui.snapshot(() => {
+    throw new Error("Snapshot failed")
+  })
+  window.dispatchEvent(
+    new window.MessageEvent("message", {
+      data: { channel, type: "snapshot_request", surfaceId, requestId: "snapshot-failed" },
+    }),
+  )
+  await flushAsync()
+
+  const guestError = messages.find((message) => isRecord(message) && message.type === "guest_error")
+  assert.ok(isRecord(guestError))
+  assert.equal(guestError.message, "Snapshot failed")
+  assert.equal(typeof guestError.stack, "string")
+  assert.deepEqual(
+    jsonRoundTrip(messages.find((message) => isRecord(message) && message.type === "snapshot")),
+    {
+      channel,
+      surfaceId,
+      type: "snapshot",
+      requestId: "snapshot-failed",
+      ok: false,
+    },
   )
 })

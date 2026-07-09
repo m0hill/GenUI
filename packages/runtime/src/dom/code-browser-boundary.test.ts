@@ -78,6 +78,32 @@ const surface: Surface = {
   },
 }
 
+const snapshotSurface: Surface = {
+  id: "surface-snapshot-browser",
+  dialect: "code/0",
+  content: `
+    <button id="increment">Increment</button>
+    <output id="count"></output>
+    <script type="module">
+      let state = { count: 0 }
+      const render = () => {
+        document.querySelector("#count").textContent = String(state.count)
+      }
+      genui.snapshot((restored) => {
+        if (restored && typeof restored.count === "number") state = restored
+        render()
+        return state
+      })
+      document.querySelector("#increment").onclick = () => {
+        state = { count: state.count + 1 }
+        render()
+      }
+      render()
+    </script>
+  `,
+  grant: { surfaceId: "surface-snapshot-browser", actions: [] },
+}
+
 const newPage = async (): Promise<Page> => {
   if (browser === undefined) throw new Error("Browser was not initialized.")
   const page = await browser.newPage()
@@ -166,4 +192,37 @@ void test("red team: self-navigation kills the surface and emits a violation", a
     ),
     true,
   )
+})
+
+void test("browser snapshot survives a same-surface replacement", async (context) => {
+  const page = await newPage()
+  context.after(async () => {
+    await page.close()
+  })
+
+  await page.evaluate((surfaceValue) => {
+    const runtime = Reflect.get(window, "GenuiDom") as BrowserDomRuntime
+    const root = document.querySelector("#root")
+    if (root === null) throw new Error("Missing mount root.")
+    const calls: ActionCall[] = []
+    const events: SurfaceEvent[] = []
+    const mounted = runtime.mount(root, surfaceValue, {
+      transport: async () => ({ ok: true, value: {} }),
+      onEvent: (event) => events.push(event),
+    })
+    Object.assign(window, { __codeHost: { calls, events, mounted } })
+  }, snapshotSurface)
+
+  const frame = page.frameLocator("iframe")
+  await frame.locator("#increment").click()
+  await frame.locator("#increment").click()
+  assert.equal(await frame.locator("#count").textContent(), "2")
+  assert.deepEqual(await page.evaluate(() => window.__codeHost.mounted.snapshot()), { count: 2 })
+
+  await page.evaluate(
+    (surfaceValue) => window.__codeHost.mounted.replace(surfaceValue),
+    snapshotSurface,
+  )
+  await frame.locator("#count").waitFor({ state: "visible" })
+  assert.equal(await frame.locator("#count").textContent(), "2")
 })

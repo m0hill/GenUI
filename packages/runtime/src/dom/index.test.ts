@@ -162,6 +162,94 @@ void test("mount aborts pending transport after replace and dispose", async () =
   result.resolve({ ok: true, value: {} })
 })
 
+void test("mount snapshots and restores same-surface replacements", async () => {
+  const { window, element } = createMountTarget()
+  const first = testSurface([], `<p>First</p>`)
+  const second = { ...first, content: `<p>Second</p>` }
+  const instance = mount(asDomElement(element), first, {
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+  })
+  const iframe = mountedIframe(element)
+  const hostMessages: Array<Readonly<Record<string, unknown>>> = []
+  if (iframe.contentWindow === null) throw new Error("Expected an iframe content window.")
+  iframe.contentWindow.postMessage = (message: unknown): void => {
+    if (typeof message === "object" && message !== null) {
+      hostMessages.push(message as Readonly<Record<string, unknown>>)
+    }
+  }
+
+  const captured = instance.snapshot()
+  const firstRequest = hostMessages.find((message) => message.type === "snapshot_request")
+  assert.notEqual(firstRequest, undefined)
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "snapshot",
+    surfaceId: first.id,
+    requestId: firstRequest?.requestId,
+    ok: true,
+    value: { count: 3 },
+  })
+  assert.deepEqual(await captured, { count: 3 })
+
+  const replacement = instance.replace(second)
+  await flushAsync()
+  const requests = hostMessages.filter((message) => message.type === "snapshot_request")
+  const secondRequest = requests[1]
+  assert.notEqual(secondRequest, undefined)
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "snapshot",
+    surfaceId: first.id,
+    requestId: secondRequest?.requestId,
+    ok: true,
+    value: { count: 4 },
+  })
+  await replacement
+
+  assert.match(iframe.srcdoc, /"restore":\{"count":4\}/)
+  assert.match(iframe.srcdoc, /<p>Second<\/p>/)
+  instance.dispose()
+})
+
+void test("mount restores state across surface ids only when explicit", async () => {
+  const { element } = createMountTarget()
+  const first = testSurface([], `<p>First</p>`)
+  const second = testSurface([], `<p>Second</p>`)
+  const third = testSurface([], `<p>Third</p>`)
+  const instance = mount(asDomElement(element), first, {
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+  })
+  const iframe = mountedIframe(element)
+
+  await instance.replace(second)
+  assert.doesNotMatch(iframe.srcdoc, /"restore":/)
+
+  await instance.replace(third, { snapshot: { selected: "ord-1001" } })
+  assert.match(iframe.srcdoc, /"restore":\{"selected":"ord-1001"\}/)
+  instance.dispose()
+})
+
+void test("mount resolves unavailable snapshots after the configured timeout", async () => {
+  const { element } = createMountTarget()
+  const surface = testSurface([])
+  const events: SurfaceEvent[] = []
+  const instance = mount(asDomElement(element), surface, {
+    snapshotTimeoutMs: 0,
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+    onEvent: (event) => events.push(event),
+  })
+
+  assert.equal(await instance.snapshot(), undefined)
+  assert.deepEqual(events, [
+    {
+      type: "violation",
+      reason: "snapshot_timeout",
+      detail: "Surface snapshot timed out after 0ms.",
+    },
+  ])
+  instance.dispose()
+})
+
 void test("mount refuses unsupported surface dialects", () => {
   const { element } = createMountTarget()
   const unsupported = { ...testSurface([]), dialect: "code/1" }

@@ -33,6 +33,8 @@ The trusted bridge available as \`window.genui\` has exactly this API:
 - \`genui.actions\`: the granted action descriptors listed below.
 - \`await genui.call(name, input)\`: resolves to the action output or rejects with a
   \`GenuiActionError\` containing \`code\` and \`message\`.
+- \`genui.snapshot(fn)\`: registers one state provider. The function receives restored JSON state
+  when present and returns current JSON-serializable state when called without arguments.
 
 Handle action failures in the interface. Call only granted actions and shape inputs from their JSON
 Schemas. Example:

@@ -7,6 +7,7 @@ import {
   type Surface,
 } from "../types.js"
 import { protocolChannel } from "./protocol.js"
+import { parseSandboxMessage, type SnapshotSandboxMessage } from "./sandbox-message-schema.js"
 import {
   createSurfaceBroker,
   type SurfaceBrokerEffect,
@@ -24,15 +25,38 @@ export interface MountOptions {
   readonly imagePolicy?: ImagePolicy
   readonly maxHeight?: number
   readonly onEvent?: (event: SurfaceEvent) => void
+  readonly snapshot?: SnapshotValue
+  readonly snapshotTimeoutMs?: number
 }
 
 export type ImagePolicy = "none" | "data" | "https" | "https-and-data"
 
+export type SnapshotValue =
+  | null
+  | boolean
+  | number
+  | string
+  | readonly SnapshotValue[]
+  | { readonly [key: string]: SnapshotValue }
+
+export interface ReplaceOptions {
+  readonly snapshot?: SnapshotValue
+}
+
 export interface Mounted {
   readonly surface: Surface
-  replace(surface: Surface): Promise<void>
+  snapshot(): Promise<SnapshotValue | undefined>
+  replace(surface: Surface, options?: ReplaceOptions): Promise<void>
   dispose(): void
 }
+
+interface PendingSnapshotRequest {
+  readonly surfaceId: string
+  readonly timeout: ReturnType<typeof setTimeout>
+  resolve(snapshot: SnapshotValue | undefined): void
+}
+
+const defaultSnapshotTimeoutMs = 1_000
 
 const imageSourcePolicy = (policy: ImagePolicy): string => {
   if (policy === "data") return "data:"
@@ -41,13 +65,28 @@ const imageSourcePolicy = (policy: ImagePolicy): string => {
   return "'none'"
 }
 
-const surfaceDocument = (surface: Surface, imagePolicy: ImagePolicy): string => `<!doctype html>
+const normalizeSnapshot = (value: unknown): SnapshotValue | undefined => {
+  if (value === undefined) return undefined
+  try {
+    const encoded = JSON.stringify(value)
+    if (encoded === undefined) throw new TypeError("Snapshot must be JSON-serializable.")
+    return JSON.parse(encoded) as SnapshotValue
+  } catch {
+    throw new TypeError("Snapshot must be JSON-serializable.")
+  }
+}
+
+const surfaceDocument = (
+  surface: Surface,
+  imagePolicy: ImagePolicy,
+  restore?: SnapshotValue,
+): string => `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src ${imageSourcePolicy(imagePolicy)}; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 </head>
-<body><script>${codeBootstrapScript({ channel: protocolChannel, surfaceId: surface.id })}</script>${surface.content}</body>
+<body><script>${codeBootstrapScript({ channel: protocolChannel, surfaceId: surface.id, ...(restore === undefined ? {} : { restore }) })}</script>${surface.content}</body>
 </html>`
 
 const assertSupportedSurface = (surface: Surface): void => {
@@ -61,10 +100,20 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
   assertSupportedSurface(surface)
   const ownerDocument = element.ownerDocument
   const imagePolicy = options.imagePolicy ?? "none"
+  const initialSnapshot = normalizeSnapshot(options.snapshot)
+  const snapshotTimeoutMs =
+    typeof options.snapshotTimeoutMs === "number" &&
+    Number.isFinite(options.snapshotTimeoutMs) &&
+    options.snapshotTimeoutMs >= 0
+      ? options.snapshotTimeoutMs
+      : defaultSnapshotTimeoutMs
   let disposed = false
   let terminated = false
   let expectedDocumentLoads = 0
+  let nextSnapshotRequestId = 1
+  let replacementQueue = Promise.resolve()
   let errorElement: Element | undefined
+  const pendingSnapshots = new Map<string, PendingSnapshotRequest>()
 
   const broker = createSurfaceBroker(surface, {
     transport: options.transport,
@@ -100,8 +149,61 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
     }
   }
 
+  const finishSnapshotRequest = (requestId: string, snapshot: SnapshotValue | undefined): void => {
+    const pending = pendingSnapshots.get(requestId)
+    if (pending === undefined) return
+    clearTimeout(pending.timeout)
+    pendingSnapshots.delete(requestId)
+    pending.resolve(snapshot)
+  }
+
+  const finishPendingSnapshots = (): void => {
+    for (const requestId of Array.from(pendingSnapshots.keys())) {
+      finishSnapshotRequest(requestId, undefined)
+    }
+  }
+
+  const requestSnapshot = (surfaceId: string): Promise<SnapshotValue | undefined> => {
+    const target = iframe.contentWindow
+    if (disposed || terminated || target === null) return Promise.resolve(undefined)
+    const requestId = `snapshot-${nextSnapshotRequestId++}`
+
+    return new Promise<SnapshotValue | undefined>((resolve) => {
+      const timeout = setTimeout(() => {
+        if (!disposed && !terminated) {
+          emit({
+            type: "violation",
+            reason: "snapshot_timeout",
+            detail: `Surface snapshot timed out after ${snapshotTimeoutMs}ms.`,
+          })
+        }
+        finishSnapshotRequest(requestId, undefined)
+      }, snapshotTimeoutMs)
+      pendingSnapshots.set(requestId, { surfaceId, timeout, resolve })
+      target.postMessage(
+        { channel: protocolChannel, type: "snapshot_request", surfaceId, requestId },
+        "*",
+      )
+    })
+  }
+
+  const handleSnapshotMessage = (message: SnapshotSandboxMessage): void => {
+    const pending = pendingSnapshots.get(message.requestId)
+    if (pending === undefined) return
+    if (message.surfaceId !== pending.surfaceId || message.surfaceId !== broker.surface.id) return
+    finishSnapshotRequest(
+      message.requestId,
+      message.ok ? normalizeSnapshot(message.value) : undefined,
+    )
+  }
+
   const handleMessage = (event: MessageEvent<unknown>): void => {
     if (disposed || terminated || event.source !== iframe.contentWindow) return
+    const parsed = parseSandboxMessage(event.data)
+    if (parsed.ok && parsed.value.type === "snapshot") {
+      handleSnapshotMessage(parsed.value)
+      return
+    }
     applyTask(broker.handleSandboxMessage(event.data))
   }
 
@@ -129,6 +231,7 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
     emit({ type: "violation", reason: "navigation" })
     terminated = true
     broker.dispose()
+    finishPendingSnapshots()
     ownerDocument.defaultView?.removeEventListener("message", handleMessage)
     iframe.removeEventListener("load", handleLoad)
 
@@ -139,31 +242,47 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
     element.replaceChildren(error)
   }
 
-  const setDocument = (nextSurface: Surface): void => {
+  const setDocument = (nextSurface: Surface, restore?: SnapshotValue): void => {
     expectedDocumentLoads += 1
-    iframe.srcdoc = surfaceDocument(nextSurface, imagePolicy)
+    iframe.srcdoc = surfaceDocument(nextSurface, imagePolicy, restore)
   }
 
   ownerDocument.defaultView?.addEventListener("message", handleMessage)
   iframe.addEventListener("load", handleLoad)
-  setDocument(broker.surface)
+  setDocument(broker.surface, initialSnapshot)
   element.replaceChildren(iframe)
 
   return {
     get surface() {
       return broker.surface
     },
-    replace(nextSurface) {
+    snapshot() {
+      return requestSnapshot(broker.surface.id)
+    },
+    replace(nextSurface, replaceOptions = {}) {
       assertSupportedSurface(nextSurface)
-      if (disposed || terminated) return Promise.resolve()
-      broker.replace(nextSurface)
-      setDocument(nextSurface)
-      return Promise.resolve()
+      const explicitSnapshot = normalizeSnapshot(replaceOptions.snapshot)
+      const replacement = replacementQueue.then(async () => {
+        if (disposed || terminated) return
+        const current = broker.surface
+        const restore =
+          explicitSnapshot !== undefined
+            ? explicitSnapshot
+            : nextSurface.id === current.id
+              ? await requestSnapshot(current.id)
+              : undefined
+        if (disposed || terminated) return
+        broker.replace(nextSurface)
+        setDocument(nextSurface, restore)
+      })
+      replacementQueue = replacement.catch(() => undefined)
+      return replacement
     },
     dispose() {
       if (disposed) return
       disposed = true
       broker.dispose()
+      finishPendingSnapshots()
       ownerDocument.defaultView?.removeEventListener("message", handleMessage)
       iframe.removeEventListener("load", handleLoad)
       iframe.remove()

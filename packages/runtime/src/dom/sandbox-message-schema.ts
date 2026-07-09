@@ -22,7 +22,28 @@ interface GuestErrorSandboxMessage {
   readonly stack?: string
 }
 
-export type SandboxMessage = ActionSandboxMessage | ResizeSandboxMessage | GuestErrorSandboxMessage
+export type SnapshotSandboxMessage =
+  | {
+      readonly channel: typeof protocolChannel
+      readonly type: "snapshot"
+      readonly surfaceId: string
+      readonly requestId: string
+      readonly ok: true
+      readonly value: unknown
+    }
+  | {
+      readonly channel: typeof protocolChannel
+      readonly type: "snapshot"
+      readonly surfaceId: string
+      readonly requestId: string
+      readonly ok: false
+    }
+
+export type SandboxMessage =
+  | ActionSandboxMessage
+  | ResizeSandboxMessage
+  | GuestErrorSandboxMessage
+  | SnapshotSandboxMessage
 
 export type ParseSandboxMessageResult =
   | { readonly ok: true; readonly value: SandboxMessage }
@@ -81,6 +102,33 @@ const parseGuestErrorMessage = (
   }
 }
 
+const parseSnapshotMessage = (
+  value: Readonly<Record<string, unknown>>,
+): SnapshotSandboxMessage | undefined => {
+  const surfaceId = boundedString(value.surfaceId, maxIdentifierLength)
+  const requestId = boundedString(value.requestId, maxIdentifierLength)
+  if (surfaceId === undefined || requestId === undefined) return undefined
+  if (value.ok === false) {
+    return { channel: protocolChannel, type: "snapshot", surfaceId, requestId, ok: false }
+  }
+  if (value.ok !== true || !Object.prototype.hasOwnProperty.call(value, "value")) return undefined
+
+  try {
+    const encoded = JSON.stringify(value.value)
+    if (encoded === undefined) return undefined
+    return {
+      channel: protocolChannel,
+      type: "snapshot",
+      surfaceId,
+      requestId,
+      ok: true,
+      value: JSON.parse(encoded),
+    }
+  } catch {
+    return undefined
+  }
+}
+
 export const parseSandboxMessage = (value: unknown): ParseSandboxMessageResult => {
   if (!isRecord(value)) return { ok: false, reason: "bad_message" }
   if (value.channel !== protocolChannel) return { ok: false, reason: "unknown_channel" }
@@ -92,6 +140,8 @@ export const parseSandboxMessage = (value: unknown): ParseSandboxMessageResult =
         ? parseResizeMessage(value)
         : value.type === "guest_error"
           ? parseGuestErrorMessage(value)
-          : undefined
+          : value.type === "snapshot"
+            ? parseSnapshotMessage(value)
+            : undefined
   return message === undefined ? { ok: false, reason: "bad_message" } : { ok: true, value: message }
 }

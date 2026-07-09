@@ -59,6 +59,46 @@ void test("sandbox message schema parses code calls and runtime reports", () => 
       },
     },
   )
+  assert.deepEqual(
+    parseSandboxMessage({
+      channel: protocolChannel,
+      type: "snapshot",
+      surfaceId: "surface-1",
+      requestId: "snapshot-1",
+      ok: true,
+      value: { count: 3 },
+    }),
+    {
+      ok: true,
+      value: {
+        channel: protocolChannel,
+        type: "snapshot",
+        surfaceId: "surface-1",
+        requestId: "snapshot-1",
+        ok: true,
+        value: { count: 3 },
+      },
+    },
+  )
+  assert.deepEqual(
+    parseSandboxMessage({
+      channel: protocolChannel,
+      type: "snapshot",
+      surfaceId: "surface-1",
+      requestId: "snapshot-2",
+      ok: false,
+    }),
+    {
+      ok: true,
+      value: {
+        channel: protocolChannel,
+        type: "snapshot",
+        surfaceId: "surface-1",
+        requestId: "snapshot-2",
+        ok: false,
+      },
+    },
+  )
 })
 
 void test("sandbox message schema rejects malformed boundary data", () => {

@@ -74,6 +74,7 @@ The bootstrap installs exactly this public API on `window.genui`:
 genui.surfaceId
 genui.actions
 await genui.call(name, input)
+genui.snapshot(fn)
 ```
 
 `genui.surfaceId` is the current surface ID. `genui.actions` is the grant
@@ -88,6 +89,24 @@ rejects with `GenuiActionError { code, message }` for an action error.
 Results correlate by `callId`. Unknown and duplicate result messages are
 ignored. The guest action list is descriptive; mutating it cannot change the
 host or kernel grant.
+
+`genui.snapshot(fn)` registers one state provider. The host calls the provider
+without arguments to capture JSON-serializable state. When a replacement
+document starts with restored state, registration immediately calls the same
+provider with that value. Apply the value and return current state:
+
+```js
+let state = { selected: null }
+
+genui.snapshot((restored) => {
+  if (restored !== undefined) state = restored
+  return state
+})
+```
+
+Keep the provider synchronous and side-effect-free when it is called without
+arguments. Provider failures are reported through `guest_error` and make that
+snapshot unavailable.
 
 ## Host enforcement
 

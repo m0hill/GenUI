@@ -436,3 +436,8 @@ delete earlier entries.
   `SurfaceStore.runIdempotent` with a five-minute post-completion window and an
   action-plus-raw-JSON fingerprint — concurrent retries share one result while
   conflicting call ID reuse returns `invalid_input`.
+- 2026-07-10 `genui.snapshot(fn)` uses one dual-purpose provider that receives
+  restored JSON at registration and returns current state on host request;
+  same-ID replacement restores automatically while cross-ID transfer requires
+  an explicit host snapshot — this keeps the guest API small and prevents
+  accidental state leakage between authority records.

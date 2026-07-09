@@ -1,6 +1,7 @@
 export interface CodeBootstrapOptions {
   readonly channel: string
   readonly surfaceId: string
+  readonly restore?: unknown
 }
 
 /** Build the trusted guest bridge injected before model-authored code. */
@@ -10,10 +11,13 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
   return `(() => {
   "use strict"
 
-  const { channel, surfaceId } = ${config}
+  const config = ${config}
+  const { channel, surfaceId } = config
   const actions = []
   const pending = new Map()
   let nextCallId = 0
+  let snapshotProvider
+  let restorePending = Object.prototype.hasOwnProperty.call(config, "restore")
 
   class GenuiActionError extends Error {
     constructor(code, message) {
@@ -33,18 +37,35 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
     post({ type: "guest_error", message: text, ...(stack === undefined ? {} : { stack }) })
   }
 
+  const errorMessage = (error) => typeof error === "object" && error !== null &&
+      typeof error.message === "string"
+    ? error.message
+    : String(error)
+
   window.onerror = (message, _source, _line, _column, error) => {
     reportGuestError(message, error)
   }
 
   window.addEventListener("unhandledrejection", (event) => {
     const reason = event.reason
-    const message = typeof reason === "object" && reason !== null &&
-        typeof reason.message === "string"
-      ? reason.message
-      : String(reason)
-    reportGuestError(message, reason)
+    reportGuestError(errorMessage(reason), reason)
   })
+
+  const snapshot = (provider) => {
+    if (typeof provider !== "function") throw new TypeError("Snapshot provider must be a function.")
+    snapshotProvider = provider
+    if (!restorePending) return
+
+    restorePending = false
+    try {
+      const restored = provider(config.restore)
+      if (restored && typeof restored.then === "function") {
+        restored.catch((error) => reportGuestError(errorMessage(error), error))
+      }
+    } catch (error) {
+      reportGuestError(errorMessage(error), error)
+    }
+  }
 
   const call = (action, input) => {
     const randomId = globalThis.crypto && typeof globalThis.crypto.randomUUID === "function"
@@ -70,6 +91,31 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
 
     if (message.type === "grant" && Array.isArray(message.actions)) {
       actions.splice(0, actions.length, ...message.actions)
+      return
+    }
+
+    if (message.type === "snapshot_request" && typeof message.requestId === "string") {
+      if (snapshotProvider === undefined) {
+        post({ type: "snapshot", requestId: message.requestId, ok: false })
+        return
+      }
+
+      Promise.resolve()
+        .then(() => snapshotProvider())
+        .then((value) => {
+          const encoded = JSON.stringify(value)
+          if (encoded === undefined) throw new TypeError("Snapshot must be JSON-serializable.")
+          post({
+            type: "snapshot",
+            requestId: message.requestId,
+            ok: true,
+            value: JSON.parse(encoded),
+          })
+        })
+        .catch((error) => {
+          reportGuestError(errorMessage(error), error)
+          post({ type: "snapshot", requestId: message.requestId, ok: false })
+        })
       return
     }
 
@@ -114,7 +160,7 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
     configurable: false,
     enumerable: true,
     writable: false,
-    value: Object.freeze({ surfaceId, actions, call }),
+    value: Object.freeze({ surfaceId, actions, call, snapshot }),
   })
 })()`
 }
