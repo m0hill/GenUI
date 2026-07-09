@@ -774,6 +774,8 @@ void test("sensitive actions never enter a surface grant", async () => {
     surface.grant.actions.map((descriptor) => descriptor.name),
     ["profile.read"],
   )
+  assert.match(registry.instructions(), /profile\.read/)
+  assert.doesNotMatch(registry.instructions(), /secrets\.read/)
   assert.doesNotMatch(surface.content, /secrets\.read/)
   assert.deepEqual(await registry.diagnostics(surface.id), {
     actions: ["profile.read", "secrets.read"],

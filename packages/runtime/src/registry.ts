@@ -1,4 +1,9 @@
-import { actionPolicy, findGrantedAction, publicActions } from "./action-projections.js"
+import {
+  actionPolicy,
+  findGrantedAction,
+  projectGrantedActions,
+  publicActions,
+} from "./action-projections.js"
 import { parseWithSchema } from "./schema.js"
 import { createSurfaceRuntime, type SurfaceRuntime } from "./surface-runtime.js"
 import {
@@ -109,6 +114,10 @@ export class Genui<Ctx> {
   }
 
   instructions(dialect: Dialect = codeDialect): string {
-    return this.#surfaceRuntime.instructions(this.actions(), dialect)
+    const projection = projectGrantedActions({
+      actions: Array.from(this.#byName.keys()),
+      byName: this.#byName,
+    })
+    return this.#surfaceRuntime.instructions(projection.actions, dialect)
   }
 }
