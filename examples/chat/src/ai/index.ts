@@ -30,7 +30,7 @@ Using web_search:
 - If search or images are missing, clearly label visual data as illustrative/mockup.
 
 Generated UI contract:
-- create_ui.html must be a complete HTML fragment, not markdown and not fenced code.
+- The create_ui html argument must be a complete HTML fragment, not markdown and not fenced code.
 - Do not use <script>, <style>, iframe, object, embed, template, noscript, external CSS, or arbitrary JavaScript.
 - Safe remote images are allowed as <img src="https://..." alt="...">. Always include useful alt text.
 - Safe external links are allowed as <a href="https://...">. Use links for sources or deeper reading, not navigation spam.
@@ -101,7 +101,7 @@ export const createUiSurfaceFromToolArguments = async (
   toolCall: Pick<ToolCall, "id" | "arguments">,
   sessionId: string,
 ): Promise<Surface | undefined> => {
-  const html = typeof toolCall.arguments.html === "string" ? toolCall.arguments.html : ""
+  const html = typeof toolCall.arguments["html"] === "string" ? toolCall.arguments["html"] : ""
   if (html.length === 0) return undefined
 
   return createGeneratedSurface({
@@ -160,11 +160,12 @@ export async function* streamAiTurn(
         let state: CreateUiState
         try {
           const input: CreateUiInput = validateToolArguments(createUiTool, aiEvent.toolCall)
+          const { html, actions } = input
           const surface = await createGeneratedSurface({
             chatId: options.sessionId,
             toolCallId: aiEvent.toolCall.id,
-            html: input.html,
-            actions: input.actions,
+            html,
+            actions,
           })
           state = {
             status: "complete",

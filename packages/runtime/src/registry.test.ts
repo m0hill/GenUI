@@ -99,7 +99,7 @@ void test("registry projects a grant and sanitizes HTML under that grant", async
   })
 
   const surface = await registry.surface({
-    html: [
+    content: [
       `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`,
       `<button data-genui-on-click="@capability('demo.blocked', {})">Blocked</button>`,
       `<script>alert(1)</script>`,
@@ -115,9 +115,9 @@ void test("registry projects a grant and sanitizes HTML under that grant", async
     surface.grant.actions.map((capability) => capability.name),
     ["dice.roll"],
   )
-  assert.match(surface.html, /data-genui-on-click="@capability\('dice\.roll'/)
-  assert.doesNotMatch(surface.html, /demo\.blocked/)
-  assert.doesNotMatch(surface.html, /<script/i)
+  assert.match(surface.content, /data-genui-on-click="@capability\('dice\.roll'/)
+  assert.doesNotMatch(surface.content, /demo\.blocked/)
+  assert.doesNotMatch(surface.content, /<script/i)
   assert.deepEqual(JSON.parse(JSON.stringify(surface)), surface)
   assert.deepEqual(await registry.diagnostics(surface.id), {
     actions: ["dice.roll", "missing.action", "dice.roll", "demo.blocked"],
@@ -144,7 +144,7 @@ void test("registry projects a grant and sanitizes HTML under that grant", async
 void test("surface dialect type permits future dialect identifiers", () => {
   const surface: Surface = {
     id: "surface-test",
-    html: "",
+    content: "",
     grant: { surfaceId: "surface-test", actions: [] },
     dialect: "genui/future",
   }
@@ -166,14 +166,14 @@ void test("same HTML receives different authority from different grants", async 
     ],
   })
   const html = `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`
-  const armed = await registry.surface({ html, actions: ["dice.roll"] })
-  const defanged = await registry.surface({ html, actions: [] })
+  const armed = await registry.surface({ content: html, actions: ["dice.roll"] })
+  const defanged = await registry.surface({ content: html, actions: [] })
 
   assert.notEqual(armed.id, defanged.id)
   assert.equal(armed.grant.surfaceId, armed.id)
   assert.equal(defanged.grant.surfaceId, defanged.id)
-  assert.match(armed.html, /data-genui-on-click/)
-  assert.doesNotMatch(defanged.html, /data-genui-on-click/)
+  assert.match(armed.content, /data-genui-on-click/)
+  assert.doesNotMatch(defanged.content, /data-genui-on-click/)
 
   assert.deepEqual(
     await registry.execute(
@@ -206,7 +206,7 @@ void test("registry executes surfaces restored from a shared store", async () =>
   const creator = new Genui<TestCtx>({ actions, store })
   const executor = new Genui<TestCtx>({ actions, store })
   const surface = await creator.surface({
-    html: `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`,
+    content: `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`,
     actions: ["dice.roll"],
   })
 
@@ -233,7 +233,7 @@ void test("registry upgrades legacy surface records without diagnostics", async 
   ]
   const sourceStore = memoryStore()
   const creator = new Genui<TestCtx>({ actions, store: sourceStore })
-  const surface = await creator.surface({ html, actions: ["dice.roll"] })
+  const surface = await creator.surface({ content: html, actions: ["dice.roll"] })
   const record = await sourceStore.get(surface.id)
   assert.notEqual(record, undefined)
   if (record === undefined) return
@@ -318,7 +318,7 @@ void test("registry reprojects stored surface source under current policy", asyn
     ],
   })
 
-  const created = await creator.surface({ html, actions: ["dice.roll"] })
+  const created = await creator.surface({ content: html, actions: ["dice.roll"] })
   const hardened = new Genui<TestCtx>({
     store: store,
     actions: [
@@ -354,7 +354,7 @@ void test("registry reprojects stored surface source under current policy", asyn
 
   assert.equal(reprojected?.id, created.id)
   assert.deepEqual(reprojected?.grant.actions, [])
-  assert.doesNotMatch(reprojected?.html ?? "", /data-genui-on-click/)
+  assert.doesNotMatch(reprojected?.content ?? "", /data-genui-on-click/)
 })
 
 void test("returned surface mutations cannot change registry authority", async () => {
@@ -370,7 +370,7 @@ void test("returned surface mutations cannot change registry authority", async (
     ],
   })
   const surface = await registry.surface({
-    html: `<button data-genui-on-click="@capability('dice.roll', {})">Roll</button>`,
+    content: `<button data-genui-on-click="@capability('dice.roll', {})">Roll</button>`,
     actions: [],
   })
   const forgedDescriptor = {
@@ -457,7 +457,7 @@ void test("registry executes granted capabilities and validates inputs and outpu
     ],
   })
   const surface = await registry.surface({
-    html: `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`,
+    content: `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`,
     actions: ["dice.roll"],
   })
 
@@ -506,7 +506,7 @@ void test("registry approval is the authoritative execution gate", async () => {
     ],
   })
   const surface = await registry.surface({
-    html: `<button data-genui-on-click="@capability('notes.create', { text: 'hi' })">Create</button>`,
+    content: `<button data-genui-on-click="@capability('notes.create', { text: 'hi' })">Create</button>`,
     actions: ["notes.create"],
   })
   const call = {
@@ -594,7 +594,7 @@ void test("registry returns every expected capability error as a value", async (
     ],
   })
   const surface = await registry.surface({
-    html: `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`,
+    content: `<button data-genui-on-click="@capability('dice.roll', { sides: 6 })">Roll</button>`,
     actions: [
       "dice.roll",
       "demo.approve",

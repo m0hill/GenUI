@@ -26,7 +26,7 @@ void test("surface runtime owns grant projection, sanitization, records, and dia
   })
 
   const source = {
-    html: [
+    content: [
       `<button data-genui-on-click="@capability('dice.roll', {})">Roll</button>`,
       `<button data-genui-on-click="@capability('demo.blocked', {})">Blocked</button>`,
       `<script>alert(1)</script>`,
@@ -42,10 +42,10 @@ void test("surface runtime owns grant projection, sanitization, records, and dia
     surface.grant.actions.map((item) => item.name),
     ["dice.roll"],
   )
-  assert.match(surface.html, /dice\.roll/)
-  assert.doesNotMatch(surface.html, /demo\.blocked/)
-  assert.doesNotMatch(surface.html, /<script/i)
-  assert.equal(record?.source.html, source.html)
+  assert.match(surface.content, /dice\.roll/)
+  assert.doesNotMatch(surface.content, /demo\.blocked/)
+  assert.doesNotMatch(surface.content, /<script/i)
+  assert.equal(record?.source.content, source.content)
   assert.deepEqual(record?.source.actions, source.actions)
   assert.deepEqual(record?.source.meta, source.meta)
   const expectedDiagnostics = {
@@ -78,7 +78,7 @@ void test("surface runtime reprojects from preserved source under current policy
   ])
   const runtime = createSurfaceRuntime({ byName })
   const source = {
-    html: `<button data-genui-on-click="@capability('dice.roll', {})">Roll</button>`,
+    content: `<button data-genui-on-click="@capability('dice.roll', {})">Roll</button>`,
     actions: ["dice.roll"],
   }
   const created = await runtime.surface(source)
@@ -91,7 +91,7 @@ void test("surface runtime reprojects from preserved source under current policy
     reprojected?.grant.actions.map((item) => item.name),
     [],
   )
-  assert.doesNotMatch(reprojected?.html ?? "", /data-genui-on-click/)
+  assert.doesNotMatch(reprojected?.content ?? "", /data-genui-on-click/)
   assert.deepEqual((await runtime.getRecord(created.id))?.source, source)
   assert.deepEqual(await runtime.diagnostics(created.id), {
     actions: ["dice.roll"],

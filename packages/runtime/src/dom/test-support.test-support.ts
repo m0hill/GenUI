@@ -28,7 +28,7 @@ export const testSurface = (actions: Surface["grant"]["actions"], html = ""): Su
   const id = globalThis.crypto.randomUUID()
   return {
     id,
-    html,
+    content: html,
     grant: { surfaceId: id, actions },
     dialect: "genui/0",
   }

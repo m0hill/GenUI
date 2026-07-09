@@ -16,7 +16,7 @@ import {
 } from "./types.js"
 
 interface ProjectedSurfaceInput {
-  readonly html: string
+  readonly content: string
   readonly actions: readonly Action[]
   readonly diagnostics: SurfaceProjectionDiagnostics
 }
@@ -29,7 +29,7 @@ interface CreateSurfaceRuntimeOptions<Ctx> {
 
 interface CreateSurfaceRecordInput {
   readonly dialect: Dialect
-  readonly html: string
+  readonly content: string
   readonly actions: readonly Action[]
   readonly source: SurfaceInput
   readonly diagnostics: SurfaceProjectionDiagnostics
@@ -38,7 +38,7 @@ interface CreateSurfaceRecordInput {
 interface ReplaceSurfaceRecordInput {
   readonly record: SurfaceRecord
   readonly dialect: Dialect
-  readonly html: string
+  readonly content: string
   readonly actions: readonly Action[]
   readonly diagnostics: SurfaceProjectionDiagnostics
 }
@@ -50,7 +50,7 @@ type MaybeLegacySurfaceRecord = Omit<SurfaceRecord, "diagnostics"> & {
 interface CreateSurfaceValueInput {
   readonly id: string
   readonly dialect: Dialect
-  readonly html: string
+  readonly content: string
   readonly actions: readonly Action[]
   readonly meta?: Readonly<Record<string, unknown>>
 }
@@ -103,7 +103,9 @@ const copySurfaceInput = (source: SurfaceInput): SurfaceInput => {
   const actions = Object.freeze([...source.actions])
   const meta = copyMeta(source.meta)
   return Object.freeze(
-    meta === undefined ? { html: source.html, actions } : { html: source.html, actions, meta },
+    meta === undefined
+      ? { content: source.content, actions }
+      : { content: source.content, actions, meta },
   )
 }
 
@@ -116,8 +118,8 @@ const createSurfaceValue = (input: CreateSurfaceValueInput): Surface => {
 
   return Object.freeze(
     meta === undefined
-      ? { id: input.id, html: input.html, grant, dialect: input.dialect }
-      : { id: input.id, html: input.html, grant, dialect: input.dialect, meta },
+      ? { id: input.id, content: input.content, grant, dialect: input.dialect }
+      : { id: input.id, content: input.content, grant, dialect: input.dialect, meta },
   )
 }
 
@@ -127,7 +129,7 @@ const copySurface = (surface: Surface): Surface =>
   createSurfaceValue({
     id: surface.id,
     dialect: surface.dialect,
-    html: surface.html,
+    content: surface.content,
     actions: surface.grant.actions,
     meta: surface.meta,
   })
@@ -144,7 +146,7 @@ const createSurfaceRecord = (input: CreateSurfaceRecordInput): SurfaceRecord => 
   const surface = createSurfaceValue({
     id: createSurfaceId(),
     dialect: input.dialect,
-    html: input.html,
+    content: input.content,
     actions: input.actions,
     meta: source.meta,
   })
@@ -161,7 +163,7 @@ const replaceSurfaceRecord = (input: ReplaceSurfaceRecordInput): SurfaceRecord =
     surface: createSurfaceValue({
       id: input.record.surface.id,
       dialect: input.dialect,
-      html: input.html,
+      content: input.content,
       actions: input.actions,
       meta: input.record.source.meta,
     }),
@@ -192,9 +194,9 @@ export const createSurfaceRuntime = <Ctx>({
 }: CreateSurfaceRuntimeOptions<Ctx>): SurfaceRuntime => {
   const project = (source: SurfaceInput): ProjectedSurfaceInput => {
     const grantProjection = projectGrantedActions({ actions: source.actions, byName })
-    const sanitized = dialect.project(source.html, grantProjection.actions)
+    const sanitized = dialect.project(source.content, grantProjection.actions)
     return {
-      html: sanitized.html,
+      content: sanitized.html,
       actions: grantProjection.actions,
       diagnostics: diagnosticsFor(
         source,
@@ -235,7 +237,7 @@ export const createSurfaceRuntime = <Ctx>({
     const projected = project(input)
     const record = createSurfaceRecord({
       dialect: dialect.id,
-      html: projected.html,
+      content: projected.content,
       actions: projected.actions,
       source: input,
       diagnostics: projected.diagnostics,
@@ -253,7 +255,7 @@ export const createSurfaceRuntime = <Ctx>({
     const nextRecord = replaceSurfaceRecord({
       record,
       dialect: dialect.id,
-      html: projected.html,
+      content: projected.content,
       actions: projected.actions,
       diagnostics: projected.diagnostics,
     })

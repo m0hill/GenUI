@@ -61,7 +61,7 @@ void test("mount blocks image loading by default and supports explicit image pol
 void test("mount snapshots and seeds same-surface replacement documents", async () => {
   const { window, element } = createMountTarget()
   const first = testSurface([diceDescriptor], `<input data-genui-bind="query">`)
-  const second = { ...first, html: `<input data-genui-bind="query"><p>regenerated</p>` }
+  const second = { ...first, content: `<input data-genui-bind="query"><p>regenerated</p>` }
   const snapshot: SurfaceSnapshot = {
     state: { query: "draft" },
     rowStates: {},
@@ -122,7 +122,7 @@ void test("mount requires explicit snapshots across surface ids", async () => {
 void test("mount emits snapshot timeout violations", async () => {
   const { element } = createMountTarget()
   const first = testSurface([diceDescriptor], `<input data-genui-bind="query">`)
-  const second = { ...first, html: `<input data-genui-bind="query"><p>regenerated</p>` }
+  const second = { ...first, content: `<input data-genui-bind="query"><p>regenerated</p>` }
   const events: SurfaceEvent[] = []
   const instance = mount(asDomElement(element), first, {
     snapshotTimeoutMs: 1,
@@ -142,8 +142,8 @@ void test("mount emits snapshot timeout violations", async () => {
 void test("mount serializes rapid same-surface replacements", async () => {
   const { window, element } = createMountTarget()
   const first = testSurface([diceDescriptor], `<p>first</p>`)
-  const second = { ...first, html: `<p>second</p>` }
-  const third = { ...first, html: `<p>third</p>` }
+  const second = { ...first, content: `<p>second</p>` }
+  const third = { ...first, content: `<p>third</p>` }
   const instance = mount(asDomElement(element), first, {
     transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
   })

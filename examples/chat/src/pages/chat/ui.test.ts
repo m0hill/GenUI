@@ -9,14 +9,18 @@ import { AssistantTurnItem } from "./ui.js"
 const generatedSurface: Surface = {
   id: "surface-test",
   dialect: "genui/0",
-  html: `<section style="padding: 12px"><h2>Preview UI</h2></section>`,
+  content: `<section style="padding: 12px"><h2>Preview UI</h2></section>`,
   grant: { surfaceId: "surface-test", actions: [] },
 }
 
 const createTurn = (
   state: AssistantTurn["tools"] extends Map<string, infer State> ? State : never,
 ) => {
-  const toolCall = fauxToolCall("create_ui", { html: generatedSurface.html }, { id: "tool-test" })
+  const toolCall = fauxToolCall(
+    "create_ui",
+    { html: generatedSurface.content },
+    { id: "tool-test" },
+  )
 
   return {
     id: "turn-test",

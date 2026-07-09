@@ -40,7 +40,7 @@ const isAction = (value: unknown): value is Action =>
 
 const isSurface = (value: unknown): value is Surface => {
   if (!isRecord(value)) return false
-  if (typeof value.id !== "string" || typeof value.html !== "string") return false
+  if (typeof value.id !== "string" || typeof value.content !== "string") return false
   if (typeof value.dialect !== "string") return false
   if (!isRecord(value.grant)) return false
   if (value.grant.surfaceId !== value.id) return false

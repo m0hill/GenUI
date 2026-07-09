@@ -236,9 +236,14 @@ export const genui = new Genui<GenuiActionContext>({
 
 export const genuiPromptActions = (): string => genui.instructions()
 
-export const createGeneratedSurface = (input: CreateGeneratedSurfaceInput): Promise<Surface> =>
+export const createGeneratedSurface = ({
+  actions,
+  chatId,
+  html,
+  toolCallId,
+}: CreateGeneratedSurfaceInput): Promise<Surface> =>
   genui.surface({
-    html: input.html,
-    actions: input.actions ?? defaultGenuiActionNames,
-    meta: { chatId: input.chatId, toolCallId: input.toolCallId },
+    content: html,
+    actions: actions ?? defaultGenuiActionNames,
+    meta: { chatId, toolCallId },
   })

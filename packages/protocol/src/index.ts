@@ -32,10 +32,11 @@ export interface Grant {
   readonly actions: readonly Action[]
 }
 
-/** Serializable generated UI document after sanitization and grant projection. */
+/** Serializable generated UI document after dialect projection and grant projection. */
 export interface Surface {
   readonly id: string
-  readonly html: string
+  /** Dialect-defined surface content; genui/0 uses sanitized fragment HTML. */
+  readonly content: string
   readonly grant: Grant
   readonly dialect: Dialect
   readonly meta?: Readonly<Record<string, unknown>>
@@ -77,9 +78,10 @@ export const actionError = (code: ActionErrorCode, message: string): ActionResul
   error: { code, message },
 })
 
-/** Input accepted by a registry when creating a sanitized surface. */
+/** Input accepted by a registry when creating a dialect-projected surface. */
 export interface SurfaceInput {
-  readonly html: string
+  /** Dialect-defined source content; genui/0 expects fragment HTML. */
+  readonly content: string
   readonly actions: readonly string[]
   readonly meta?: Readonly<Record<string, unknown>>
 }

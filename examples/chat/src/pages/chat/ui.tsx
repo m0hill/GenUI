@@ -88,7 +88,7 @@ const GeneratedUiSurface = (props: { generated: NonNullable<CreateUiState["surfa
 
 const GeneratedUiPreview = (props: { generated: NonNullable<CreateUiState["surface"]> }) => (
   <div class="generated-ui generated-ui-preview" inert aria-busy="true">
-    {unsafeHtml(props.generated.html)}
+    {unsafeHtml(props.generated.content)}
   </div>
 )
 

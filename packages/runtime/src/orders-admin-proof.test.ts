@@ -223,11 +223,11 @@ void test("orders-admin proof exercises grants, approval, nested data, and refre
   })
   const ctx: OrdersContext = { userId: "user-1", store: new OrdersStore() }
   const surface = await registry.surface({
-    html: ordersSurfaceHtml,
+    content: ordersSurfaceHtml,
     actions: ["orders.search", "orders.refund", "orders.add_note"],
   })
   const limitedSurface = await registry.surface({
-    html: ordersSurfaceHtml,
+    content: ordersSurfaceHtml,
     actions: ["orders.search"],
   })
   const transportCalls: ActionCall[] = []
@@ -255,8 +255,8 @@ void test("orders-admin proof exercises grants, approval, nested data, and refre
     surface.grant.actions.map((capability) => capability.name),
     ["orders.search", "orders.refund", "orders.add_note"],
   )
-  assert.equal(surface.html.includes("$orders.value.items.length == 0"), true)
-  assert.equal(surface.html.includes('data-genui-each="$order.lines"'), true)
+  assert.equal(surface.content.includes("$orders.value.items.length == 0"), true)
+  assert.equal(surface.content.includes('data-genui-each="$order.lines"'), true)
 
   const directDenied = await registry.execute(
     {

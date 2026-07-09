@@ -25,6 +25,9 @@ and `genui.diagnostics(surfaceId)` to inspect requested, granted, and dropped ac
 names plus sanitized HTML drops such as stripped elements, attributes, and invalid
 directives.
 
+`Surface.content` is a dialect-defined string payload. For `genui/0`, it contains
+sanitized fragment HTML that the DOM mount renders inside the sandboxed iframe.
+
 The sanitizer is allowlist-based. It keeps known HTML elements, a conservative set of
 static attributes, safe inline style declarations, and `genui/0` directives. Unsupported
 elements or attributes are removed and reported through diagnostics.

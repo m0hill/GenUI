@@ -66,7 +66,7 @@ const surfaceDocument = (
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src ${imageSourcePolicy(imagePolicy)}; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 </head>
-<body>${surface.html}<script>${sandboxBridgeScript(surface.id, snapshot)}</script></body>
+<body>${surface.content}<script>${sandboxBridgeScript(surface.id, snapshot)}</script></body>
 </html>`
 
 const assertSupportedSurfaceDialect = (surface: Surface): void => {
