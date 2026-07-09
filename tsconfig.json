@@ -6,8 +6,6 @@
     "moduleDetection": "force",
     "lib": ["ESNext", "DOM"],
     "types": ["node"],
-    "jsx": "react-jsx",
-    "jsxImportSource": "datastar-kit",
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,

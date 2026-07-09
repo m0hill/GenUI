@@ -82,9 +82,11 @@ don't make the change.
   - **The DOM host** (`src/dom/index.ts`, `surface-broker.ts`,
     `sandbox-message-schema.ts`, `protocol.ts`): iframe mounting + postMessage
     broker. **Keep the architecture**, rework for code mode in M3.
-- `examples/chat` — Hono + Datastar chat app that exercises the runtime. It is
-  the proving ground; it must work end-to-end at all times except during M5's
-  final swap.
+- There is currently **no example app**. The old Hono/Datastar chat example
+  was deleted (git history has it) because it was heavyweight, carried genui/0
+  residue, and needed model credentials to run. M4 builds a minimal playground
+  host in its place. Until M4, end-to-end proof lives in the runtime's own
+  browser tests.
 
 Known kernel defects to fix (verified against source, see M1):
 
@@ -109,7 +111,7 @@ when a real consumer needs it (§9). Internal layout:
   src/                   kernel: actions, grants, policy, execute, store
   src/dom/               host: mount(), broker, transport, approval hooks
   src/code/              code-mode guest: bootstrap script, instructions()
-examples/chat            proving ground
+examples/playground      minimal proving-ground host (built in M4)
 ```
 
 ### The code/0 dialect
@@ -143,12 +145,23 @@ it via `onEvent` (constitution §7).
 
 ### Host-side enforcement (unchanged in spirit from today)
 
-Guest `genui.call` → postMessage → broker checks the grant, renders approval
-via host `confirm` for `requiresApproval` actions using
-`renderActionIntent(intent, parsedInput)` → transport → server
-`Genui.execute()` re-checks record, grant, policy, validates input, approves,
-executes, validates output. The broker check is defense in depth; the server
-check is authoritative.
+Guest `genui.call` → postMessage → broker checks the grant → host `confirm`
+for `requiresApproval` actions → transport → server `Genui.execute()`
+re-checks record, grant, policy, validates input, approves, executes,
+validates output. The broker check is defense in depth; the server check is
+authoritative.
+
+There are two approval points; do not conflate them:
+
+- **Client `confirm` (UX):** trusted host-page code shows the dialog before
+  sending. It only has the raw call input (validation is server-side), so it
+  renders `renderActionIntent(intent, rawInput)` as a best-effort preview.
+- **Kernel `approve` (authoritative):** runs inside `execute()` **after**
+  schema validation and receives the parsed canonical input (M1.1). How a
+  host links its confirm UI to this hook is host policy — the playground
+  simply forwards the client confirmation over its own trusted transport and
+  its `approve` implementation honors it. The kernel-side test surface is
+  what M1 certifies.
 
 ### Navigation tripwire
 
@@ -175,8 +188,7 @@ allowed breakage is *within* M5, resolved before its final commit).
 
 1. Reorder `Genui.execute()`: resolve record → grant → policy → **validate
    input** → approve with the **parsed** input (change `ExecuteOptions.approve`
-   to receive it; update `examples/chat` call sites) → execute → validate
-   output.
+   to receive it) → execute → validate output.
 2. Effect-derived policy defaults: `local`/`read` → `"allow"`, `write`/
    `dangerous` → `"ask"`. Explicit `policy` always wins.
 3. Add `confidentiality` to `ActionDefinition` + protocol `Action`; projection
@@ -191,17 +203,18 @@ actions never appear in a grant. All existing tests updated and green.
 
 1. `ActionDefinition` accepts optional `inputJsonSchema` / `outputJsonSchema`
    (plain JSON Schema objects, typed as `Readonly<Record<string, unknown>>`).
-   The kernel stays dependency-free: callers project their validator to JSON
-   Schema themselves (e.g. zod's `z.toJSONSchema`). Descriptors carry
-   `inputSchema` when provided.
+   The kernel gains no dependencies from this: callers project their validator
+   to JSON Schema themselves (e.g. zod's `z.toJSONSchema`). Descriptors carry
+   `inputSchema` when provided. (The kernel's only runtime deps stay
+   `@genui/protocol` and — until M5 deletes it — `parse5`.)
 2. Add runtime codecs to `@genui/protocol`: `parseSurface`, `parseActionCall`,
    `parseActionResult` — hand-written structural validators returning
-   `T | undefined` (no dependencies). Replace the hand-rolled parsing in
-   `examples/chat/src/browser/generated-ui.ts` with them.
+   `T | undefined` (no dependencies). The dom broker/transport boundaries use
+   them where applicable; the M4 playground must consume them instead of
+   hand-rolled parsing.
 
 Acceptance: codec round-trip tests (valid passes, each malformed field
-rejects); chat example uses the codecs; protocol dependency-free test still
-green.
+rejects); protocol dependency-free test still green.
 
 ### M3 — The code/0 renderer
 
@@ -215,10 +228,12 @@ green.
    external resources), the bridge API with one short worked example, and the
    granted action list **with their JSON Schemas**. This replaces the genui/0
    instruction blob.
-3. Rework `src/dom/` mount for `code/0`: skeleton document + CSP + bootstrap
-   injection, broker reuse, navigation tripwire, guest-error events. Keep the
-   existing `mount()` shape (`transport`, `confirm`, `onEvent`, `maxHeight`,
-   `replace`, `dispose`).
+3. Extend `src/dom/` mounting for `code/0`: skeleton document + CSP +
+   bootstrap injection, broker reuse, navigation tripwire, guest-error
+   events. Keep the existing `mount()` shape (`transport`, `confirm`,
+   `onEvent`, `maxHeight`, `replace`, `dispose`). `mount()` dispatches on
+   `surface.dialect`; the genui/0 path must keep working untouched until M5
+   deletes it (§5 preamble: no breakage between milestones).
 4. `Genui.surface()` for `code/0` stores content verbatim (grant projection
    still applies; no sanitizer). Wire the dialect id through protocol.
 
@@ -227,23 +242,41 @@ Acceptance: happy-dom unit tests for broker/tripwire logic; a real-browser
 code surface which renders, calls a granted action, receives the result,
 gets denied an ungranted action, and triggers the navigation tripwire.
 
-### M4 — Migrate examples/chat to code mode
+### M4 — Build the playground host (`examples/playground`)
 
-1. Switch the `create_ui` tool to code/0: new instructions from
-   `instructions()`, remove genui/0 prompt examples and hard-coded field-name
-   docs (schemas now travel in descriptors).
-2. One surface identity per tool call: create the surface once; stream
-   placeholder text while generating; mount when the content is complete. Do
-   not allocate a new surface UUID per streaming chunk.
-3. Feed guest errors back: on `guest_error`, append a compact error report to
-   the conversation so the model can regenerate/repair.
+A deliberately small host app that proves the whole framework end-to-end
+**without needing model credentials**. Plain Hono server + one
+plain-HTML/vanilla-TS page. No Datastar, no Tailwind, no UI framework.
+Smallness is a goal, not a budget — every feature beyond this list is out of
+scope (§8).
 
-Acceptance: the app runs (`pnpm dev`); a prompt like "build me an orders
-dashboard with search and a detail pane" produces a working interactive
-surface driven by real granted actions; approval flow works for a `write`
-action; a deliberately broken generation produces a visible error event, not
-a silent dead surface. Port `orders-admin-proof.test.ts` to code/0 as the
-regression proof before deleting the old one.
+1. Server: a demo action set (e.g. `orders.search` read, `orders.get` read,
+   `orders.update_status` write with an `intent` template, one `sensitive`
+   action to prove confidentiality dropping), one `Genui` instance, a
+   `POST /genui/surface` endpoint that creates a surface from submitted
+   content, and a `POST /genui/execute` endpoint that parses with the M2
+   codecs.
+2. Page: a textarea + "Create surface" button (**paste mode**) — paste any
+   code/0 fragment, the server creates the surface, the page mounts it with
+   the real `mount()`. This exercises mount → broker → confirm → transport →
+   kernel with zero model involvement.
+3. A "Copy model instructions" button that puts `instructions()` output (with
+   granted action schemas) on the clipboard — the human loop: paste into any
+   LLM chat, paste the generated fragment back into the playground.
+4. Surface events (`guest_error`, violations, denied calls) render in a
+   visible event log panel next to the surface — the error round-trip proof
+   (constitution §7) — and are formatted so they can be pasted back to a
+   model for repair.
+5. Add a `dev` script wired at the workspace root, and keep a couple of known-
+   good code/0 fixtures in the playground for one-click demos.
+
+Acceptance: `pnpm dev` serves the playground; pasting the bundled orders-
+dashboard fixture yields a working interactive surface driven by real granted
+actions; the `write` action triggers the approval flow; a fixture with a
+thrown guest error shows in the event log, not a silent dead surface; a
+Playwright smoke test drives paste → mount → action call → result. Port
+`orders-admin-proof.test.ts` to code/0 as the runtime-level regression proof
+before M5 deletes the old one.
 
 ### M5 — Demolition
 
@@ -251,15 +284,15 @@ Delete: `src/dialect/**`, `src/dom/sandbox-runtime*`, `src/dom/result-state*`,
 `src/dom/result-routing*`, `src/dom/sandbox-asset.generated.ts`,
 `src/dom/sandbox-entry.ts`, `src/dom/sandbox-bridge.ts` (genui/0 version),
 `scripts/build-sandbox-asset.mjs`, the `sandbox:build` script step, the
-`parse5` dependency, all genui/0 tests, and genui/0 code paths in
-`examples/chat` (`default-primitives.ts` genui/0 parts, old prompt text).
-Update `README.md` to describe the current architecture in ~20 lines and
-point here. Simplify `surface-runtime.ts`: drop the legacy-record
-normalization (`MaybeLegacySurfaceRecord`) — there are no legacy deployments.
+`parse5` dependency, and all genui/0 tests. Remove the `genuiDialect`
+(`"genui/0"`) constant from `@genui/protocol` — `"code/0"` is the only
+shipped dialect id after this milestone. Simplify `surface-runtime.ts`: drop
+the legacy-record normalization (`MaybeLegacySurfaceRecord`) — there are no
+legacy deployments. Refresh `README.md` if any of it went stale.
 
-Acceptance: `git grep -i "genui0\|genui/0\|data-genui"` returns only
-ROADMAP.md and git history; full `pnpm check` green in every package; chat
-example still passes M4 acceptance.
+Acceptance: `git grep -iE "genui0|genui/0|data-genui"` matches only
+ROADMAP.md; full `pnpm check` green in every package; the playground still
+passes M4 acceptance.
 
 ### M6 — Red-team suite
 
@@ -329,8 +362,14 @@ minimally, record the decision in §10). (2) Guest state snapshot/restore:
   (without a §10 entry explaining why).
 - Do not build multi-tenant auth, rate-limit infrastructure beyond the M6 cap,
   or persistence backends beyond the in-memory store.
-- Do not "improve" `examples/chat` beyond what the milestones require.
-- Do not reintroduce anything from `docs/genui` git history.
+- Do not grow the playground beyond what M4 specifies — no chat UI, no
+  sessions, no streaming, no CSS frameworks, no Datastar. It is a test rig,
+  not a product.
+- Do not add a live LLM integration anywhere; there are no model credentials
+  in this environment. The paste-mode + copy-instructions loop is the model
+  interface.
+- Do not reintroduce anything from `docs/genui` or `examples/chat` git
+  history.
 
 ## 9. When you are unsure
 
@@ -351,3 +390,11 @@ delete earlier entries.
   the iframe boundary it already depends on.
 - 2026-07-10 Catalog/React/remote-view renderers deferred until after M6 —
   prove the kernel with the cheapest renderer first.
+- 2026-07-10 Deleted `examples/chat` (commit history has it) and replaced the
+  M4 migration milestone with a minimal credential-free playground host —
+  the chat app was heavy foreign code, carried genui/0 residue, and required
+  model credentials the autonomous agent does not have.
+- 2026-07-10 Clarified the two approval points (client `confirm` = trusted UX
+  preview on raw input; kernel `approve` = authoritative gate on validated
+  input) — an earlier draft implied the browser broker had the parsed input,
+  which is impossible since validation is server-side.

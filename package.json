@@ -3,25 +3,19 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm --filter @genui/example-chat dev",
-    "test": "pnpm --filter @genui/genui test && pnpm --filter @genui/example-chat test",
-    "build": "pnpm --filter @genui/example-chat build",
-    "start": "pnpm --filter @genui/example-chat start",
-    "check": "pnpm run format:check && pnpm --filter @genui/genui check && pnpm --filter @genui/example-chat check",
-    "typecheck": "pnpm --filter @genui/genui typecheck && pnpm --filter @genui/example-chat typecheck",
-    "lint": "pnpm --filter @genui/genui lint && pnpm --filter @genui/example-chat lint",
-    "lint:fix": "pnpm --filter @genui/genui lint:fix && pnpm --filter @genui/example-chat lint:fix",
-    "format": "oxfmt package.json tsconfig.json .oxlintrc.json .oxfmtrc.json examples/chat/package.json examples/chat/tsconfig.json packages/runtime/package.json packages/runtime/tsconfig.json packages/runtime/src",
-    "format:check": "oxfmt --check package.json tsconfig.json .oxlintrc.json .oxfmtrc.json examples/chat/package.json examples/chat/tsconfig.json packages/runtime/package.json packages/runtime/tsconfig.json packages/runtime/src"
+    "test": "pnpm --filter @genui/protocol test && pnpm --filter @genui/genui test",
+    "check": "pnpm run format:check && pnpm --filter @genui/protocol check && pnpm --filter @genui/genui check",
+    "typecheck": "pnpm --filter @genui/protocol typecheck && pnpm --filter @genui/genui typecheck",
+    "lint": "pnpm --filter @genui/protocol lint && pnpm --filter @genui/genui lint",
+    "lint:fix": "pnpm --filter @genui/protocol lint:fix && pnpm --filter @genui/genui lint:fix",
+    "format": "oxfmt package.json tsconfig.json .oxlintrc.json .oxfmtrc.json packages/protocol/package.json packages/protocol/tsconfig.json packages/protocol/src packages/runtime/package.json packages/runtime/tsconfig.json packages/runtime/src",
+    "format:check": "oxfmt --check package.json tsconfig.json .oxlintrc.json .oxfmtrc.json packages/protocol/package.json packages/protocol/tsconfig.json packages/protocol/src packages/runtime/package.json packages/runtime/tsconfig.json packages/runtime/src"
   },
   "devDependencies": {
-    "@tailwindcss/cli": "^4.0.0",
     "@types/node": "^24.0.0",
-    "concurrently": "^10.0.3",
     "oxfmt": "^0.55.0",
     "oxlint": "^1.70.0",
     "oxlint-tsgolint": "^0.23.0",
-    "tailwindcss": "^4.0.0",
     "typescript": "7.0.1-rc"
   },
   "packageManager": "pnpm@11.7.0"
