@@ -429,3 +429,6 @@ delete earlier entries.
 - 2026-07-10 Sensitive actions remain available to trusted registry inspection
   but surface projection drops them — confidentiality restricts renderer access
   without erasing definitions needed by future execution profiles.
+- 2026-07-10 Oversized or non-JSON action input returns `invalid_input` — the
+  payload is malformed for the JSON capability boundary, while `rate_limited`
+  remains specific to concurrent-call pressure.

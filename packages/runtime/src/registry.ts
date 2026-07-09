@@ -21,6 +21,18 @@ import {
   type SurfaceStore,
 } from "./types.js"
 
+const maxInFlightCallsPerSurface = 8
+const maxActionInputBytes = 64 * 1_024
+
+const serializedInputSize = (input: unknown): number | undefined => {
+  try {
+    const serialized = JSON.stringify(input)
+    return serialized === undefined ? undefined : new TextEncoder().encode(serialized).byteLength
+  } catch {
+    return undefined
+  }
+}
+
 export interface GenuiOptions<Ctx> {
   readonly actions: readonly AnyActionDefinition<Ctx>[]
   readonly store?: SurfaceStore
@@ -35,6 +47,7 @@ export const action = <Ctx, Input, Output>(
 export class Genui<Ctx> {
   readonly #byName: ReadonlyMap<string, AnyActionDefinition<Ctx>>
   readonly #surfaceRuntime: SurfaceRuntime
+  readonly #inFlightBySurface = new Map<string, number>()
 
   constructor(options: GenuiOptions<Ctx>) {
     const byName = new Map<string, AnyActionDefinition<Ctx>>()
@@ -87,23 +100,43 @@ export class Genui<Ctx> {
       return actionError("not_granted", "Action is not granted to this surface.")
     }
 
-    const input = await parseWithSchema(definition.input, call.input)
-    if (!input.ok) return actionError("invalid_input", input.message)
-
-    if (actionPolicy(definition) === "ask") {
-      const approved = await options?.approve?.(granted, input.value)
-      if (approved !== true) return actionError("approval_denied", "Action was denied.")
+    const inputSize = serializedInputSize(call.input)
+    if (inputSize === undefined) {
+      return actionError("invalid_input", "Action input must be JSON-serializable.")
+    }
+    if (inputSize > maxActionInputBytes) {
+      return actionError("invalid_input", "Action input exceeds 64 KiB.")
     }
 
-    try {
-      const value = await definition.execute(ctx, input.value)
-      if (definition.output === undefined) return { ok: true, value }
+    const inFlight = this.#inFlightBySurface.get(call.surfaceId) ?? 0
+    if (inFlight >= maxInFlightCallsPerSurface) {
+      return actionError("rate_limited", "Surface has too many in-flight calls.")
+    }
+    this.#inFlightBySurface.set(call.surfaceId, inFlight + 1)
 
-      const output = await parseWithSchema(definition.output, value)
-      if (!output.ok) return actionError("invalid_output", "Action returned invalid output.")
-      return { ok: true, value: output.value }
-    } catch {
-      return actionError("execution_failed", "Action failed.")
+    try {
+      const input = await parseWithSchema(definition.input, call.input)
+      if (!input.ok) return actionError("invalid_input", input.message)
+
+      if (actionPolicy(definition) === "ask") {
+        const approved = await options?.approve?.(granted, input.value)
+        if (approved !== true) return actionError("approval_denied", "Action was denied.")
+      }
+
+      try {
+        const value = await definition.execute(ctx, input.value)
+        if (definition.output === undefined) return { ok: true, value }
+
+        const output = await parseWithSchema(definition.output, value)
+        if (!output.ok) return actionError("invalid_output", "Action returned invalid output.")
+        return { ok: true, value: output.value }
+      } catch {
+        return actionError("execution_failed", "Action failed.")
+      }
+    } finally {
+      const remaining = (this.#inFlightBySurface.get(call.surfaceId) ?? 1) - 1
+      if (remaining === 0) this.#inFlightBySurface.delete(call.surfaceId)
+      else this.#inFlightBySurface.set(call.surfaceId, remaining)
     }
   }
 

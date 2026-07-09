@@ -93,6 +93,7 @@ export type ActionErrorCode =
   | "invalid_input"
   | "invalid_output"
   | "approval_denied"
+  | "rate_limited"
   | "storage_unavailable"
   | "execution_failed"
 
@@ -213,6 +214,7 @@ const isActionErrorCode = (value: unknown): value is ActionErrorCode =>
   value === "invalid_input" ||
   value === "invalid_output" ||
   value === "approval_denied" ||
+  value === "rate_limited" ||
   value === "storage_unavailable" ||
   value === "execution_failed"
 

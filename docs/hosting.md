@@ -143,6 +143,16 @@ The mount kills a code surface after self-navigation and emits a `navigation`
 violation. Create a new surface after that event instead of reusing the dead
 mount.
 
+## Respect call limits
+
+The kernel permits at most eight in-flight calls per surface. Excess calls
+return `rate_limited`. Keep controls disabled while their call is pending and
+handle this error like any other recoverable action failure.
+
+Action input must be JSON-serializable and no larger than 64 KiB after UTF-8
+JSON encoding. The kernel rejects larger or non-JSON input as `invalid_input`
+before schema validation, approval, or execution.
+
 ## Run the playground
 
 The repository playground is a complete credential-free host:

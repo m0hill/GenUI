@@ -131,10 +131,15 @@ void test("parseActionResult accepts JSON round trips and rejects malformed fiel
     ok: false,
     error: { code: "approval_denied", message: "Action was denied." },
   } as const
+  const rateLimited = {
+    ok: false,
+    error: { code: "rate_limited", message: "Surface has too many in-flight calls." },
+  } as const
   const successRoundTrip: unknown = JSON.parse(JSON.stringify(success))
   const failureRoundTrip: unknown = JSON.parse(JSON.stringify(failure))
   assert.deepEqual(parseActionResult(successRoundTrip), success)
   assert.deepEqual(parseActionResult(failureRoundTrip), failure)
+  assert.deepEqual(parseActionResult(JSON.parse(JSON.stringify(rateLimited))), rateLimited)
 
   const malformed: ReadonlyArray<readonly [string, unknown]> = [
     ["record", null],
