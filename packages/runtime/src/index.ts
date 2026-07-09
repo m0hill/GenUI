@@ -8,6 +8,7 @@ export type {
   ActionDefinition,
   ActionErrorCode,
   ActionResult,
+  Confidentiality,
   Dialect,
   DroppedAction,
   DroppedActionReason,

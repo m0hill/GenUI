@@ -426,3 +426,6 @@ delete earlier entries.
 - 2026-07-10 Kernel `approve` receives `(action, canonicalInput)` while call
   metadata stays in the host's surrounding request scope — this keeps the
   authoritative hook focused on the exact value being approved.
+- 2026-07-10 Sensitive actions remain available to trusted registry inspection
+  but surface projection drops them — confidentiality restricts renderer access
+  without erasing definitions needed by future execution profiles.

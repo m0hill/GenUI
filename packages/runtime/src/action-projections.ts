@@ -22,10 +22,14 @@ export const actionPolicy = (definition: AnyActionDefinition<unknown>): Policy =
   definition.policy ??
   (definition.effect === "local" || definition.effect === "read" ? "allow" : "ask")
 
+const actionConfidentiality = (definition: AnyActionDefinition<unknown>) =>
+  definition.confidentiality ?? "normal"
+
 const actionFor = (definition: AnyActionDefinition<unknown>): Action => ({
   name: definition.name,
   description: definition.description,
   effect: definition.effect,
+  confidentiality: actionConfidentiality(definition),
   requiresApproval: actionPolicy(definition) === "ask",
   ...(definition.intent === undefined ? {} : { intent: definition.intent }),
 })
@@ -62,6 +66,10 @@ export const projectGrantedActions = <Ctx>({
     }
     if (actionPolicy(action) === "block") {
       dropped.push({ name, reason: "blocked" })
+      continue
+    }
+    if (actionConfidentiality(action) === "sensitive") {
+      dropped.push({ name, reason: "confidential" })
       continue
     }
     granted.push(actionFor(action))

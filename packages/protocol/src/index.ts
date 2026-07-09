@@ -18,11 +18,15 @@ export type Effect = "local" | "read" | "write" | "dangerous"
 /** Genui policy applied before app action code can run. */
 export type Policy = "allow" | "ask" | "block"
 
+/** Whether an action may expose its result to the default generated-code renderer. */
+export type Confidentiality = "normal" | "sensitive"
+
 /** Public action projection visible to models, sandboxes, and approval UI. */
 export interface Action {
   readonly name: string
   readonly description: string
   readonly effect: Effect
+  readonly confidentiality?: Confidentiality
   readonly requiresApproval: boolean
   /** Optional raw human-facing confirmation template rendered by hosts. */
   readonly intent?: string
@@ -114,7 +118,7 @@ export interface SurfaceInput {
 }
 
 /** Reason a requested action did not become part of a surface grant. */
-export type DroppedActionReason = "duplicate" | "unknown" | "blocked"
+export type DroppedActionReason = "duplicate" | "unknown" | "blocked" | "confidential"
 
 /** One requested action name that was omitted while projecting a surface grant. */
 export interface DroppedAction {

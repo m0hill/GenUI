@@ -432,6 +432,7 @@ void test("descriptors expose only the public capability projection", () => {
     ["dice.roll", "demo.write"],
   )
   assert.deepEqual(Object.keys(descriptors[0] ?? {}).sort(), [
+    "confidentiality",
     "description",
     "effect",
     "name",
@@ -659,6 +660,63 @@ void test("dangerous actions require approval by default", async () => {
     value: { destroyed: true },
   })
   assert.equal(executed, true)
+})
+
+void test("sensitive actions never enter a surface grant", async () => {
+  const registry = new Genui<TestCtx>({
+    actions: [
+      action({
+        name: "profile.read",
+        description: "Read a public profile.",
+        effect: "read",
+        input: emptyInput,
+        execute: () => ({ name: "Ada" }),
+      }),
+      action({
+        name: "secrets.read",
+        description: "Read a sensitive secret.",
+        effect: "read",
+        confidentiality: "sensitive",
+        input: emptyInput,
+        execute: () => ({ secret: "hidden" }),
+      }),
+    ],
+  })
+  const surface = await registry.surface({
+    content: [
+      `<button data-genui-on-click="@capability('profile.read', {})">Profile</button>`,
+      `<button data-genui-on-click="@capability('secrets.read', {})">Secret</button>`,
+    ].join(""),
+    actions: ["profile.read", "secrets.read"],
+  })
+
+  assert.deepEqual(
+    registry.actions().map((descriptor) => [descriptor.name, descriptor.confidentiality]),
+    [
+      ["profile.read", "normal"],
+      ["secrets.read", "sensitive"],
+    ],
+  )
+  assert.deepEqual(
+    surface.grant.actions.map((descriptor) => descriptor.name),
+    ["profile.read"],
+  )
+  assert.doesNotMatch(surface.content, /secrets\.read/)
+  assert.deepEqual(await registry.diagnostics(surface.id), {
+    actions: ["profile.read", "secrets.read"],
+    granted: ["profile.read"],
+    dropped: [{ name: "secrets.read", reason: "confidential" }],
+    html: {
+      dropped: [
+        {
+          node: "button",
+          attribute: "data-genui-on-click",
+          value: "@capability('secrets.read', {})",
+          reason: "ungranted_action",
+        },
+      ],
+    },
+  })
 })
 
 void test("registry returns every expected capability error as a value", async () => {

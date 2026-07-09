@@ -1,4 +1,11 @@
-import type { Action, Effect, MaybePromise, Policy, SurfaceRecord } from "@genui/protocol"
+import type {
+  Action,
+  Confidentiality,
+  Effect,
+  MaybePromise,
+  Policy,
+  SurfaceRecord,
+} from "@genui/protocol"
 
 export { actionError, genuiDialect, isValidActionName, renderActionIntent } from "@genui/protocol"
 export type {
@@ -6,6 +13,7 @@ export type {
   ActionCall,
   ActionErrorCode,
   ActionResult,
+  Confidentiality,
   Dialect,
   DroppedAction,
   DroppedActionReason,
@@ -76,6 +84,7 @@ export interface ActionDefinition<Ctx, Input = unknown, Output = unknown> {
   /** Optional raw human-facing confirmation template rendered by hosts. */
   readonly intent?: string
   readonly effect: Effect
+  readonly confidentiality?: Confidentiality
   readonly policy?: Policy
   readonly input: StandardSchemaV1<unknown, Input>
   readonly output?: StandardSchemaV1<unknown, Output>
