@@ -350,7 +350,10 @@ void test("orders-admin proof exercises grants, approval, nested data, and refre
   )
   assert.deepEqual(
     brokerApprovals.map((call) => call.callId),
-    ["call-refund-denied", "call-refund"],
+    ["call-refund-denied", "call-refund", "call-note"],
   )
-  assert.deepEqual(registryApprovalInputs, [{ id: "order-1" }])
+  assert.deepEqual(registryApprovalInputs, [
+    { id: "order-1" },
+    { id: "order-1", note: "Priority follow-up" },
+  ])
 })

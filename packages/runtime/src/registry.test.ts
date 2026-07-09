@@ -622,6 +622,45 @@ void test("registry approval receives canonical validated input", async () => {
   assert.deepEqual(result, { ok: true, value: { accepted: "hello" } })
 })
 
+void test("dangerous actions require approval by default", async () => {
+  let executed = false
+  const registry = new Genui<TestCtx>({
+    actions: [
+      action({
+        name: "system.destroy",
+        description: "Destroy the test system.",
+        effect: "dangerous",
+        input: emptyInput,
+        execute: () => {
+          executed = true
+          return { destroyed: true }
+        },
+      }),
+    ],
+  })
+  const surface = await registry.surface({
+    content: `<button data-genui-on-click="@capability('system.destroy', {})">Destroy</button>`,
+    actions: ["system.destroy"],
+  })
+  const descriptor = surface.grant.actions[0]
+  assert.notEqual(descriptor, undefined)
+  assert.equal(descriptor?.requiresApproval, true)
+
+  const call = {
+    surfaceId: surface.id,
+    callId: "call-dangerous",
+    action: "system.destroy",
+    input: {},
+  }
+  assertErrorCode(await registry.execute(call, { userId: "u1" }), "approval_denied")
+  assert.equal(executed, false)
+  assert.deepEqual(await registry.execute(call, { userId: "u1" }, { approve: () => true }), {
+    ok: true,
+    value: { destroyed: true },
+  })
+  assert.equal(executed, true)
+})
+
 void test("registry returns every expected capability error as a value", async () => {
   const registry = new Genui<TestCtx>({
     actions: [

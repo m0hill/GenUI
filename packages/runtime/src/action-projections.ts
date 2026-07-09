@@ -19,7 +19,8 @@ export interface ProjectedActionGrant {
 
 /** Resolve the effective generated UI policy for an action definition. */
 export const actionPolicy = (definition: AnyActionDefinition<unknown>): Policy =>
-  definition.policy ?? "allow"
+  definition.policy ??
+  (definition.effect === "local" || definition.effect === "read" ? "allow" : "ask")
 
 const actionFor = (definition: AnyActionDefinition<unknown>): Action => ({
   name: definition.name,
