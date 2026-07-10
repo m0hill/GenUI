@@ -1,12 +1,12 @@
-# GenUI Roadmap
+# GenUI Roadmap — Phase 2
 
-Written 2026-07-10. This file is the **single source of truth** for what to build,
-in what order, how to test it, and how to commit it. The previous design docs
-(`docs/genui/`) were deleted deliberately — they described an older architecture.
-Do not resurrect them. Git history is reference material only.
+Written 2026-07-10, revised 2026-07-11 after phase 1 (M1–M7) shipped. This
+file is the **single source of truth** for what to build, in what order, how
+to test it, and how to commit it.
 
-If anything here conflicts with code comments, old commit messages, or your own
-ideas about what would be cool: **this file wins.**
+If anything here conflicts with code comments, old commit messages, or your
+own ideas about what would be cool: **this file wins.** For current API truth
+read the guides in `docs/` (§7); this file is the plan, not the reference.
 
 ---
 
@@ -14,362 +14,276 @@ ideas about what would be cool: **this file wins.**
 
 Build the safe substrate on which LLMs generate real, interactive web UI.
 
-The end product is a small framework with one promise to host-app developers:
+The promise to host-app developers:
 
 > Define your app's actions once — name, description, schema, effect, policy,
 > intent — and any model-generated surface can use them, under isolation and
 > authority rules the renderer cannot weaken.
 
 The model authors an ordinary tiny web app (HTML + vanilla JS). It runs in a
-locked sandbox (opaque-origin iframe, no network, no storage). The **only** door
-out is `genui.call(name, input)` — a typed, granted, policy-checked, human-
-approvable action pipeline enforced host/server-side.
+locked sandbox (opaque-origin iframe, no network, no storage). The **only**
+door out is `genui.call(name, input)` — a typed, granted, policy-checked,
+human-approvable action pipeline enforced host/server-side.
+
+Phase 2 turns the working framework into a trustworthy one: authority bound
+to identities, honest containment limits, CI, publishable artifacts, and an
+evaluation rig for real model output.
 
 What this project is **not**:
 
 - Not a JSON component system.
-- Not a custom template/expression language. (`genui/0` was that. It is being
-  deleted in M5. Do not extend it, fix it, or imitate it.)
-- Not a React framework, a build pipeline, or a design system.
+- Not a custom template/expression language (genui/0 was deleted in phase 1;
+  do not resurrect or imitate it).
+- Not a React framework, a build pipeline for guests, or a design system.
 
 ## 2. Constitution
 
 Every design decision is checked against these. If a change violates one,
 don't make the change.
 
-1. **Authority lives in the kernel, never in the renderer.** Every outside-world
-   effect flows through a granted, schema-validated, policy-checked action
-   enforced on the trusted side. If a design is only safe when the renderer
-   behaves, the design is wrong.
-2. **Isolation is a boundary, not a filter.** Safety comes from where generated
-   code runs (opaque origin, no network, capability-only IO), not from
-   constraining what it says. Sanitization is never a load-bearing security
-   control.
+1. **Authority lives in the kernel, never in the renderer.** Every
+   outside-world effect flows through a granted, schema-validated,
+   policy-checked action enforced on the trusted side. If a design is only
+   safe when the renderer behaves, the design is wrong.
+2. **Isolation is a boundary, not a filter.** Safety comes from where
+   generated code runs (opaque origin, no network, capability-only IO), not
+   from constraining what it says. Sanitization is never a load-bearing
+   security control.
 3. **No ambient authority.** A surface can touch exactly what it was handed:
-   per-surface, inspectable grants. Deny by default. A requested name is not a
-   grant.
-4. **Humans approve effects, not pixels.** Consent UI (intent template, effect
-   class, input echo) is rendered by the trusted host from the grant and the
-   **canonical, validated** input — never by the generated surface.
+   per-surface, inspectable grants. Deny by default. A requested name is not
+   a grant.
+4. **Humans approve effects, not pixels.** Consent UI (intent template,
+   effect class, input echo) is rendered by the trusted host from the grant
+   and the **canonical, validated** input — never by the generated surface.
 5. **Meet the model where it was trained.** HTML, plain JavaScript, and JSON
    Schema. No bespoke DSLs. Every line of custom instruction text is a tax.
-6. **Define contracts once, derive everything else.** Validation, model-facing
-   schemas, TypeScript types, approval previews, and codecs all come from the
-   same action definition.
-7. **Errors round-trip to the model.** Guest runtime errors, denied calls, and
-   invalid inputs must reach the generating model in legible form. A silently
-   dead button is a design defect.
+6. **Define contracts once, derive everything else.** Validation,
+   model-facing schemas, TypeScript types, approval previews, and codecs all
+   come from the same action definition.
+7. **Errors round-trip to the model.** Guest runtime errors, denied calls,
+   and invalid inputs must reach the generating model in legible form. A
+   silently dead button is a design defect.
 8. **Small frozen center, replaceable edges.** Protocol and kernel stay tiny.
    Renderers, hosts, stores, transports are replaceable leaves.
 9. **Complexity must pay rent.** A package, abstraction, or feature must
    measurably improve safe expressiveness or remove real user burden.
 
-## 3. State of the repo today
+## 3. State of the repo
 
-- `packages/protocol` (`@genui/protocol`) — pure wire types + tiny helpers.
-  Zero deps (there is a test enforcing this — keep it green). **Keep.**
-- `packages/runtime` (`@genui/genui`) — contains two very different things:
-  - **The kernel** (keep): `registry.ts` (action registry + `execute()`
-    pipeline), `action-projections.ts` (grant projection),
-    `surface-runtime.ts` (surface records, store), `schema.ts`, `types.ts`.
-  - **The genui/0 dialect** (delete in M5): `src/dialect/**` (custom expression
-    language, directive system, HTML sanitizer) and `src/dom/sandbox-runtime*`,
-    `src/dom/sandbox-asset.generated.ts`, `scripts/build-sandbox-asset.mjs`
-    (an in-iframe interpreter for that language). Roughly 5,000 lines. It works
-    and its tests pass; it is being removed because it is a bespoke frontend
-    framework that fights model training and buys no security the iframe
-    doesn't already provide.
-  - **The DOM host** (`src/dom/index.ts`, `surface-broker.ts`,
-    `sandbox-message-schema.ts`, `protocol.ts`): iframe mounting + postMessage
-    broker. **Keep the architecture**, rework for code mode in M3.
-- There is currently **no example app**. The old Hono/Datastar chat example
-  was deleted (git history has it) because it was heavyweight, carried genui/0
-  residue, and needed model credentials to run. M4 builds a minimal playground
-  host in its place. Until M4, end-to-end proof lives in the runtime's own
-  browser tests.
+Phase 1 (M1–M7) is complete: kernel correctness fixes, JSON-Schema
+projection, protocol codecs, the code/0 renderer (bootstrap bridge, mount,
+navigation tripwire), the credential-free playground, genui/0 demolition,
+the red-team suite, idempotency, snapshots, and grant expiry/revocation.
+81 tests across three packages; `git log` and §11 hold the details.
 
-Known kernel defects to fix (verified against source, see M1):
-
-- `Genui.execute()` calls `approve()` **before** schema validation
-  (`registry.ts`), so the human approves raw input while the action executes
-  the parsed/transformed input. Violates constitution §4.
-- Missing `policy` defaults to `"allow"` for **every** effect including
-  `write` and `dangerous` (`action-projections.ts`). Violates §3.
-- Public `Action` descriptors carry no input/output schemas, so models guess
-  field names from prose. Violates §6.
-- Result delivery ignores `callId`; two in-flight calls to the same target can
-  land out of order. (Dies with genui/0 in M5; do not fix in the old runtime.)
-
-## 4. Target architecture
-
-Keep the current two packages until the shape stabilizes; split further only
-when a real consumer needs it (§10). Internal layout:
+Layout:
 
 ```
-@genui/protocol          wire types, JSON-Schema type, codecs (M2)
+@genui/protocol          wire types, JSON-Schema projection, codecs
 @genui/genui
   src/                   kernel: actions, grants, policy, execute, store
-  src/dom/               host: mount(), broker, transport, approval hooks
-  src/code/              code-mode guest: bootstrap script, instructions()
-examples/playground      minimal proving-ground host (built in M4)
+  src/dom/               host: mount(), broker, tripwire, approval hooks
+  src/code/              code/0 guest: bootstrap script, instructions()
+examples/playground      credential-free proving-ground host
+docs/                    actions.md, code0.md, hosting.md + writing guide
 ```
 
-### The code/0 dialect
+Known gaps this phase addresses (verified against source):
 
-`Surface.dialect = "code/0"`. `Surface.content` is a model-authored HTML
-fragment that may contain inline `<script type="module">` blocks. **No
-sanitization.** The host wraps it in a document skeleton:
+- `genui.actions` is empty while guest startup scripts run: the grant
+  arrives via a postMessage that `mount()` sends on iframe `load`, but
+  module scripts execute before `load` fires (`src/code/bootstrap.ts`,
+  `src/dom/index.ts`). The API misleads; the grant is known at document
+  build time and should be embedded.
+- Approval is client-asserted: the playground forwards `approved: true` and
+  the server's `approve` hook echoes it (`examples/playground/src/app.ts`).
+  Acceptable for a demo; it means no server-side identity actually gates
+  approval, and grants are not bound to any principal.
+- No audit trail: `execute()` outcomes are not recorded anywhere.
+- No CPU/memory containment: a `while(true)` guest hangs its iframe
+  undetected. The navigation tripwire also only *detects* egress after the
+  request has left; that stays detect-and-kill by design — confidentiality
+  tiers are the mitigation for sensitive data.
+- The guest bootstrap accepts messages from any source holding a
+  contentWindow reference; it should verify `event.source === window.parent`
+  (the host side already verifies its direction).
+- Idempotency fingerprints hash raw JSON text, so key order changes read as
+  conflicting input (`src/registry.ts`).
+- No CI. Nothing runs `pnpm check` except agents on their honor.
+- Packages export raw `.ts` sources (`"types": "./src/index.ts"`); nothing
+  is installable outside this workspace.
 
-- iframe `sandbox="allow-scripts allow-forms"`, `referrerpolicy="no-referrer"`.
-- CSP: `default-src 'none'; script-src 'unsafe-inline'; style-src
-  'unsafe-inline'; img-src <per host image policy>; connect-src 'none';
-  frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'`.
-- A small trusted **bootstrap script** injected *before* the generated content
-  so `window.genui` exists when guest scripts run.
+## 4. Architecture rules for this phase
 
-### The guest bridge API (pin this exactly)
-
-```js
-genui.surfaceId          // string
-genui.actions            // Array<{ name, description, effect,
-                         //         requiresApproval, intent?, inputSchema? }>
-await genui.call(name, input)
-  // resolves with the action's output value
-  // rejects with GenuiActionError { code, message } (codes = ActionErrorCode)
-```
-
-That is the whole API. No nested proxies, no state helpers, no event system.
-The bootstrap also installs `window.onerror` + `unhandledrejection` handlers
-that post `{ type: "guest_error", message, stack }` to the host, which exposes
-it via `onEvent` (constitution §7).
-
-### Host-side enforcement (unchanged in spirit from today)
-
-Guest `genui.call` → postMessage → broker checks the grant → host `confirm`
-for `requiresApproval` actions → transport → server `Genui.execute()`
-re-checks record, grant, policy, validates input, approves, executes,
-validates output. The broker check is defense in depth; the server check is
-authoritative.
-
-There are two approval points; do not conflate them:
-
-- **Client `confirm` (UX):** trusted host-page code shows the dialog before
-  sending. It only has the raw call input (validation is server-side), so it
-  renders `renderActionIntent(intent, rawInput)` as a best-effort preview.
-- **Kernel `approve` (authoritative):** runs inside `execute()` **after**
-  schema validation and receives the parsed canonical input (M1.1). How a
-  host links its confirm UI to this hook is host policy — the playground
-  simply forwards the client confirmation over its own trusted transport and
-  its `approve` implementation honors it. The kernel-side test surface is
-  what M1 certifies.
-
-### Navigation tripwire
-
-A sandboxed iframe can still navigate *itself* to an external URL — that is
-the one egress channel CSP does not close. The host must treat any navigation
-of the surface iframe after initial load as a violation: kill the iframe,
-replace with an inert error state, emit `{ type: "violation", reason:
-"navigation" }`. (Listen for a second `load` event on the iframe element.)
-
-### Confidentiality tiers
-
-Action definitions get an optional `confidentiality?: "normal" | "sensitive"`
-(default `"normal"`). Sensitive actions are never granted to `code/0` surfaces
-— dropped at projection with reason `"confidential"`. This is the protocol
-hook that lets a stricter execution profile exist later without redesign.
+- The package layout does not change. No new packages (§10 to argue
+  otherwise, §11 to record it).
+- Protocol changes in this phase: `SurfaceRecord`/`SurfaceInput` gain an
+  optional `subject`, and codecs follow. Nothing else on the wire changes
+  without a §11 entry.
+- The guest bridge API may only *gain* the embedded grant; its surface
+  (`surfaceId`, `actions`, `call`, `snapshot`) is otherwise frozen.
+- Every new kernel behavior ships with its invariant test (§6) in the same
+  commit.
 
 ## 5. Milestones
 
 Work them **in order**. Each milestone ends with all checks green and one or
-more commits. The tree must never be left broken between milestones (the only
-allowed breakage is *within* M5, resolved before its final commit).
+more commits. The tree must never be left broken between milestones.
 
-### M1 — Kernel correctness
+### M8 — Close the phase-1 gaps
 
-1. Reorder `Genui.execute()`: resolve record → grant → policy → **validate
-   input** → approve with the **parsed** input (change `ExecuteOptions.approve`
-   to receive it) → execute → validate output.
-2. Effect-derived policy defaults: `local`/`read` → `"allow"`, `write`/
-   `dangerous` → `"ask"`. Explicit `policy` always wins.
-3. Add `confidentiality` to `ActionDefinition` + protocol `Action`; projection
-   drops sensitive actions from surface grants (new `DroppedActionReason:
-   "confidential"`).
+1. Embed the grant in the bootstrap config (like `restore` already is) so
+   `genui.actions` is correct before any guest script runs. Every
+   `replace()` writes a fresh document, so the load-time grant postMessage
+   becomes redundant — remove it and its message type.
+2. Guest bootstrap ignores inbound messages where
+   `event.source !== window.parent`.
+3. Canonicalize idempotency fingerprints: stable key ordering (recursive
+   key sort) before hashing, so `{a,b}` and `{b,a}` are the same input.
+4. Unresponsive-guest tripwire: the bootstrap posts a heartbeat every 1s;
+   the host treats a gap over 6s as `{ type: "violation", reason:
+   "unresponsive" }` and kills the surface like the navigation tripwire
+   does. **Pinned guards against false positives:** evaluate the gap only
+   while the host document is visible (`document.visibilityState`) AND the
+   iframe intersects the viewport (IntersectionObserver) — browsers
+   throttle timers in hidden pages and offscreen cross-origin iframes, and
+   a throttled surface is not a hung one.
 
-Acceptance: new tests prove (a) approval sees post-validation input, (b) a
-`dangerous` action without explicit policy requires approval, (c) sensitive
-actions never appear in a grant. All existing tests updated and green.
+Acceptance: a guest that reads `genui.actions` in a top-level module script
+sees the full grant (real-browser test); forged-source messages are ignored
+(unit test); reordered-key retries dedupe instead of conflicting; a busy-loop
+guest fixture gets killed with the violation event while a hidden-tab
+simulation does not (real-browser test). `docs/code0.md` updated in the same
+commits (§7).
 
-### M2 — Contracts and codecs in the protocol
+### M9 — Identity, authoritative approval, audit
 
-1. `ActionDefinition` accepts optional `inputJsonSchema` / `outputJsonSchema`
-   (plain JSON Schema objects, typed as `Readonly<Record<string, unknown>>`).
-   The kernel gains no dependencies from this: callers project their validator
-   to JSON Schema themselves (e.g. zod's `z.toJSONSchema`). Descriptors carry
-   `inputSchema` when provided. (The kernel's only runtime deps stay
-   `@genui/protocol` and — until M5 deletes it — `parse5`.)
-2. Add runtime codecs to `@genui/protocol`: `parseSurface`, `parseActionCall`,
-   `parseActionResult` — hand-written structural validators returning
-   `T | undefined` (no dependencies). The dom broker/transport boundaries use
-   them where applicable; the M4 playground must consume them instead of
-   hand-rolled parsing.
+The kernel currently proves *which surface* is calling but not *for whom*.
 
-Acceptance: codec round-trip tests (valid passes, each malformed field
-rejects); protocol dependency-free test still green; `docs/actions.md`
-written per §7.
+1. Subject binding: `SurfaceInput` gains optional `subject` (opaque string,
+   e.g. a user or session id) stored on the `SurfaceRecord` and echoed on
+   `Grant`. `execute()` gains `ExecuteOptions.subject`; when the record has
+   a subject and it does not match, return `not_granted` before any other
+   work. Records without a subject keep today's behavior. Protocol codecs
+   and `docs/actions.md`/`docs/hosting.md` updated.
+2. Server-held approval: replace the playground's `approved: true` body flag
+   with a server-side pending-approval store keyed by
+   `(surfaceId, callId)`: an `ask` action's first execution returns a new
+   `approval_required` error carrying the rendered intent
+   (`renderActionIntent` over the **parsed** input, constitution §4); the
+   client shows its dialog and re-sends the same call with the playground
+   session's approval registered via a `POST /genui/approve` endpoint that
+   records consent server-side before the retry. The kernel's `approve`
+   hook reads that store. The kernel itself stays transport-agnostic —
+   `approval_required` is the only kernel change; the pending store is
+   playground/host code and the pattern is documented in `docs/hosting.md`.
+3. Audit hook: `GenuiOptions.onCall?(entry)` invoked after every `execute()`
+   with `{ surfaceId, callId, subject?, action, effect, outcome, at }`
+   where outcome is the `ActionErrorCode` or `"ok"`. Fire-and-forget:
+   kernel never awaits it and a throwing hook cannot affect the result.
+   The playground logs entries to its event panel.
 
-### M3 — The code/0 renderer
+Acceptance: invariant tests — a call with the wrong subject never reaches
+validation; an unapproved `ask` call returns `approval_required` and executes
+exactly once after approval (idempotency still holds across the retry); audit
+entries fire for ok, denied, and invalid calls; a throwing audit hook changes
+nothing. Playwright test drives the full playground approval round trip.
 
-1. `src/code/bootstrap.ts`: the guest bridge (API above) as an embeddable
-   string. Small enough to review in one sitting (< ~300 lines). Handshake:
-   host posts the grant snapshot; `genui.call` posts
-   `{ channel, surfaceId, callId, action, input }`, resolves on the matching
-   `callId` result. Unknown/duplicate `callId` results are ignored.
-2. `src/code/instructions.ts`: model-facing instruction text. Contents: the
-   sandbox contract (fragment HTML + inline module scripts, no network, no
-   external resources), the bridge API with one short worked example, and the
-   granted action list **with their JSON Schemas**. This replaces the genui/0
-   instruction blob.
-3. Extend `src/dom/` mounting for `code/0`: skeleton document + CSP +
-   bootstrap injection, broker reuse, navigation tripwire, guest-error
-   events. Keep the existing `mount()` shape (`transport`, `confirm`,
-   `onEvent`, `maxHeight`, `replace`, `dispose`). `mount()` dispatches on
-   `surface.dialect`; the genui/0 path must keep working untouched until M5
-   deletes it (§5 preamble: no breakage between milestones).
-4. `Genui.surface()` for `code/0` stores content verbatim (grant projection
-   still applies; no sanitizer). Wire the dialect id through protocol.
+### M10 — CI and installable packages
 
-Acceptance: happy-dom unit tests for broker/tripwire logic; a real-browser
-(Playwright, pattern in `src/dom/browser-boundary.test.ts`) test that mounts a
-code surface which renders, calls a granted action, receives the result,
-gets denied an ungranted action, and triggers the navigation tripwire.
-`docs/code0.md` written per §7.
+1. GitHub Actions workflow (`.github/workflows/check.yml`): pnpm via
+   corepack, install, `pnpm check`, with Playwright browsers
+   (`playwright install --with-deps chromium`) cached. Runs on push and
+   pull request. It must pass on the first try — verify locally with the
+   same commands before committing.
+2. Build outputs: `tsc` emit for `@genui/protocol` and `@genui/genui` to
+   `dist/` (js + d.ts), proper `exports` maps with `types`/`import`
+   conditions, `files` fields, and a repo-root `pnpm build`. Keep
+   `private: true` — **publishing itself is user-gated** (npm scope and
+   names are the owner's call).
+3. Prove installability without publishing: `pnpm pack` both packages and a
+   test that installs the tarballs into a temp project and imports the
+   kernel and codecs from the built output.
 
-### M4 — Build the playground host (`examples/playground`)
+Acceptance: CI green on the repo; `pnpm build && pnpm pack` produce tarballs
+whose smoke test passes; `pnpm check` still green (dist/ excluded from lint
+and format).
 
-A deliberately small host app that proves the whole framework end-to-end
-**without needing model credentials**. Plain Hono server + one
-plain-HTML/vanilla-TS page. No Datastar, no Tailwind, no UI framework.
-Smallness is a goal, not a budget — every feature beyond this list is out of
-scope (§9).
+### M11 — Generation evaluation rig
 
-1. Server: a demo action set (e.g. `orders.search` read, `orders.get` read,
-   `orders.update_status` write with an `intent` template, one `sensitive`
-   action to prove confidentiality dropping), one `Genui` instance, a
-   `POST /genui/surface` endpoint that creates a surface from submitted
-   content, and a `POST /genui/execute` endpoint that parses with the M2
-   codecs.
-2. Page: a textarea + "Create surface" button (**paste mode**) — paste any
-   code/0 fragment, the server creates the surface, the page mounts it with
-   the real `mount()`. This exercises mount → broker → confirm → transport →
-   kernel with zero model involvement.
-3. A "Copy model instructions" button that puts `instructions()` output (with
-   granted action schemas) on the clipboard — the human loop: paste into any
-   LLM chat, paste the generated fragment back into the playground.
-4. Surface events (`guest_error`, violations, denied calls) render in a
-   visible event log panel next to the surface — the error round-trip proof
-   (constitution §7) — and are formatted so they can be pasted back to a
-   model for repair.
-5. Add a `dev` script wired at the workspace root, and keep a couple of known-
-   good code/0 fixtures in the playground for one-click demos.
+The framework's real test is model-authored surfaces, and this environment
+has no model credentials. Build the rig so the owner's manual loop scales:
 
-Acceptance: `pnpm dev` serves the playground; pasting the bundled orders-
-dashboard fixture yields a working interactive surface driven by real granted
-actions; the `write` action triggers the approval flow; a fixture with a
-thrown guest error shows in the event log, not a silent dead surface; a
-Playwright smoke test drives paste → mount → action call → result. Port
-`orders-admin-proof.test.ts` to code/0 as the runtime-level regression proof
-before M5 deletes the old one. `docs/hosting.md` written per §7.
+1. `examples/playground/fixtures/incoming/` — the owner drops raw model
+   outputs here as `.html` files (each paired with an optional `.json` of
+   expected action calls).
+2. `pnpm eval` (playground script): starts the server, drives headless
+   Playwright over every incoming fixture, and reports per fixture: mounted
+   without `guest_error`, no violations, granted calls succeeded, ungranted
+   calls were denied, and any expected-calls file matched. Output is a
+   Markdown table to stdout plus a nonzero exit if any fixture fails.
+3. Failures must be legible enough to paste back to a model for repair
+   (constitution §7): include the event log and the failing assertion per
+   fixture.
+4. Document the workflow in `docs/hosting.md` (copy instructions → generate
+   with any LLM → drop file → `pnpm eval`).
 
-### M5 — Demolition
+Acceptance: rig passes against the bundled known-good fixtures, fails
+loudly against a bundled known-bad fixture (guest error) and a
+known-malicious one (ungranted call + navigation attempt), and the README
+mentions `pnpm eval`.
 
-Delete: `src/dialect/**`, `src/dom/sandbox-runtime*`, `src/dom/result-state*`,
-`src/dom/result-routing*`, `src/dom/sandbox-asset.generated.ts`,
-`src/dom/sandbox-entry.ts`, `src/dom/sandbox-bridge.ts` (genui/0 version),
-`scripts/build-sandbox-asset.mjs`, the `sandbox:build` script step, the
-`parse5` dependency, and all genui/0 tests. Remove the `genuiDialect`
-(`"genui/0"`) constant from `@genui/protocol` — `"code/0"` is the only
-shipped dialect id after this milestone. Simplify `surface-runtime.ts`: drop
-the legacy-record normalization (`MaybeLegacySurfaceRecord`) — there are no
-legacy deployments. Refresh `README.md` and sweep `docs/` for anything the
-demolition made stale (§7).
+### Stop condition
 
-Acceptance: `git grep -iE "genui0|genui/0|data-genui"` matches only
-ROADMAP.md; full `pnpm check` green in every package; the playground still
-passes M4 acceptance.
-
-### M6 — Red-team suite
-
-Named tests, one per invariant (see §6). Add the missing enforcement they
-reveal, keeping it minimal:
-
-- forged postMessage (wrong channel / surfaceId / non-iframe source) → ignored
-- ungranted action call → `not_granted`, never executes
-- action turned `block` after grant creation → blocked at execute
-- invalid input → `invalid_input`, `execute` never runs, approval never asked
-- approval denial → `approval_denied`, no execution
-- replayed result message / duplicate `callId` → ignored by guest bridge
-- self-navigation → surface killed + violation event (real browser test)
-- call flooding → per-surface in-flight cap (pick 8) → excess rejected with
-  `rate_limited` (new `ActionErrorCode`)
-- oversized call input (> 64 KiB serialized) → rejected before validation
-
-### M7 — Stretch (only if M1–M6 are done and green)
-
-In priority order: (1) `callId` idempotency for `write`/`dangerous` actions in
-the kernel (dedupe window via the store; requires a store method — design it
-minimally, record the decision in §11). (2) Guest state snapshot/restore:
-`genui.snapshot(fn)` registration + host `snapshot()`/restore across
-`replace()`, mirroring the old snapshot protocol. (3) Grant TTL/revocation:
-`revoke(surfaceId)` store support + expiry check in `execute()`.
+When M8–M11 are done and green: **stop.** Do not invent further milestones.
+End with a summary — what shipped per milestone, test counts, §11 entries,
+and the exact commands to see CI status, run the playground, and run the
+eval rig. Explicitly out of scope until the owner decides, informed by eval
+results: publishing to npm, a catalog/React/remote renderer, multi-tenant
+policy, persistence backends, and any real-LLM integration.
 
 ## 6. Testing philosophy
 
-- **Every security invariant is a named test.** The invariant list in M6 is
-  the floor, not the ceiling. If you find yourself relying on an unstated
-  invariant, write the test that states it.
-- **Test the real boundary.** Kernel tests call the real `execute()` with real
-  schemas. DOM logic units run on happy-dom. At least one Playwright test per
-  renderer exercises the genuine iframe + CSP + postMessage stack — the
-  sandbox is the product; never mock it in the test that certifies it.
-- **Errors are behavior.** Every `ActionErrorCode` has a test producing it as
-  a returned value (never a throw across the boundary).
-- **TDD for kernel changes.** Red test first for M1/M2/M6 items.
-- **Determinism.** No network, no timers without control, no flaky waits.
-- **Don't test prose.** Assert that `instructions()` contains action names and
-  schemas; don't snapshot the full text.
-- Runner: `nub --test` (see package.json scripts). `pnpm check` per package =
-  lint + format + typecheck + tests. That is the gate for every commit.
+- **Every security invariant is a named test.** If you rely on an unstated
+  invariant, write the test that states it. Phase 1's red-team suite is the
+  floor; M8/M9 add: embedded-grant timing, forged-source rejection,
+  unresponsive-guest kill (with the visibility guard), subject mismatch,
+  approval round trip, audit isolation.
+- **Test the real boundary.** Kernel tests call the real `execute()` with
+  real schemas. DOM logic units run on happy-dom. Playwright certifies the
+  genuine iframe + CSP + postMessage stack — never mock the sandbox in the
+  test that certifies it.
+- **Errors are behavior.** Every `ActionErrorCode` (including the new
+  `approval_required`) has a test producing it as a returned value.
+- **TDD for kernel changes.** Red test first for M8.3, M9, and any protocol
+  change.
+- **Determinism.** No network, no uncontrolled timers, no flaky waits. The
+  heartbeat tests use fake or controllable clocks wherever the real browser
+  isn't required.
+- Runner: `nub --test`; `pnpm check` per package = lint + format +
+  typecheck + tests. That is the gate for every commit.
 
 ## 7. Documentation
 
 `docs/documentation.md` is the writing guide. Read it before creating or
-editing any Markdown, including this file. `docs/README.md` is the
-documentation index; every guide must be listed there.
+editing any Markdown, including this file. `docs/README.md` is the index;
+every guide must be listed there.
 
-The framework needs three durable guides, each written in the milestone that
-establishes its convention and updated in the same commit as any change that
-invalidates it:
-
-- `docs/actions.md` (after M2) — defining actions: name, description, schema
-  and JSON-Schema projection, effect, policy, intent, confidentiality.
-- `docs/code0.md` (after M3) — the normative code/0 contract: document
-  skeleton, CSP, bridge API, error channel, navigation tripwire. This guide
-  and the bootstrap implementation must never disagree.
-- `docs/hosting.md` (after M4) — integrating a host: creating surfaces,
-  `mount()`, transport, confirm, events; the playground is the worked example.
-
-ROADMAP.md is a plan, not a guide. When a milestone completes, its durable
-rules live in the guides above — do not make readers mine this file for
-current API truth. Doc-only fixes may land as their own commits at any time.
+The guides (`actions.md`, `code0.md`, `hosting.md`) hold current API truth.
+Any commit that changes behavior they describe updates them **in the same
+commit**: M8 touches `code0.md` (embedded grant, heartbeat), M9 touches
+`actions.md` and `hosting.md` (subject, `approval_required`, audit, the
+approval pattern), M10 touches `hosting.md`/README (install, build), M11
+touches `hosting.md` (eval workflow). Doc-only fixes may land as their own
+commits at any time.
 
 ## 8. Commit pattern
 
-- One logical change per commit. A milestone is typically 2–6 commits, never
-  one giant one at dawn.
+- One logical change per commit. A milestone is typically 2–6 commits,
+  never one giant one at dawn.
 - Subject: imperative, ≤ 60 chars, matching existing history style
-  (`Fix approval ordering in action execution`, `Add code/0 guest bootstrap`).
-  No `feat:`/`fix:` prefixes.
-- Body: 1–3 sentences of *why*, plus the milestone tag, e.g. `Roadmap: M1.1`.
+  (`Embed the grant in the guest bootstrap`). No `feat:`/`fix:` prefixes.
+- Body: 1–3 sentences of *why*, plus the milestone tag, e.g. `Roadmap: M8.1`.
 - `pnpm check` must be green in every touched package before committing.
   Never commit red; never commit commented-out code.
 - Work directly on `main`. No branches, no force-push, no history rewrites.
@@ -377,32 +291,32 @@ current API truth. Doc-only fixes may land as their own commits at any time.
 
 ## 9. Hard scope guards — do NOT
 
-- Do not add expression languages, template directives, data-attribute DSLs,
-  or sanitizer-enforced dialects. If a guest needs logic, it writes JavaScript.
-- Do not add a build/compile step for guest code (no TSX, no bundler, no
-  dependency resolution). Guests are buildless HTML + ESM.
+- Do not add expression languages, template directives, data-attribute
+  DSLs, or sanitizer-enforced dialects. Guests write JavaScript.
+- Do not add a build/compile step for guest code. Guests stay buildless
+  HTML + ESM. (M10's build step is for the *packages*, not guests.)
 - Do not add a React renderer, Worker/remote-view renderer, or component
-  catalog. Those are future proofs, gated on the kernel being finished.
-- Do not add runtime dependencies to `@genui/protocol` (ever) or to the kernel
-  (without a §11 entry explaining why).
-- Do not build multi-tenant auth, rate-limit infrastructure beyond the M6 cap,
-  or persistence backends beyond the in-memory store.
-- Do not grow the playground beyond what M4 specifies — no chat UI, no
-  sessions, no streaming, no CSS frameworks, no Datastar. It is a test rig,
-  not a product.
-- Do not add a live LLM integration anywhere; there are no model credentials
-  in this environment. The paste-mode + copy-instructions loop is the model
-  interface.
+  catalog. Deferred until eval evidence says otherwise.
+- Do not publish to npm or remove `private: true` — user-gated.
+- Do not add a live LLM integration anywhere; there are no model
+  credentials in this environment. The eval rig consumes files.
+- Do not add runtime dependencies to `@genui/protocol` (ever) or to the
+  kernel (without a §11 entry explaining why).
+- Do not build multi-tenant auth or persistence backends; `subject` is an
+  opaque string the host supplies, nothing more.
+- Do not grow the playground beyond the milestones — it is a test rig, not
+  a product.
 - Do not reintroduce anything from `docs/genui` or `examples/chat` git
   history.
 
 ## 10. When you are unsure
 
 1. Re-read §2. Pick the option that satisfies more of it.
-2. Prefer the smaller diff, the fewer concepts, the standard platform feature.
+2. Prefer the smaller diff, the fewer concepts, the standard platform
+   feature.
 3. If two options remain, pick either, ship it, and append the decision to
-   §11 with one sentence of rationale. Do not stall, and do not expand scope
-   to dodge the decision.
+   §11 with one sentence of rationale. Do not stall, and do not expand
+   scope to dodge the decision.
 
 ## 11. Decision log
 
@@ -445,3 +359,11 @@ delete earlier entries.
   reprojection never extends; expiry and explicit `revoke(surfaceId)` remove
   both the authority record and its idempotency entries — revocation stays a
   small store primitive with predictable retry behavior.
+- 2026-07-11 Phase 2 scoped to hardening (M8), identity/approval/audit (M9),
+  CI/installability (M10), and an eval rig (M11); catalog renderer and npm
+  publishing stay deferred — real-model eval evidence should drive both, and
+  publishing names are the owner's call.
+- 2026-07-11 Navigation containment stays detect-and-kill; sensitive data is
+  protected by confidentiality tiers, not by trying to prevent iframe
+  self-navigation — CSP cannot govern navigation and pretending otherwise
+  would misstate the threat model.
