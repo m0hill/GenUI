@@ -67,6 +67,7 @@ void test("surface runtime reprojects authority without rewriting source", async
   assert.equal(reprojected?.id, created.id)
   assert.equal(reprojected?.content, source.content)
   assert.equal(reprojected?.grant.subject, "session-1")
+  assert.equal((await runtime.getRecord(created.id))?.subject, "session-1")
   assert.deepEqual(reprojected?.grant.actions, [])
   assert.deepEqual(await runtime.diagnostics(created.id), {
     actions: ["dice.roll"],

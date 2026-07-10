@@ -31,6 +31,7 @@ record is the server-side source of truth for grants.
 
 A custom `SurfaceStore` implements `get`, `set`, `revoke`, and `runIdempotent`.
 `revoke` must delete the surface record and its idempotency entries.
+`get` and `set` must preserve an optional `SurfaceRecord.subject` unchanged.
 `runIdempotent` must atomically join concurrent calls with the same surface ID,
 call ID, and fingerprint, retain the completed result for the requested window,
 and report conflicting fingerprints. The bundled `memoryStore()` implements

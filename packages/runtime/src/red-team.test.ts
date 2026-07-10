@@ -49,6 +49,19 @@ void test("red team: subject mismatch is denied before validation or execution",
   assert.equal(denied.ok ? undefined : denied.error.code, "not_granted")
   assert.equal(validations, 0)
   assert.equal(executions, 0)
+
+  const missing = await runtime.execute(
+    {
+      surfaceId: surface.id,
+      callId: "call-missing-subject",
+      action: "profile.read",
+      input: {},
+    },
+    {},
+  )
+  assert.equal(missing.ok ? undefined : missing.error.code, "not_granted")
+  assert.equal(validations, 0)
+  assert.equal(executions, 0)
   assert.equal(surface.grant.subject, "session-1")
   assert.equal((await store.get(surface.id))?.subject, "session-1")
   assert.equal((await store.get(surface.id))?.source.subject, "session-1")
