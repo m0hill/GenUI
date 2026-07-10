@@ -2,23 +2,13 @@ import assert from "node:assert/strict"
 import { after, before, test } from "node:test"
 import { build } from "esbuild"
 import { chromium, type Browser, type Page } from "playwright"
-import type { ActionCall, ActionResult, Surface } from "@genui/protocol"
+import type { ActionCall, Surface } from "@genui/protocol"
 import type { Mounted, SurfaceEvent } from "./index.js"
 
 let browser: Browser | undefined
 let domBundle = ""
 
-interface BrowserDomRuntime {
-  mount(
-    element: Element,
-    surface: Surface,
-    options: {
-      readonly transport: (call: ActionCall) => Promise<ActionResult>
-      readonly onEvent: (event: SurfaceEvent) => void
-      readonly maxHeight?: number
-    },
-  ): Mounted
-}
+type BrowserDomRuntime = Pick<typeof import("./index.js"), "mount">
 
 interface CodeHostState {
   readonly calls: ActionCall[]
@@ -30,6 +20,7 @@ interface CodeHostState {
 declare global {
   interface Window {
     readonly __codeHost: CodeHostState
+    readonly GenuiDom: BrowserDomRuntime
   }
 }
 
@@ -160,7 +151,7 @@ void test("guest startup scripts receive the embedded grant", async (context) =>
   })
 
   await page.evaluate((surfaceValue) => {
-    const runtime = Reflect.get(window, "GenuiDom") as BrowserDomRuntime
+    const runtime = window.GenuiDom
     const root = document.querySelector("#root")
     if (root === null) throw new Error("Missing mount root.")
     runtime.mount(root, surfaceValue, {
@@ -201,7 +192,7 @@ void test("red team: heartbeat monitor pauses while hidden and kills a visible s
       true,
     )
 
-    const runtime = Reflect.get(window, "GenuiDom") as BrowserDomRuntime
+    const runtime = window.GenuiDom
     const root = document.querySelector("#root")
     if (root === null) throw new Error("Missing mount root.")
     const calls: ActionCall[] = []
@@ -252,7 +243,7 @@ void test("red team: self-navigation kills the surface and emits a violation", a
   })
 
   await page.evaluate((surfaceValue) => {
-    const runtime = Reflect.get(window, "GenuiDom") as BrowserDomRuntime
+    const runtime = window.GenuiDom
     const root = document.querySelector("#root")
     if (root === null) throw new Error("Missing mount root.")
     const calls: ActionCall[] = []
@@ -317,7 +308,7 @@ void test("browser snapshot survives a same-surface replacement", async (context
   })
 
   await page.evaluate((surfaceValue) => {
-    const runtime = Reflect.get(window, "GenuiDom") as BrowserDomRuntime
+    const runtime = window.GenuiDom
     const root = document.querySelector("#root")
     if (root === null) throw new Error("Missing mount root.")
     const calls: ActionCall[] = []

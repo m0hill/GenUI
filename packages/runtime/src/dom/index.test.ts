@@ -10,6 +10,7 @@ import {
   diceDescriptor,
   dispatchSandboxMessage,
   flushAsync,
+  isRecord,
   mountedIframe,
   sandboxActionMessage,
   testSurface,
@@ -186,9 +187,7 @@ void test("mount snapshots and restores same-surface replacements", async () => 
   const hostMessages: Array<Readonly<Record<string, unknown>>> = []
   if (iframe.contentWindow === null) throw new Error("Expected an iframe content window.")
   iframe.contentWindow.postMessage = (message: unknown): void => {
-    if (typeof message === "object" && message !== null) {
-      hostMessages.push(message as Readonly<Record<string, unknown>>)
-    }
+    if (isRecord(message)) hostMessages.push(message)
   }
 
   const captured = instance.snapshot()

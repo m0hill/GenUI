@@ -86,6 +86,7 @@ const createHarness = (
 
   return {
     ...harness,
+    // SAFETY: the generated bootstrap installed the pinned guest API in this isolated window.
     genui: genui as unknown as GuestApi,
     interval: {
       get delayMs() {
