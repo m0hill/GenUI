@@ -13,7 +13,7 @@ import {
   type PlaygroundEvent,
 } from "./playground-codecs.js"
 
-export interface EvaluationChecks {
+interface EvaluationChecks {
   readonly mounted: boolean
   readonly noGuestErrors: boolean
   readonly noViolations: boolean
@@ -22,7 +22,7 @@ export interface EvaluationChecks {
   readonly expectedCallsMatched: boolean
 }
 
-export interface FixtureEvaluation {
+interface FixtureEvaluation {
   readonly name: string
   readonly checks: EvaluationChecks
   readonly expectationProvided: boolean
@@ -31,13 +31,13 @@ export interface FixtureEvaluation {
   readonly events: readonly PlaygroundEvent[]
 }
 
-export interface EvaluationReport {
+interface EvaluationReport {
   readonly fixtures: readonly FixtureEvaluation[]
   readonly errors: readonly string[]
   readonly passed: boolean
 }
 
-export interface EvaluateFixturesOptions {
+interface EvaluateFixturesOptions {
   readonly fixturesDirectory: string | URL
   readonly quietMs?: number
   readonly timeoutMs?: number
@@ -47,9 +47,6 @@ interface LoadedExpectation {
   readonly calls?: ReturnType<typeof parseExpectedCalls>
   readonly error?: string
 }
-
-const directoryPath = (directory: string | URL): string =>
-  directory instanceof URL ? fileURLToPath(directory) : resolve(directory)
 
 const loadExpectation = async (htmlPath: string): Promise<LoadedExpectation> => {
   const jsonPath = htmlPath.replace(/\.html$/i, ".json")
@@ -84,14 +81,6 @@ const closeServer = async (server: ServerType): Promise<void> =>
       else rejectClose(error)
     })
   })
-
-const isExecuteRequest = (request: Request): boolean => {
-  try {
-    return request.method() === "POST" && new URL(request.url()).pathname === "/genui/execute"
-  } catch {
-    return false
-  }
-}
 
 const waitForQuiet = async (
   page: Page,
@@ -150,7 +139,9 @@ const evaluatePage = async (
   page.on("dialog", (dialog) => void dialog.accept())
   page.on("pageerror", (error) => pageErrors.push(error.message))
   page.on("request", (request) => {
-    if (isExecuteRequest(request)) pendingExecutions.add(request)
+    if (request.method() === "POST" && new URL(request.url()).pathname === "/genui/execute") {
+      pendingExecutions.add(request)
+    }
   })
   const finishRequest = (request: Request): void => {
     pendingExecutions.delete(request)
@@ -262,7 +253,10 @@ const evaluatePage = async (
 export const evaluateFixtures = async (
   options: EvaluateFixturesOptions,
 ): Promise<EvaluationReport> => {
-  const fixturesDirectory = directoryPath(options.fixturesDirectory)
+  const fixturesDirectory =
+    options.fixturesDirectory instanceof URL
+      ? fileURLToPath(options.fixturesDirectory)
+      : resolve(options.fixturesDirectory)
   const entries = await readdir(fixturesDirectory, { withFileTypes: true })
   const fixtureNames = entries
     .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".html"))
@@ -310,8 +304,6 @@ export const evaluateFixtures = async (
 
 const resultCell = (passed: boolean): string => (passed ? "PASS" : "FAIL")
 
-const tableCell = (value: string): string => value.replaceAll("|", "\\|").replaceAll("\n", " ")
-
 export const formatEvaluationReport = (report: EvaluationReport): string => {
   const lines = [
     "| Fixture | Mounted | Guest errors | Violations | Granted calls | Ungranted denied | Expected calls | Result |",
@@ -319,8 +311,9 @@ export const formatEvaluationReport = (report: EvaluationReport): string => {
   ]
 
   for (const fixture of report.fixtures) {
+    const fixtureName = fixture.name.replaceAll("|", "\\|").replaceAll("\n", " ")
     lines.push(
-      `| ${tableCell(fixture.name)} | ${resultCell(fixture.checks.mounted)} | ${resultCell(fixture.checks.noGuestErrors)} | ${resultCell(fixture.checks.noViolations)} | ${resultCell(fixture.checks.grantedCallsSucceeded)} | ${resultCell(fixture.checks.ungrantedCallsDenied)} | ${fixture.expectationProvided ? resultCell(fixture.checks.expectedCallsMatched) : "N/A"} | ${resultCell(fixture.passed)} |`,
+      `| ${fixtureName} | ${resultCell(fixture.checks.mounted)} | ${resultCell(fixture.checks.noGuestErrors)} | ${resultCell(fixture.checks.noViolations)} | ${resultCell(fixture.checks.grantedCallsSucceeded)} | ${resultCell(fixture.checks.ungrantedCallsDenied)} | ${fixture.expectationProvided ? resultCell(fixture.checks.expectedCallsMatched) : "N/A"} | ${resultCell(fixture.passed)} |`,
     )
   }
 
