@@ -1,10 +1,4 @@
-import {
-  codeDialect,
-  type Action,
-  type ActionCall,
-  type ActionResult,
-  type Surface,
-} from "@genui/protocol"
+import { codeDialect, type Action, type ActionCall, type Surface } from "@genui/protocol"
 import { codeBootstrapScript } from "../code/bootstrap.js"
 import { createHeartbeatTripwire, type HeartbeatTripwire } from "./heartbeat-tripwire.js"
 import { protocolChannel } from "./protocol.js"
@@ -20,7 +14,7 @@ import {
 export type { SurfaceEvent } from "./surface-broker.js"
 
 interface MountOptions {
-  readonly transport: (call: ActionCall, options: TransportOptions) => Promise<ActionResult>
+  readonly transport: (call: ActionCall, options: TransportOptions) => Promise<unknown>
   /** Trusted consent UI using the kernel-rendered canonical action intent. */
   readonly confirm?: (
     action: Action,

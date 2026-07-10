@@ -39,7 +39,7 @@ export interface TransportOptions {
 }
 
 export interface SurfaceBrokerOptions {
-  readonly transport: (call: ActionCall, options: TransportOptions) => Promise<ActionResult>
+  readonly transport: (call: ActionCall, options: TransportOptions) => Promise<unknown>
   readonly confirm?: (
     action: Action,
     call: ActionCall,
