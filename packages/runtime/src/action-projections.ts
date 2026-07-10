@@ -1,4 +1,4 @@
-import type { Action, DroppedAction, Grant, Policy } from "@genui/protocol"
+import type { Action, DroppedAction, Policy } from "@genui/protocol"
 import type { AnyActionDefinition } from "./types.js"
 
 interface ProjectGrantedActionsInput<Ctx> {
@@ -72,6 +72,3 @@ export const projectGrantedActions = <Ctx>({
     dropped,
   }
 }
-
-export const findGrantedAction = (grant: Grant, actionName: string): Action | undefined =>
-  grant.actions.find((action) => action.name === actionName)

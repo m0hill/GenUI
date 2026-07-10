@@ -12,12 +12,7 @@ import {
   type SurfaceInput,
   type SurfaceRecord,
 } from "@genui/protocol"
-import {
-  actionPolicy,
-  findGrantedAction,
-  projectGrantedActions,
-  publicActions,
-} from "./action-projections.js"
+import { actionPolicy, projectGrantedActions, publicActions } from "./action-projections.js"
 import { parseWithSchema } from "./schema.js"
 import { createSurfaceRuntime, type SurfaceRuntime } from "./surface-runtime.js"
 import type {
@@ -155,7 +150,7 @@ export class Genui<Ctx> {
       return actionError("blocked", "Action is blocked.")
     }
 
-    const granted = findGrantedAction(record.surface.grant, call.action)
+    const granted = record.surface.grant.actions.find((action) => action.name === call.action)
     if (granted === undefined || definition === undefined) {
       return actionError("not_granted", "Action is not granted to this surface.")
     }
