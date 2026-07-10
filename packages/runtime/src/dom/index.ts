@@ -2,7 +2,12 @@ import { codeDialect, type Action, type ActionCall, type Surface } from "@genui/
 import { codeBootstrapScript } from "../code/bootstrap.js"
 import { createHeartbeatTripwire, type HeartbeatTripwire } from "./heartbeat-tripwire.js"
 import { protocolChannel } from "./protocol.js"
-import { parseSandboxMessage, type SnapshotSandboxMessage } from "./sandbox-message-schema.js"
+import {
+  parseSandboxMessage,
+  parseSnapshotValue,
+  type SnapshotSandboxMessage,
+  type SnapshotValue,
+} from "./sandbox-message-schema.js"
 import {
   createSurfaceBroker,
   type SurfaceBrokerEffect,
@@ -30,14 +35,6 @@ interface MountOptions {
 
 type ImagePolicy = "none" | "data" | "https" | "https-and-data"
 
-type SnapshotValue =
-  | null
-  | boolean
-  | number
-  | string
-  | readonly SnapshotValue[]
-  | { readonly [key: string]: SnapshotValue }
-
 interface ReplaceOptions {
   readonly snapshot?: SnapshotValue
 }
@@ -64,17 +61,6 @@ const imageSourcePolicy = (policy: ImagePolicy): string => {
   return "'none'"
 }
 
-const normalizeSnapshot = (value: unknown): SnapshotValue | undefined => {
-  if (value === undefined) return undefined
-  try {
-    const encoded = JSON.stringify(value)
-    if (encoded === undefined) throw new TypeError("Snapshot must be JSON-serializable.")
-    return JSON.parse(encoded) as SnapshotValue
-  } catch {
-    throw new TypeError("Snapshot must be JSON-serializable.")
-  }
-}
-
 const surfaceDocument = (
   surface: Surface,
   imagePolicy: ImagePolicy,
@@ -99,7 +85,7 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
   assertSupportedSurface(surface)
   const ownerDocument = element.ownerDocument
   const imagePolicy = options.imagePolicy ?? "none"
-  const initialSnapshot = normalizeSnapshot(options.snapshot)
+  const initialSnapshot = options.snapshot
   const snapshotTimeoutMs =
     typeof options.snapshotTimeoutMs === "number" &&
     Number.isFinite(options.snapshotTimeoutMs) &&
@@ -219,10 +205,7 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
     const pending = pendingSnapshots.get(message.requestId)
     if (pending === undefined) return
     if (message.surfaceId !== pending.surfaceId || message.surfaceId !== broker.surface.id) return
-    finishSnapshotRequest(
-      message.requestId,
-      message.ok ? normalizeSnapshot(message.value) : undefined,
-    )
+    finishSnapshotRequest(message.requestId, message.ok ? message.value : undefined)
   }
 
   const handleMessage = (event: MessageEvent<unknown>): void => {
@@ -293,7 +276,14 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
     },
     replace(nextSurface, replaceOptions = {}) {
       assertSupportedSurface(nextSurface)
-      const explicitSnapshot = normalizeSnapshot(replaceOptions.snapshot)
+      const explicitSnapshot =
+        replaceOptions.snapshot === undefined
+          ? undefined
+          : parseSnapshotValue(replaceOptions.snapshot)
+      if (replaceOptions.snapshot !== undefined && explicitSnapshot === undefined) {
+        throw new TypeError("Snapshot must be JSON-serializable.")
+      }
+      // Copy before queuing so later caller mutation cannot change the replacement.
       const replacement = replacementQueue.then(async () => {
         if (disposed || terminated) return
         const current = broker.surface

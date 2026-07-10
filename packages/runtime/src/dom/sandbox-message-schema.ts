@@ -9,6 +9,14 @@ export interface ActionSandboxMessage extends ActionCall {
   readonly type?: undefined
 }
 
+export type SnapshotValue =
+  | null
+  | boolean
+  | number
+  | string
+  | readonly SnapshotValue[]
+  | { readonly [key: string]: SnapshotValue }
+
 interface HeartbeatSandboxMessage {
   readonly channel: typeof protocolChannel
   readonly type: "heartbeat"
@@ -37,7 +45,7 @@ export type SnapshotSandboxMessage =
       readonly surfaceId: string
       readonly requestId: string
       readonly ok: true
-      readonly value: unknown
+      readonly value: SnapshotValue
     }
   | {
       readonly channel: typeof protocolChannel
@@ -61,6 +69,17 @@ type ParseSandboxMessageResult =
 const maxIdentifierLength = 256
 const maxGuestErrorMessageLength = 2_048
 const maxGuestErrorStackLength = 8_192
+
+export const parseSnapshotValue = (value: unknown): SnapshotValue | undefined => {
+  try {
+    const encoded = JSON.stringify(value)
+    if (encoded === undefined) return undefined
+    // SAFETY: parsing JSON.stringify output can produce only recursive JSON values.
+    return JSON.parse(encoded) as SnapshotValue
+  } catch {
+    return undefined
+  }
+}
 
 const boundedString = (value: unknown, maxLength: number): string | undefined =>
   typeof value === "string" && value.length <= maxLength ? value : undefined
@@ -130,21 +149,17 @@ const parseSnapshotMessage = (
     return { channel: protocolChannel, type: "snapshot", surfaceId, requestId, ok: false }
   }
   if (value.ok !== true || !Object.prototype.hasOwnProperty.call(value, "value")) return undefined
-
-  try {
-    const encoded = JSON.stringify(value.value)
-    if (encoded === undefined) return undefined
-    return {
-      channel: protocolChannel,
-      type: "snapshot",
-      surfaceId,
-      requestId,
-      ok: true,
-      value: JSON.parse(encoded),
-    }
-  } catch {
-    return undefined
-  }
+  const snapshot = parseSnapshotValue(value.value)
+  return snapshot === undefined
+    ? undefined
+    : {
+        channel: protocolChannel,
+        type: "snapshot",
+        surfaceId,
+        requestId,
+        ok: true,
+        value: snapshot,
+      }
 }
 
 export const parseSandboxMessage = (value: unknown): ParseSandboxMessageResult => {
