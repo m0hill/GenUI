@@ -88,8 +88,9 @@ the action name, and input. It resolves to the successful action output. It
 rejects with `GenuiActionError { code, message }` for an action error.
 
 Results correlate by `callId`. Unknown and duplicate result messages are
-ignored. The guest action list is descriptive; mutating it cannot change the
-host or kernel grant.
+ignored. Result and snapshot-request messages are accepted only from the
+iframe's parent window with the matching channel and surface ID. The guest
+action list is descriptive; mutating it cannot change the host or kernel grant.
 
 `genui.snapshot(fn)` registers one state provider. The host calls the provider
 without arguments to capture JSON-serializable state. When a replacement

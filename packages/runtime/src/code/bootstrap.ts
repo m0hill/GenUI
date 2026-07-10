@@ -87,6 +87,7 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
   }
 
   window.addEventListener("message", (event) => {
+    if (event.source !== window.parent) return
     const message = event.data
     if (typeof message !== "object" || message === null) return
     if (message.channel !== channel || message.surfaceId !== surfaceId) return

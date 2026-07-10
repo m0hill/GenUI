@@ -24,6 +24,26 @@ interface HarnessOptions {
   readonly restore?: unknown
 }
 
+type SandboxWindow = ReturnType<typeof createSandboxWindow>["window"]
+
+const dispatchInboundMessage = (
+  window: SandboxWindow,
+  data: unknown,
+  source: "parent" | "forged" = "parent",
+): void => {
+  const dataKey = "__genuiTestInboundMessage"
+  const sourceExpression = source === "parent" ? "window.parent" : "null"
+  Reflect.set(window, dataKey, data)
+  try {
+    window.eval(`window.dispatchEvent(new MessageEvent("message", {
+      data: window.${dataKey},
+      source: ${sourceExpression}
+    }))`)
+  } finally {
+    Reflect.deleteProperty(window, dataKey)
+  }
+}
+
 const createHarness = (
   options: HarnessOptions = {},
 ): ReturnType<typeof createSandboxWindow> & { readonly genui: GuestApi } => {
@@ -80,17 +100,13 @@ void test("red team: unknown, replayed, and duplicate results are ignored", asyn
     input: { status: "open" },
   })
 
-  window.dispatchEvent(
-    new window.MessageEvent("message", {
-      data: {
-        channel,
-        type: "result",
-        surfaceId,
-        callId: "unknown-call",
-        result: { ok: true, value: "wrong" },
-      },
-    }),
-  )
+  dispatchInboundMessage(window, {
+    channel,
+    type: "result",
+    surfaceId,
+    callId: "unknown-call",
+    result: { ok: true, value: "wrong" },
+  })
   await Promise.resolve()
   assert.equal(settled, false)
 
@@ -101,7 +117,7 @@ void test("red team: unknown, replayed, and duplicate results are ignored", asyn
     callId: call.callId,
     result: { ok: true, value: [{ id: "order-1" }] },
   }
-  window.dispatchEvent(new window.MessageEvent("message", { data: response }))
+  dispatchInboundMessage(window, response)
   assert.deepEqual(jsonRoundTrip(await result), [{ id: "order-1" }])
 
   let secondSettled = false
@@ -115,21 +131,17 @@ void test("red team: unknown, replayed, and duplicate results are ignored", asyn
   const secondCall = calls[1]
   assert.ok(isRecord(secondCall))
 
-  window.dispatchEvent(new window.MessageEvent("message", { data: response }))
+  dispatchInboundMessage(window, response)
   await Promise.resolve()
   assert.equal(secondSettled, false)
 
-  window.dispatchEvent(
-    new window.MessageEvent("message", {
-      data: {
-        channel,
-        type: "result",
-        surfaceId,
-        callId: secondCall.callId,
-        result: { ok: true, value: [{ id: "order-2" }] },
-      },
-    }),
-  )
+  dispatchInboundMessage(window, {
+    channel,
+    type: "result",
+    surfaceId,
+    callId: secondCall.callId,
+    result: { ok: true, value: [{ id: "order-2" }] },
+  })
   assert.deepEqual(jsonRoundTrip(await secondResult), [{ id: "order-2" }])
 })
 
@@ -139,20 +151,16 @@ void test("code bootstrap rejects failed calls with GenuiActionError", async () 
   const call = messages.find((message) => isRecord(message) && typeof message.callId === "string")
   assert.ok(isRecord(call))
 
-  window.dispatchEvent(
-    new window.MessageEvent("message", {
-      data: {
-        channel,
-        type: "result",
-        surfaceId,
-        callId: call.callId,
-        result: {
-          ok: false,
-          error: { code: "approval_denied", message: "Action was denied." },
-        },
-      },
-    }),
-  )
+  dispatchInboundMessage(window, {
+    channel,
+    type: "result",
+    surfaceId,
+    callId: call.callId,
+    result: {
+      ok: false,
+      error: { code: "approval_denied", message: "Action was denied." },
+    },
+  })
 
   await assert.rejects(result, (error: unknown) => {
     assert.ok(isRecord(error))
@@ -210,11 +218,12 @@ void test("code bootstrap restores and captures registered guest state", async (
   assert.deepEqual(state, { count: 2 })
 
   state = { count: 3 }
-  window.dispatchEvent(
-    new window.MessageEvent("message", {
-      data: { channel, type: "snapshot_request", surfaceId, requestId: "snapshot-1" },
-    }),
-  )
+  dispatchInboundMessage(window, {
+    channel,
+    type: "snapshot_request",
+    surfaceId,
+    requestId: "snapshot-1",
+  })
   await flushAsync()
 
   assert.deepEqual(
@@ -235,11 +244,12 @@ void test("code bootstrap reports snapshot provider failures", async () => {
   genui.snapshot(() => {
     throw new Error("Snapshot failed")
   })
-  window.dispatchEvent(
-    new window.MessageEvent("message", {
-      data: { channel, type: "snapshot_request", surfaceId, requestId: "snapshot-failed" },
-    }),
-  )
+  dispatchInboundMessage(window, {
+    channel,
+    type: "snapshot_request",
+    surfaceId,
+    requestId: "snapshot-failed",
+  })
   await flushAsync()
 
   const guestError = messages.find((message) => isRecord(message) && message.type === "guest_error")
@@ -256,4 +266,29 @@ void test("code bootstrap reports snapshot provider failures", async () => {
       ok: false,
     },
   )
+})
+
+void test("red team: code bootstrap ignores messages not sent by its parent", async () => {
+  const { genui, messages, window } = createHarness()
+  let settled = false
+  const result = genui.call("orders.search", {}).then((value) => {
+    settled = true
+    return value
+  })
+  const call = messages.find((message) => isRecord(message) && typeof message.callId === "string")
+  assert.ok(isRecord(call))
+  const response = {
+    channel,
+    type: "result",
+    surfaceId,
+    callId: call.callId,
+    result: { ok: true, value: "trusted" },
+  }
+
+  dispatchInboundMessage(window, response, "forged")
+  await Promise.resolve()
+  assert.equal(settled, false)
+
+  dispatchInboundMessage(window, response)
+  assert.equal(await result, "trusted")
 })
