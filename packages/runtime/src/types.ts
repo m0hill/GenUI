@@ -8,6 +8,7 @@ import type {
   Policy,
   SurfaceRecord,
 } from "@genui/protocol"
+import type { StandardSchemaV1 } from "./schema.js"
 
 export {
   actionError,
@@ -35,52 +36,6 @@ export type {
   SurfaceProjectionDiagnostics,
   SurfaceRecord,
 } from "@genui/protocol"
-
-/** Minimal Standard Schema issue shape used by the runtime boundary parser. */
-export interface StandardSchemaIssue {
-  readonly message: string
-  readonly path?: ReadonlyArray<PropertyKey | StandardSchemaPathSegment> | undefined
-}
-
-/** Minimal Standard Schema path segment shape. */
-export interface StandardSchemaPathSegment {
-  readonly key: PropertyKey
-}
-
-/** Minimal Standard Schema options shape. */
-export interface StandardSchemaV1Options {
-  readonly libraryOptions?: Readonly<Record<string, unknown>> | undefined
-}
-
-/** Minimal Standard Schema v1 parse result shape. */
-export type StandardSchemaResult<Output> =
-  | { readonly value: Output; readonly issues?: undefined }
-  | { readonly issues: readonly StandardSchemaIssue[] }
-
-/** Minimal Standard Schema type metadata shape. */
-export interface StandardSchemaTypes<Input = unknown, Output = Input> {
-  readonly input: Input
-  readonly output: Output
-}
-
-/** Minimal Standard Typed v1 interface accepted by Standard Schema. */
-export interface StandardTypedV1<Input = unknown, Output = Input> {
-  readonly "~standard": {
-    readonly version: 1
-    readonly vendor: string
-    readonly types?: StandardSchemaTypes<Input, Output> | undefined
-  }
-}
-
-/** Minimal Standard Schema v1 interface accepted by action definitions. */
-export interface StandardSchemaV1<Input = unknown, Output = Input> {
-  readonly "~standard": StandardTypedV1<Input, Output>["~standard"] & {
-    readonly validate: (
-      value: unknown,
-      options?: StandardSchemaV1Options,
-    ) => StandardSchemaResult<Output> | Promise<StandardSchemaResult<Output>>
-  }
-}
 
 /** App-owned unit of authority that generated UI may request but never execute directly. */
 export interface ActionDefinition<Ctx, Input = unknown, Output = unknown> {
