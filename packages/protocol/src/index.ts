@@ -6,9 +6,6 @@ const actionNamePattern = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$/i
 /** Return whether a string is a valid wire-level action name. */
 export const isValidActionName = (name: string): boolean => actionNamePattern.test(name)
 
-/** Versioned generated UI interaction dialect identifier. */
-export type Dialect = string
-
 /** Value that may be returned synchronously or asynchronously by host adapters. */
 export type MaybePromise<Value> = Value | Promise<Value>
 
@@ -77,7 +74,7 @@ export interface Surface {
   /** Dialect-defined surface content. */
   readonly content: string
   readonly grant: Grant
-  readonly dialect: Dialect
+  readonly dialect: string
   readonly meta?: Readonly<Record<string, unknown>>
 }
 
@@ -122,7 +119,7 @@ export const actionError = (code: ActionErrorCode, message: string): ActionResul
 /** Input accepted by a registry when creating a dialect-projected surface. */
 export interface SurfaceInput {
   /** Defaults to code/0. */
-  readonly dialect?: Dialect
+  readonly dialect?: string
   /** Dialect-defined source content. */
   readonly content: string
   readonly actions: readonly string[]
@@ -133,13 +130,10 @@ export interface SurfaceInput {
   readonly meta?: Readonly<Record<string, unknown>>
 }
 
-/** Reason a requested action did not become part of a surface grant. */
-export type DroppedActionReason = "duplicate" | "unknown" | "blocked" | "confidential"
-
 /** One requested action name that was omitted while projecting a surface grant. */
 export interface DroppedAction {
   readonly name: string
-  readonly reason: DroppedActionReason
+  readonly reason: "duplicate" | "unknown" | "blocked" | "confidential"
 }
 
 /** Grant projection details for a generated surface. */
