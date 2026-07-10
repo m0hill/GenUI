@@ -6,11 +6,7 @@ import { serve, type ServerType } from "@hono/node-server"
 import { chromium, type Browser, type Page, type Request } from "playwright"
 import { app, resetPlaygroundState } from "./app.js"
 import { resetDemoOrders } from "./actions.js"
-
-interface ExpectedCall {
-  readonly action: string
-  readonly input: unknown
-}
+import { parseExpectedCalls, parseRecord } from "./playground-codecs.js"
 
 export interface EvaluationChecks {
   readonly mounted: boolean
@@ -43,7 +39,7 @@ export interface EvaluateFixturesOptions {
 }
 
 interface LoadedExpectation {
-  readonly calls?: readonly ExpectedCall[]
+  readonly calls?: ReturnType<typeof parseExpectedCalls>
   readonly error?: string
 }
 
@@ -74,54 +70,47 @@ interface GuestErrorEvent {
   readonly message: string
 }
 
-const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
-
 const hasOwn = (value: Readonly<Record<string, unknown>>, key: string): boolean =>
   Object.prototype.hasOwnProperty.call(value, key)
 
-const isCallEvent = (value: unknown): value is CallEvent =>
-  isRecord(value) &&
-  value.type === "call" &&
-  isRecord(value.call) &&
-  typeof value.call.callId === "string" &&
-  typeof value.call.action === "string" &&
-  hasOwn(value.call, "input")
+const isCallEvent = (value: unknown): value is CallEvent => {
+  const event = parseRecord(value)
+  const call = parseRecord(event?.call)
+  return (
+    event?.type === "call" &&
+    call !== undefined &&
+    typeof call.callId === "string" &&
+    typeof call.action === "string" &&
+    hasOwn(call, "input")
+  )
+}
 
-const isResultEvent = (value: unknown): value is ResultEvent =>
-  isRecord(value) &&
-  value.type === "result" &&
-  typeof value.callId === "string" &&
-  typeof value.action === "string" &&
-  isRecord(value.result)
+const isResultEvent = (value: unknown): value is ResultEvent => {
+  const event = parseRecord(value)
+  return (
+    event?.type === "result" &&
+    typeof event.callId === "string" &&
+    typeof event.action === "string" &&
+    parseRecord(event.result) !== undefined
+  )
+}
 
-const isViolationEvent = (value: unknown): value is ViolationEvent =>
-  isRecord(value) &&
-  value.type === "violation" &&
-  typeof value.reason === "string" &&
-  (value.detail === undefined || typeof value.detail === "string")
+const isViolationEvent = (value: unknown): value is ViolationEvent => {
+  const event = parseRecord(value)
+  return (
+    event?.type === "violation" &&
+    typeof event.reason === "string" &&
+    (event.detail === undefined || typeof event.detail === "string")
+  )
+}
 
-const isGuestErrorEvent = (value: unknown): value is GuestErrorEvent =>
-  isRecord(value) && value.type === "guest_error" && typeof value.message === "string"
+const isGuestErrorEvent = (value: unknown): value is GuestErrorEvent => {
+  const event = parseRecord(value)
+  return event?.type === "guest_error" && typeof event.message === "string"
+}
 
 const directoryPath = (directory: string | URL): string =>
   directory instanceof URL ? fileURLToPath(directory) : resolve(directory)
-
-const parseExpectedCalls = (value: unknown): readonly ExpectedCall[] => {
-  if (!Array.isArray(value)) throw new Error("Expected calls must be a JSON array.")
-
-  return value.map((item, index) => {
-    if (
-      !isRecord(item) ||
-      Object.keys(item).length !== 2 ||
-      typeof item.action !== "string" ||
-      !hasOwn(item, "input")
-    ) {
-      throw new Error(`Expected call ${index + 1} must contain only action and input.`)
-    }
-    return { action: item.action, input: item.input }
-  })
-}
 
 const loadExpectation = async (htmlPath: string): Promise<LoadedExpectation> => {
   const jsonPath = htmlPath.replace(/\.html$/i, ".json")
@@ -129,7 +118,7 @@ const loadExpectation = async (htmlPath: string): Promise<LoadedExpectation> => 
   try {
     source = await readFile(jsonPath, "utf8")
   } catch (error) {
-    if (isRecord(error) && error.code === "ENOENT") return {}
+    if (parseRecord(error)?.code === "ENOENT") return {}
     return { error: `Could not read ${basename(jsonPath)}.` }
   }
 
@@ -197,9 +186,7 @@ const readEvents = async (page: Page): Promise<readonly unknown[]> => {
 const resultSucceeded = (event: ResultEvent | undefined): boolean => event?.result.ok === true
 
 const resultDenied = (event: ResultEvent): boolean =>
-  event.result.ok === false &&
-  isRecord(event.result.error) &&
-  event.result.error.code === "not_granted"
+  event.result.ok === false && parseRecord(event.result.error)?.code === "not_granted"
 
 const evaluatePage = async (
   browser: Browser,

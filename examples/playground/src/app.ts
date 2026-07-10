@@ -1,13 +1,15 @@
 import { readFile } from "node:fs/promises"
 import { codeDialect, Genui, type CallAuditEntry } from "@genui/genui"
-import { actionError, parseActionCall } from "@genui/protocol"
+import { actionError } from "@genui/protocol"
 import { Hono } from "hono"
 import { demoActionNames, demoActions } from "./actions.js"
-import type { ExecuteEnvelope } from "./execute-envelope.js"
 import { createPendingApprovals } from "./pending-approvals.js"
-
-const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
+import {
+  parseApprovalRequest,
+  parseExecuteRequest,
+  parseSurfaceRequest,
+  type ExecuteEnvelope,
+} from "./playground-codecs.js"
 
 const requestJson = async (request: Request): Promise<unknown> => {
   try {
@@ -87,14 +89,14 @@ app.post("/genui/surface", async (context) => {
   if (subject === undefined) {
     return context.json(actionError("not_granted", "Playground session is required."), 401)
   }
-  const body = await requestJson(context.req.raw)
-  if (!isRecord(body) || typeof body.content !== "string") {
+  const request = parseSurfaceRequest(await requestJson(context.req.raw))
+  if (request === undefined) {
     return context.json(actionError("invalid_input", "Surface content must be a string."), 400)
   }
 
   const surface = await genui.surface({
     dialect: codeDialect,
-    content: body.content,
+    content: request.content,
     actions: demoActionNames,
     subject,
   })
@@ -112,9 +114,8 @@ app.post("/genui/execute", async (context) => {
       401,
     )
   }
-  const body = await requestJson(context.req.raw)
-  const call = isRecord(body) ? parseActionCall(body.call) : undefined
-  if (call === undefined) {
+  const request = parseExecuteRequest(await requestJson(context.req.raw))
+  if (request === undefined) {
     return context.json(
       {
         result: actionError("invalid_input", "Malformed action call."),
@@ -123,6 +124,7 @@ app.post("/genui/execute", async (context) => {
       400,
     )
   }
+  const { call } = request
 
   const result = await genui.execute(
     call,
@@ -150,14 +152,14 @@ app.post("/genui/approve", async (context) => {
   if (subject === undefined) {
     return context.json(actionError("not_granted", "Playground session is required."), 401)
   }
-  const body = await requestJson(context.req.raw)
-  if (!isRecord(body) || typeof body.surfaceId !== "string" || typeof body.callId !== "string") {
+  const request = parseApprovalRequest(await requestJson(context.req.raw))
+  if (request === undefined) {
     return context.json(actionError("invalid_input", "Malformed approval request."), 400)
   }
 
   const approved = pendingApprovals.approve({
-    surfaceId: body.surfaceId,
-    callId: body.callId,
+    surfaceId: request.surfaceId,
+    callId: request.callId,
     subject,
   })
   if (approved === undefined) {

@@ -1,4 +1,5 @@
 import { action } from "@genui/genui"
+import { parseRecord } from "./playground-codecs.js"
 
 export type OrderStatus = "pending" | "processing" | "shipped"
 
@@ -36,9 +37,6 @@ export const resetDemoOrders = (): void => {
 
 resetDemoOrders()
 
-const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
-
 const hasOnlyKeys = (
   value: Readonly<Record<string, unknown>>,
   allowed: readonly string[],
@@ -63,61 +61,67 @@ const orderStatus = (value: unknown): OrderStatus | undefined =>
   value === "pending" || value === "processing" || value === "shipped" ? value : undefined
 
 const searchInput = standardSchema<SearchInput>((value) => {
-  if (!isRecord(value) || !hasOnlyKeys(value, ["query", "status"])) return undefined
-  const query = value.query === undefined ? "" : value.query
+  const record = parseRecord(value)
+  if (record === undefined || !hasOnlyKeys(record, ["query", "status"])) return undefined
+  const query = record.query === undefined ? "" : record.query
   if (typeof query !== "string") return undefined
-  if (value.status === undefined) return { query: query.trim() }
-  const status = orderStatus(value.status)
+  if (record.status === undefined) return { query: query.trim() }
+  const status = orderStatus(record.status)
   return status === undefined ? undefined : { query: query.trim(), status }
 })
 
-const orderIdInput = standardSchema<OrderIdInput>((value) =>
-  isRecord(value) &&
-  hasOnlyKeys(value, ["id"]) &&
-  typeof value.id === "string" &&
-  value.id.length > 0
-    ? { id: value.id }
-    : undefined,
-)
-
-const updateStatusInput = standardSchema<UpdateStatusInput>((value) => {
-  if (
-    !isRecord(value) ||
-    !hasOnlyKeys(value, ["id", "status"]) ||
-    typeof value.id !== "string" ||
-    value.id.length === 0
-  ) {
-    return undefined
-  }
-  const status = orderStatus(value.status)
-  return status === undefined ? undefined : { id: value.id, status }
+const orderIdInput = standardSchema<OrderIdInput>((value) => {
+  const record = parseRecord(value)
+  return record !== undefined &&
+    hasOnlyKeys(record, ["id"]) &&
+    typeof record.id === "string" &&
+    record.id.length > 0
+    ? { id: record.id }
+    : undefined
 })
 
-const emptyInput = standardSchema<Readonly<Record<string, never>>>((value) =>
-  isRecord(value) && Object.keys(value).length === 0 ? {} : undefined,
-)
-
-const parseOrderOutput = (value: unknown): Order | undefined => {
+const updateStatusInput = standardSchema<UpdateStatusInput>((value) => {
+  const record = parseRecord(value)
   if (
-    !isRecord(value) ||
-    typeof value.id !== "string" ||
-    typeof value.customer !== "string" ||
-    typeof value.total !== "number"
+    record === undefined ||
+    !hasOnlyKeys(record, ["id", "status"]) ||
+    typeof record.id !== "string" ||
+    record.id.length === 0
   ) {
     return undefined
   }
-  const status = orderStatus(value.status)
+  const status = orderStatus(record.status)
+  return status === undefined ? undefined : { id: record.id, status }
+})
+
+const emptyInput = standardSchema<Readonly<Record<string, never>>>((value) => {
+  const record = parseRecord(value)
+  return record !== undefined && Object.keys(record).length === 0 ? {} : undefined
+})
+
+const parseOrderOutput = (value: unknown): Order | undefined => {
+  const record = parseRecord(value)
+  if (
+    record === undefined ||
+    typeof record.id !== "string" ||
+    typeof record.customer !== "string" ||
+    typeof record.total !== "number"
+  ) {
+    return undefined
+  }
+  const status = orderStatus(record.status)
   return status === undefined
     ? undefined
-    : { id: value.id, customer: value.customer, status, total: value.total }
+    : { id: record.id, customer: record.customer, status, total: record.total }
 }
 
 const orderOutput = standardSchema(parseOrderOutput)
 
 const ordersOutput = standardSchema<{ readonly orders: readonly Order[] }>((value) => {
-  if (!isRecord(value) || !Array.isArray(value.orders)) return undefined
+  const record = parseRecord(value)
+  if (record === undefined || !Array.isArray(record.orders)) return undefined
   const parsed: Order[] = []
-  for (const valueOrder of value.orders) {
+  for (const valueOrder of record.orders) {
     const order = parseOrderOutput(valueOrder)
     if (order === undefined) return undefined
     parsed.push(order)

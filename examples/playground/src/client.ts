@@ -1,8 +1,8 @@
 import type { CallAuditEntry } from "@genui/genui"
 import { mount, type Mounted, type SurfaceEvent } from "@genui/genui/dom"
 import { actionError, parseSurface } from "@genui/protocol"
-import { parseExecuteEnvelope } from "./execute-envelope.js"
 import { guestErrorFixture, ordersDashboardFixture } from "./fixtures.js"
+import { parseExecuteEnvelope } from "./playground-codecs.js"
 
 const requiredElement = <ElementType extends Element>(selector: string): ElementType => {
   const element = document.querySelector(selector)

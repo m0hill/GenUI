@@ -9,7 +9,7 @@ import {
 } from "@genui/protocol"
 import { app, resetPlaygroundState } from "./app.js"
 import { resetDemoOrders } from "./actions.js"
-import { parseExecuteEnvelope } from "./execute-envelope.js"
+import { parseExecuteEnvelope } from "./playground-codecs.js"
 
 const sessionCookie = (subject: string): string => `genui_session=${subject}`
 const defaultCookie = sessionCookie("session-test")

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { parseExecuteEnvelope } from "./execute-envelope.js"
+import { parseExecuteEnvelope } from "./playground-codecs.js"
 
 void test("execute envelope parses action results and audit entries", () => {
   const value = {

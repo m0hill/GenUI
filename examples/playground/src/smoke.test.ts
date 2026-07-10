@@ -5,13 +5,21 @@ import { chromium, type Browser } from "playwright"
 import { app } from "./app.js"
 import { resetDemoOrders } from "./actions.js"
 import { ordersDashboardFixture } from "./fixtures.js"
+import { parseApprovalRequest, parseExecuteRequest } from "./playground-codecs.js"
 
 let browser: Browser | undefined
 let origin = ""
 let server: ServerType | undefined
 
-const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
+type ApprovalRoundTripRequest =
+  | {
+      readonly path: "/genui/execute"
+      readonly body: NonNullable<ReturnType<typeof parseExecuteRequest>>
+    }
+  | {
+      readonly path: "/genui/approve"
+      readonly body: NonNullable<ReturnType<typeof parseApprovalRequest>>
+    }
 
 before(async () => {
   resetDemoOrders()
@@ -53,15 +61,20 @@ void test("playground drives paste, mount, action, approval, and guest-error flo
   await frame.locator('#orders-rows [data-order-id="ord-1001"]').waitFor()
   assert.equal(await frame.locator("#orders-rows tr").count(), 3)
 
-  const approvalRequests: Array<{ readonly path: string; readonly body: unknown }> = []
+  const approvalRoundTrip: ApprovalRoundTripRequest[] = []
   page.on("request", (request) => {
     if (request.method() !== "POST") return
     const path = new URL(request.url()).pathname
-    if (path !== "/genui/execute" && path !== "/genui/approve") return
-    approvalRequests.push({
-      path,
-      body: JSON.parse(request.postData() ?? "null") as unknown,
-    })
+    const value: unknown = JSON.parse(request.postData() ?? "null")
+    if (path === "/genui/execute") {
+      const body = parseExecuteRequest(value)
+      if (body?.call.action === "orders.update_status") {
+        approvalRoundTrip.push({ path, body })
+      }
+    } else if (path === "/genui/approve") {
+      const body = parseApprovalRequest(value)
+      if (body !== undefined) approvalRoundTrip.push({ path, body })
+    }
   })
   await frame.locator('[data-order-id="ord-1001"] select[data-status]').selectOption("shipped")
   const approvalDialog = new Promise<string>((resolve) => {
@@ -80,28 +93,21 @@ void test("playground drives paste, mount, action, approval, and guest-error flo
     "shipped",
   )
 
-  const approvalRoundTrip = approvalRequests.filter(
-    (request) =>
-      request.path === "/genui/approve" ||
-      (isRecord(request.body) &&
-        isRecord(request.body.call) &&
-        request.body.call.action === "orders.update_status"),
-  )
   assert.deepEqual(
     approvalRoundTrip.map((request) => request.path),
     ["/genui/execute", "/genui/approve", "/genui/execute"],
   )
-  const firstExecute = approvalRoundTrip[0]?.body
-  const approve = approvalRoundTrip[1]?.body
-  const secondExecute = approvalRoundTrip[2]?.body
-  assert.ok(isRecord(firstExecute) && isRecord(firstExecute.call))
-  assert.ok(isRecord(approve))
-  assert.ok(isRecord(secondExecute) && isRecord(secondExecute.call))
-  assert.equal(firstExecute.approved, undefined)
-  assert.equal(secondExecute.approved, undefined)
-  assert.equal(firstExecute.call.callId, secondExecute.call.callId)
-  assert.equal(approve.surfaceId, firstExecute.call.surfaceId)
-  assert.equal(approve.callId, firstExecute.call.callId)
+  const firstExecute = approvalRoundTrip[0]
+  const approve = approvalRoundTrip[1]
+  const secondExecute = approvalRoundTrip[2]
+  assert.ok(firstExecute?.path === "/genui/execute")
+  assert.ok(approve?.path === "/genui/approve")
+  assert.ok(secondExecute?.path === "/genui/execute")
+  assert.equal(firstExecute.body.hasApprovedField, false)
+  assert.equal(secondExecute.body.hasApprovedField, false)
+  assert.equal(firstExecute.body.call.callId, secondExecute.body.call.callId)
+  assert.equal(approve.body.surfaceId, firstExecute.body.call.surfaceId)
+  assert.equal(approve.body.callId, firstExecute.body.call.callId)
 
   const eventLog = page.locator("#event-log")
   const eventText = await eventLog.textContent()
