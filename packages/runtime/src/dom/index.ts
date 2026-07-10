@@ -86,7 +86,7 @@ const surfaceDocument = (
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src ${imageSourcePolicy(imagePolicy)}; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 </head>
-<body><script>${codeBootstrapScript({ channel: protocolChannel, surfaceId: surface.id, ...(restore === undefined ? {} : { restore }) })}</script>${surface.content}</body>
+<body><script>${codeBootstrapScript({ channel: protocolChannel, surfaceId: surface.id, actions: surface.grant.actions, ...(restore === undefined ? {} : { restore }) })}</script>${surface.content}</body>
 </html>`
 
 const assertSupportedSurface = (surface: Surface): void => {
@@ -207,24 +207,10 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
     applyTask(broker.handleSandboxMessage(event.data))
   }
 
-  const postGrant = (): void => {
-    const current = broker.surface
-    iframe.contentWindow?.postMessage(
-      {
-        channel: protocolChannel,
-        type: "grant",
-        surfaceId: current.id,
-        actions: current.grant.actions,
-      },
-      "*",
-    )
-  }
-
   const handleLoad = (): void => {
     if (disposed || terminated) return
     if (expectedDocumentLoads > 0) {
       expectedDocumentLoads -= 1
-      postGrant()
       return
     }
 

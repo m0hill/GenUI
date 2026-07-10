@@ -78,9 +78,10 @@ genui.snapshot(fn)
 ```
 
 `genui.surfaceId` is the current surface ID. `genui.actions` is the grant
-snapshot posted by the trusted host. Each descriptor contains `name`,
-`description`, `effect`, `requiresApproval`, and optional `intent` and
-`inputSchema` fields.
+snapshot embedded by the trusted host before generated content. It is
+available to top-level guest scripts without waiting for an event. Each
+descriptor contains `name`, `description`, `effect`, `requiresApproval`, and
+optional `intent` and `inputSchema` fields.
 
 `genui.call(name, input)` posts a call carrying `surfaceId`, a unique `callId`,
 the action name, and input. It resolves to the successful action output. It

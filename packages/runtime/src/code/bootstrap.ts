@@ -1,6 +1,9 @@
+import type { Action } from "../types.js"
+
 export interface CodeBootstrapOptions {
   readonly channel: string
   readonly surfaceId: string
+  readonly actions: readonly Action[]
   readonly restore?: unknown
 }
 
@@ -12,8 +15,7 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
   "use strict"
 
   const config = ${config}
-  const { channel, surfaceId } = config
-  const actions = []
+  const { actions, channel, surfaceId } = config
   const pending = new Map()
   let nextCallId = 0
   let snapshotProvider
@@ -88,11 +90,6 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
     const message = event.data
     if (typeof message !== "object" || message === null) return
     if (message.channel !== channel || message.surfaceId !== surfaceId) return
-
-    if (message.type === "grant" && Array.isArray(message.actions)) {
-      actions.splice(0, actions.length, ...message.actions)
-      return
-    }
 
     if (message.type === "snapshot_request" && typeof message.requestId === "string") {
       if (snapshotProvider === undefined) {

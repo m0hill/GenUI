@@ -6,6 +6,7 @@ import {
   isRecord,
   jsonRoundTrip,
 } from "../dom/test-support.test-support.js"
+import type { Action } from "../types.js"
 import { codeBootstrapScript } from "./bootstrap.js"
 
 const channel = "genui/dom/0"
@@ -18,15 +19,21 @@ interface GuestApi {
   snapshot(provider: (restored?: unknown) => unknown): void
 }
 
+interface HarnessOptions {
+  readonly actions?: readonly Action[]
+  readonly restore?: unknown
+}
+
 const createHarness = (
-  restore?: unknown,
+  options: HarnessOptions = {},
 ): ReturnType<typeof createSandboxWindow> & { readonly genui: GuestApi } => {
   const harness = createSandboxWindow("")
   harness.window.eval(
     codeBootstrapScript({
       channel,
       surfaceId,
-      ...(restore === undefined ? {} : { restore }),
+      actions: options.actions ?? [],
+      ...(options.restore === undefined ? {} : { restore: options.restore }),
     }),
   )
   const genui = Reflect.get(harness.window, "genui")
@@ -37,8 +44,7 @@ const createHarness = (
   return { ...harness, genui: genui as unknown as GuestApi }
 }
 
-void test("code bootstrap installs the pinned API and accepts a grant handshake", () => {
-  const { genui, window } = createHarness()
+void test("code bootstrap installs the pinned API with its embedded grant", () => {
   const actions = [
     {
       name: "orders.search",
@@ -50,17 +56,10 @@ void test("code bootstrap installs the pinned API and accepts a grant handshake"
         properties: { status: { type: "string" } },
       },
     },
-  ]
+  ] satisfies readonly Action[]
+  const { genui } = createHarness({ actions })
 
   assert.equal(genui.surfaceId, surfaceId)
-  assert.deepEqual(jsonRoundTrip(genui.actions), [])
-
-  window.dispatchEvent(
-    new window.MessageEvent("message", {
-      data: { channel, type: "grant", surfaceId, actions },
-    }),
-  )
-
   assert.deepEqual(jsonRoundTrip(genui.actions), actions)
 })
 
@@ -200,7 +199,7 @@ void test("code bootstrap reports guest errors and unhandled rejections", () => 
 })
 
 void test("code bootstrap restores and captures registered guest state", async () => {
-  const { genui, messages, window } = createHarness({ count: 2 })
+  const { genui, messages, window } = createHarness({ restore: { count: 2 } })
   let state = { count: 0 }
   genui.snapshot((restored) => {
     if (isRecord(restored) && typeof restored.count === "number") {

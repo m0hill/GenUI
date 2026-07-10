@@ -41,7 +41,7 @@ void test("mount renders isolated code with bootstrap before verbatim content", 
   assert.equal(element.querySelector("iframe"), null)
 })
 
-void test("mount sends the grant and kills a self-navigating frame", () => {
+void test("mount embeds the grant and kills a self-navigating frame", () => {
   const { window, element } = createMountTarget()
   const events: SurfaceEvent[] = []
   const surface = testSurface([diceDescriptor], `<p>Safe surface</p>`)
@@ -55,17 +55,10 @@ void test("mount sends the grant and kills a self-navigating frame", () => {
   iframe.contentWindow.postMessage = (message: unknown): void => {
     hostMessages.push(message)
   }
+  assert.match(iframe.srcdoc, /"actions":\[\{"name":"dice\.roll"/)
 
   iframe.dispatchEvent(new window.Event("load"))
-  assert.deepEqual(hostMessages, [
-    {
-      channel: protocolChannel,
-      type: "grant",
-      surfaceId: surface.id,
-      actions: surface.grant.actions,
-    },
-  ])
-
+  assert.deepEqual(hostMessages, [])
   iframe.dispatchEvent(new window.Event("load"))
   assert.equal(element.querySelector("iframe"), null)
   assert.equal(

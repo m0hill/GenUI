@@ -104,6 +104,22 @@ const snapshotSurface: Surface = {
   grant: { surfaceId: "surface-snapshot-browser", actions: [] },
 }
 
+const startupGrantSurface: Surface = {
+  id: "surface-startup-grant-browser",
+  dialect: "code/0",
+  content: `
+    <output id="startup-actions"></output>
+    <script type="module">
+      document.querySelector("#startup-actions").textContent =
+        genui.actions.map((action) => action.name).join(",")
+    </script>
+  `,
+  grant: {
+    surfaceId: "surface-startup-grant-browser",
+    actions: surface.grant.actions,
+  },
+}
+
 const newPage = async (): Promise<Page> => {
   if (browser === undefined) throw new Error("Browser was not initialized.")
   const page = await browser.newPage()
@@ -127,6 +143,27 @@ before(async () => {
 
 after(async () => {
   await browser?.close()
+})
+
+void test("guest startup scripts receive the embedded grant", async (context) => {
+  const page = await newPage()
+  context.after(async () => {
+    await page.close()
+  })
+
+  await page.evaluate((surfaceValue) => {
+    const runtime = Reflect.get(window, "GenuiDom") as BrowserDomRuntime
+    const root = document.querySelector("#root")
+    if (root === null) throw new Error("Missing mount root.")
+    runtime.mount(root, surfaceValue, {
+      transport: async () => ({ ok: true, value: {} }),
+      onEvent: () => undefined,
+    })
+  }, startupGrantSurface)
+
+  const output = page.frameLocator("iframe").locator("#startup-actions")
+  await output.waitFor({ state: "visible" })
+  assert.equal(await output.textContent(), "dice.roll")
 })
 
 void test("red team: self-navigation kills the surface and emits a violation", async (context) => {
