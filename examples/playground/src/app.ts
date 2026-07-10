@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises"
-import { Genui, type CallAuditEntry } from "@genui/genui"
-import { actionError, codeDialect } from "@genui/genui/protocol"
+import { Genui, type CallAuditEntry } from "genui"
+import { actionError, codeDialect } from "genui/protocol"
 import { Hono } from "hono"
 import { demoActions } from "./actions.js"
 import { createPendingApprovals } from "./pending-approvals.js"
@@ -114,8 +114,8 @@ app.post("/genui/execute", async (context) => {
       401,
     )
   }
-  const request = parseExecuteRequest(await requestJson(context.req.raw))
-  if (request === undefined) {
+  const call = parseExecuteRequest(await requestJson(context.req.raw))
+  if (call === undefined) {
     return context.json(
       {
         result: actionError("invalid_input", "Malformed action call."),
@@ -124,7 +124,6 @@ app.post("/genui/execute", async (context) => {
       400,
     )
   }
-  const { call } = request
 
   const result = await genui.execute(
     call,

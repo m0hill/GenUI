@@ -49,7 +49,7 @@ try {
   await mkdir(project)
 
   await run("pnpm", ["build"], root)
-  const runtimeTarball = await packPackage("@genui/genui", packs)
+  const runtimeTarball = await packPackage("genui", packs)
 
   await writeFile(
     join(project, "package.json"),
@@ -59,7 +59,7 @@ try {
         private: true,
         type: "module",
         dependencies: {
-          "@genui/genui": `file:${runtimeTarball}`,
+          genui: `file:${runtimeTarball}`,
         },
       },
       null,
@@ -70,9 +70,9 @@ try {
   await writeFile(
     join(project, "smoke.mjs"),
     `import assert from "node:assert/strict"
-import { Genui, memoryStore } from "@genui/genui"
-import { mount } from "@genui/genui/dom"
-import { codeDialect, parseActionCall, parseSurface } from "@genui/genui/protocol"
+import { Genui, memoryStore } from "genui"
+import { mount } from "genui/dom"
+import { codeDialect, parseActionCall, parseSurface } from "genui/protocol"
 
 assert.equal(typeof Genui, "function")
 assert.equal(typeof memoryStore, "function")
@@ -97,9 +97,9 @@ assert.equal(
 
   await writeFile(
     join(project, "smoke.ts"),
-    `import { Genui, memoryStore } from "@genui/genui"
-import { mount, type Mounted } from "@genui/genui/dom"
-import { parseActionCall, parseSurface, type ActionCall, type Surface } from "@genui/genui/protocol"
+    `import { Genui, memoryStore } from "genui"
+import { mount, type Mounted } from "genui/dom"
+import { parseActionCall, parseSurface, type ActionCall, type Surface } from "genui/protocol"
 
 const genui = new Genui<undefined>({ actions: [], store: memoryStore() })
 const call: ActionCall = {

@@ -1,12 +1,12 @@
-import type { CallAuditEntry } from "@genui/genui"
-import type { SurfaceEvent } from "@genui/genui/dom"
+import type { CallAuditEntry } from "genui"
+import type { SurfaceEvent } from "genui/dom"
 import {
   parseActionCall,
   parseActionResult,
   type ActionCall,
   type ActionResult,
   type SurfaceInput,
-} from "@genui/genui/protocol"
+} from "genui/protocol"
 
 export interface ExecuteEnvelope {
   readonly result: ActionResult
@@ -81,20 +81,10 @@ export const parseSurfaceRequest = (value: unknown): Pick<SurfaceInput, "content
     : undefined
 }
 
-export const parseExecuteRequest = (
-  value: unknown,
-):
-  | {
-      readonly call: ActionCall
-      readonly hasApprovedField: boolean
-    }
-  | undefined => {
+export const parseExecuteRequest = (value: unknown): ActionCall | undefined => {
   const record = parseRecord(value)
   if (record === undefined) return undefined
-  const call = parseActionCall(record.call)
-  return call === undefined
-    ? undefined
-    : { call, hasApprovedField: Object.hasOwn(record, "approved") }
+  return parseActionCall(record.call)
 }
 
 export const parseApprovalRequest = (

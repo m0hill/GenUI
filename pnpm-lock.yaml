@@ -26,12 +26,12 @@ importers:
 
   examples/playground:
     dependencies:
-      '@genui/genui':
-        specifier: workspace:*
-        version: link:../../packages/runtime
       '@hono/node-server':
         specifier: ^2.0.8
         version: 2.0.8(hono@4.12.28)
+      genui:
+        specifier: workspace:*
+        version: link:../../packages/runtime
       hono:
         specifier: ^4.12.28
         version: 4.12.28

@@ -1,5 +1,5 @@
-import { mount, type Mounted } from "@genui/genui/dom"
-import { actionError, parseSurface } from "@genui/genui/protocol"
+import { mount, type Mounted } from "genui/dom"
+import { actionError, parseSurface } from "genui/protocol"
 import { guestErrorFixture, ordersDashboardFixture } from "./fixtures.js"
 import { parseExecuteEnvelope, type PlaygroundEvent } from "./playground-codecs.js"
 

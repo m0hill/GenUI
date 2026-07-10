@@ -17,8 +17,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@genui/genui": "workspace:*",
     "@hono/node-server": "^2.0.8",
+    "genui": "workspace:*",
     "hono": "^4.12.28"
   },
   "devDependencies": {

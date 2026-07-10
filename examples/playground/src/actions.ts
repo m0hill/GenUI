@@ -1,4 +1,4 @@
-import { action } from "@genui/genui"
+import { action } from "genui"
 import { parseRecord } from "./playground-codecs.js"
 
 const orderStatuses = ["pending", "processing", "shipped"] as const

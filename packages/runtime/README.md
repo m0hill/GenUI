@@ -1,9 +1,9 @@
-# @genui/genui
+# genui
 
-`@genui/genui` provides the capability kernel and browser host for generated
+`genui` provides the capability kernel and browser host for generated
 code surfaces.
 
-Import serialized wire types and codecs from `@genui/genui/protocol`.
+Import serialized wire types and codecs from `genui/protocol`.
 
 Define app actions with `action()`. Create one `Genui` instance to project
 per-surface grants, persist authoritative surface records, validate calls,

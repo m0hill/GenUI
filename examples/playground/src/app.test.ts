@@ -6,7 +6,7 @@ import {
   type ActionCall,
   type ActionResult,
   type Surface,
-} from "@genui/genui/protocol"
+} from "genui/protocol"
 import { app, resetPlaygroundState } from "./app.js"
 import { resetDemoOrders } from "./actions.js"
 import { parseExecuteEnvelope } from "./playground-codecs.js"

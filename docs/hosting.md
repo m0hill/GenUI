@@ -44,7 +44,7 @@ Create one `Genui` instance from app-owned actions and a store. The in-memory
 store is suitable for a single-process example.
 
 ```ts
-import { Genui } from "@genui/genui"
+import { Genui } from "genui"
 
 const genui = new Genui({
   actions: [searchOrders, updateOrderStatus],
@@ -69,7 +69,7 @@ Accept generated content as a string. Choose the action names the surface may
 request. The runtime projects the actual grant and stores content verbatim.
 
 ```ts
-import { codeDialect } from "@genui/genui/protocol"
+import { codeDialect } from "genui/protocol"
 
 const surface = await genui.surface({
   dialect: codeDialect,
@@ -109,7 +109,7 @@ Parse the browser boundary with the protocol codec. Pass the call to the same
 `Genui` instance.
 
 ```ts
-import { actionError, parseActionCall } from "@genui/genui/protocol"
+import { actionError, parseActionCall } from "genui/protocol"
 
 const body: unknown = await request.json()
 const call =
@@ -178,19 +178,19 @@ the hook when audit delivery must be guaranteed.
 
 The playground uses an app-specific `{ result, audit }` HTTP envelope to drain
 synchronous audit entries into its event panel. That envelope is not part of
-`@genui/genui/protocol`; hosts may send audit data to any trusted sink.
+`genui/protocol`; hosts may send audit data to any trusted sink.
 
 ## Mount in the browser
 
 Parse server responses before mounting or returning transport results.
 
 ```ts
-import { mount } from "@genui/genui/dom"
+import { mount } from "genui/dom"
 import {
   actionError,
   parseActionResult,
   parseSurface,
-} from "@genui/genui/protocol"
+} from "genui/protocol"
 
 const surface = parseSurface(await surfaceResponse.json())
 if (surface === undefined) throw new Error("Invalid surface response.")

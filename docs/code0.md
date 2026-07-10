@@ -7,7 +7,7 @@ Treat the dialect identifier as the wire version. The current contract is
 `code/0`; npm package versions do not replace it.
 
 ```ts
-import { codeDialect } from "@genui/genui/protocol"
+import { codeDialect } from "genui/protocol"
 
 const surface = await genui.surface({
   dialect: codeDialect,

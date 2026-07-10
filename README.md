@@ -7,15 +7,14 @@ locked sandbox — opaque-origin iframe, no network, no storage. The only door
 out is `genui.call(name, input)`: a typed, granted, policy-checked,
 human-approvable action pipeline enforced host/server-side.
 
-**Read [`ROADMAP.md`](ROADMAP.md) first.** It is the single source of truth
-for the goal, constitution, target architecture, milestones, testing
-philosophy, and working rules.
+See [`docs/`](docs/README.md) for the guides: defining actions, authoring
+sandboxed surfaces, and hosting.
 
 ## Workspace
 
 pnpm workspace:
 
-- `packages/runtime` — `@genui/genui`: dependency-free wire contracts at
+- `packages/runtime` — `genui`: dependency-free wire contracts at
   `./protocol`, the capability kernel, and the DOM sandbox host.
 - `examples/playground` — a credential-free Hono host with paste mode, model
   instructions, working fixtures, and a visible surface-event log.

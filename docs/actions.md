@@ -4,7 +4,7 @@ Define each host action once with `action()`. Use the same schema source for
 runtime validation and model-facing JSON Schema.
 
 ```ts
-import { action } from "@genui/genui"
+import { action } from "genui"
 import { z } from "zod"
 
 const SearchOrdersInput = z.object({
