@@ -97,6 +97,26 @@ void test("mount applies image policies and brokered resize", () => {
   }
 })
 
+void test("mount reports malformed sandbox messages", () => {
+  const { window, element } = createMountTarget()
+  const surface = testSurface([])
+  const events: SurfaceEvent[] = []
+  const instance = mount(asDomElement(element), surface, {
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+    onEvent: (event) => events.push(event),
+  })
+
+  dispatchSandboxMessage(window, mountedIframe(element), {
+    channel: protocolChannel,
+    type: "resize",
+    surfaceId: surface.id,
+    height: "too-tall",
+  })
+
+  assert.deepEqual(events, [{ type: "violation", reason: "bad_message" }])
+  instance.dispose()
+})
+
 void test("mount brokers granted calls and rejects ungranted calls", async () => {
   const { window, element } = createMountTarget()
   const surface = testSurface([diceDescriptor], `<button>Roll</button>`)
