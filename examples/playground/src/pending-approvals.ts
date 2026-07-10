@@ -6,15 +6,9 @@ interface PendingApprovalCheck {
   readonly input: unknown
 }
 
-interface PendingApprovalKey {
-  readonly surfaceId: string
-  readonly callId: string
-  readonly subject: string
-}
+type PendingApprovalKey = Pick<PendingApprovalCheck, "surfaceId" | "callId" | "subject">
 
-interface PendingApprovalRecord {
-  readonly subject: string
-  readonly action: string
+type PendingApprovalRecord = Pick<PendingApprovalCheck, "subject" | "action"> & {
   readonly inputFingerprint: string
   readonly expiresAt: number
   approved: boolean
