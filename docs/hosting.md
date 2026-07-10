@@ -19,19 +19,19 @@ The package is private while its final npm scope and name are undecided. Build
 the workspace copy before using it locally:
 
 ```sh
-pnpm install
-pnpm build
+nub install
+nub run build
 ```
 
 The build emits ESM JavaScript, declarations, and source maps to
 `packages/runtime/dist/`. Its export map exposes `.`, `./protocol`, and
-`./dom`. The repository's `pnpm check`, `pnpm test`, and `pnpm dev` commands
-build it first.
+`./dom`. The repository's `nub run check`, `nub run test`, and `nub run dev`
+commands build it first.
 
 Run the external-consumer smoke test before distributing a local build:
 
 ```sh
-pnpm test:pack
+nub run test:pack
 ```
 
 It packs the private package, installs the tarball into a temporary project
@@ -281,8 +281,8 @@ before schema validation, approval, or execution.
 The repository playground is a complete credential-free host:
 
 ```sh
-pnpm install
-pnpm dev
+nub install
+nub run dev
 ```
 
 Open `http://localhost:3000`. The editor starts with the orders dashboard
@@ -294,13 +294,13 @@ working read/write flow, **Guest error fixture** for error forwarding, and
 
 Use the file-based loop with any LLM:
 
-1. Run `pnpm dev`, open `http://localhost:3000`, and choose **Copy model
+1. Run `nub run dev`, open `http://localhost:3000`, and choose **Copy model
    instructions**.
 2. Give those instructions to a model and save its raw code/0 output as
    `examples/playground/fixtures/incoming/<name>.html`.
 3. Optionally add `examples/playground/fixtures/incoming/<name>.json` with the
    exact ordered startup calls to expect.
-4. Run `pnpm eval` from the repository root.
+4. Run `nub run eval` from the repository root.
 
 An expected-calls sidecar is a JSON array. Each item contains only `action` and
 `input`:
@@ -326,6 +326,6 @@ against in-memory state. It reports mount status, guest errors, violations,
 granted-call results, ungranted-call denials, and expected-call matching as a
 Markdown table.
 
-A failed fixture makes `pnpm eval` exit nonzero. Its report includes every
+A failed fixture makes `nub run eval` exit nonzero. Its report includes every
 failing assertion and the complete event log. Paste that section back to the
 model when requesting a repair.

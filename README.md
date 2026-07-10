@@ -12,7 +12,7 @@ sandboxed surfaces, and hosting.
 
 ## Workspace
 
-pnpm workspace:
+nub workspace:
 
 - `packages/runtime` — `genui`: dependency-free wire contracts at
   `./protocol`, the capability kernel, and the DOM sandbox host.
@@ -22,11 +22,11 @@ pnpm workspace:
 ## Develop
 
 ```sh
-pnpm install
-pnpm build   # JavaScript and declarations in packages/runtime/dist/
-pnpm check   # format + lint + typecheck + tests for all packages
-pnpm test
-pnpm test:pack # pack, install, and import every public entrypoint
-pnpm eval    # evaluate incoming model output in the real sandbox
-pnpm dev     # playground at http://localhost:3000
+nub install
+nub run build   # JavaScript and declarations in packages/runtime/dist/
+nub run check   # format + lint + typecheck + tests for all packages
+nub run test
+nub run test:pack # pack, install, and import every public entrypoint
+nub run eval    # evaluate incoming model output in the real sandbox
+nub run dev     # playground at http://localhost:3000
 ```

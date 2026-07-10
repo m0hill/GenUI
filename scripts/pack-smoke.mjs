@@ -24,11 +24,12 @@ const run = async (command, args, cwd) => {
 
 const packPackage = async (name, destination) => {
   const { stdout } = await run(
-    "pnpm",
-    ["--filter", name, "pack", "--pack-destination", destination, "--json"],
-    root,
+    "nub",
+    ["pack", "--pack-destination", destination, "--json"],
+    join(root, "packages/runtime"),
   )
-  const metadata = JSON.parse(stdout)
+  const [metadata] = JSON.parse(stdout)
+  assert(metadata)
   assert.equal(metadata.name, name)
   assert(
     metadata.files.every(({ path }) => {
@@ -48,7 +49,7 @@ try {
   await mkdir(packs)
   await mkdir(project)
 
-  await run("pnpm", ["build"], root)
+  await run("nub", ["run", "build"], root)
   const runtimeTarball = await packPackage("genui", packs)
 
   await writeFile(
@@ -140,7 +141,7 @@ void mounted
     )}\n`,
   )
 
-  await run("npm", ["install", "--offline", "--ignore-scripts", "--no-audit", "--no-fund"], project)
+  await run("nub", ["install", "--offline", "--ignore-scripts"], project)
   await run("node", ["smoke.mjs"], project)
   await run(
     "node",

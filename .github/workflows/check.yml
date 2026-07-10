@@ -15,33 +15,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: nubjs/setup-nub@v0
         with:
+          nub-version: ^0.4.5
           node-version: 24
-
-      - name: Enable pnpm through Corepack
-        run: |
-          corepack enable
-          corepack prepare pnpm@11.7.0 --activate
-
-      - name: Locate pnpm store
-        id: pnpm-store
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: pnpm-${{ runner.os }}-
+          cache-dependency-path: nub.lock
 
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          key: playwright-${{ runner.os }}-${{ hashFiles('nub.lock') }}
           restore-keys: playwright-${{ runner.os }}-
 
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @genui/genui exec playwright install --with-deps chromium
-      - run: pnpm check
+      - run: nub ci
+      - run: nub exec --filter genui playwright install --with-deps chromium
+      - run: nub run check

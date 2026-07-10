@@ -1,17 +1,21 @@
 {
   "name": "genui-workspace",
   "private": true,
+  "workspaces": [
+    "packages/*",
+    "examples/*"
+  ],
   "type": "module",
   "scripts": {
-    "dev": "pnpm run build && pnpm --filter @genui/playground dev",
-    "eval": "pnpm run build && pnpm --filter @genui/playground eval",
-    "build": "pnpm --filter genui build",
-    "test": "pnpm run build && pnpm --filter genui test && pnpm --filter @genui/playground test",
-    "check": "pnpm run build && pnpm run format:check && pnpm --filter genui check && pnpm --filter @genui/playground check && pnpm run test:pack",
+    "dev": "nub run build && nub run --filter @genui/playground dev",
+    "eval": "nub run build && nub run --filter @genui/playground eval",
+    "build": "nub run --filter genui build",
+    "test": "nub run build && nub run --filter genui test && nub run --filter @genui/playground test",
+    "check": "nub run build && nub run format:check && nub run --filter genui check && nub run --filter @genui/playground check && nub run test:pack",
     "test:pack": "node scripts/pack-smoke.mjs",
-    "typecheck": "pnpm run build && pnpm --filter genui typecheck && pnpm --filter @genui/playground typecheck",
-    "lint": "pnpm --filter genui lint && pnpm --filter @genui/playground lint",
-    "lint:fix": "pnpm --filter genui lint:fix && pnpm --filter @genui/playground lint:fix",
+    "typecheck": "nub run build && nub run --filter genui typecheck && nub run --filter @genui/playground typecheck",
+    "lint": "nub run --filter genui lint && nub run --filter @genui/playground lint",
+    "lint:fix": "nub run --filter genui lint:fix && nub run --filter @genui/playground lint:fix",
     "format": "oxfmt package.json tsconfig.json .oxlintrc.json .oxfmtrc.json scripts packages/runtime/package.json packages/runtime/tsconfig.json packages/runtime/tsconfig.build.json packages/runtime/src examples/playground/package.json examples/playground/tsconfig.json examples/playground/src examples/playground/scripts",
     "format:check": "oxfmt --check package.json tsconfig.json .oxlintrc.json .oxfmtrc.json scripts packages/runtime/package.json packages/runtime/tsconfig.json packages/runtime/tsconfig.build.json packages/runtime/src examples/playground/package.json examples/playground/tsconfig.json examples/playground/src examples/playground/scripts"
   },
@@ -22,5 +26,14 @@
     "oxlint-tsgolint": "^0.23.0",
     "typescript": "7.0.1-rc"
   },
-  "packageManager": "pnpm@11.7.0"
+  "devEngines": {
+    "packageManager": {
+      "name": "nub",
+      "version": "^0.4.5",
+      "onFail": "warn"
+    }
+  },
+  "allowBuilds": {
+    "esbuild": true
+  }
 }

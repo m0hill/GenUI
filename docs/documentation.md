@@ -46,4 +46,4 @@ Read when creating or editing Markdown.
 - New documentation should be useful without surrounding context.
 - Headings should name the decision area.
 - Rules should survive copy-paste into another document or prompt.
-- Run `pnpm check` before handoff.
+- Run `nub run check` before handoff.
