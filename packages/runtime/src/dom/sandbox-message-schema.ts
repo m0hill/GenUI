@@ -54,7 +54,7 @@ export type SandboxMessage =
   | GuestErrorSandboxMessage
   | SnapshotSandboxMessage
 
-export type ParseSandboxMessageResult =
+type ParseSandboxMessageResult =
   | { readonly ok: true; readonly value: SandboxMessage }
   | { readonly ok: false; readonly reason: "unknown_channel" | "bad_message" }
 

@@ -7,7 +7,7 @@ import {
   type Surface,
 } from "@genui/protocol"
 import { protocolChannel } from "./protocol.js"
-import { parseSandboxMessage, type ActionSandboxMessage } from "./sandbox-message-schema.js"
+import type { ActionSandboxMessage, SandboxMessage } from "./sandbox-message-schema.js"
 
 const defaultMaxHeight = 1_200
 
@@ -38,7 +38,7 @@ export interface TransportOptions {
   readonly signal: AbortSignal
 }
 
-export interface SurfaceBrokerOptions {
+interface SurfaceBrokerOptions {
   readonly transport: (call: ActionCall, options: TransportOptions) => Promise<unknown>
   readonly confirm?: (
     action: Action,
@@ -48,8 +48,8 @@ export interface SurfaceBrokerOptions {
   readonly maxHeight?: number
 }
 
-export interface SurfaceResultMessage {
-  readonly channel: string
+interface SurfaceResultMessage {
+  readonly channel: typeof protocolChannel
   readonly type: "result"
   readonly surfaceId: string
   readonly callId: string
@@ -67,9 +67,9 @@ export interface SurfaceBrokerTask {
   readonly pending?: Promise<readonly SurfaceBrokerEffect[]>
 }
 
-export interface SurfaceBroker {
+interface SurfaceBroker {
   readonly surface: Surface
-  handleSandboxMessage(data: unknown): SurfaceBrokerTask
+  handleSandboxMessage(message: SandboxMessage): SurfaceBrokerTask
   replace(surface: Surface): void
   dispose(): void
 }
@@ -223,16 +223,8 @@ export const createSurfaceBroker = (
     )
   }
 
-  const handleSandboxMessage = (data: unknown): SurfaceBrokerTask => {
+  const handleSandboxMessage = (message: SandboxMessage): SurfaceBrokerTask => {
     if (disposed) return task([])
-    const parsed = parseSandboxMessage(data)
-    if (!parsed.ok) {
-      return parsed.reason === "unknown_channel"
-        ? task([])
-        : task([emit({ type: "violation", reason: "bad_message" })])
-    }
-    const message = parsed.value
-
     if (message.surfaceId !== currentSurface.id) return task([])
     if (message.type === "heartbeat") return task([])
     if (message.type === "resize") {

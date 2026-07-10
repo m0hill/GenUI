@@ -228,15 +228,19 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
   const handleMessage = (event: MessageEvent<unknown>): void => {
     if (disposed || terminated || event.source !== iframe.contentWindow) return
     const parsed = parseSandboxMessage(event.data)
-    if (parsed.ok && parsed.value.type === "heartbeat") {
+    if (!parsed.ok) {
+      if (parsed.reason === "bad_message") emit({ type: "violation", reason: "bad_message" })
+      return
+    }
+    if (parsed.value.type === "heartbeat") {
       if (parsed.value.surfaceId === broker.surface.id) heartbeatTripwire?.heartbeat()
       return
     }
-    if (parsed.ok && parsed.value.type === "snapshot") {
+    if (parsed.value.type === "snapshot") {
       handleSnapshotMessage(parsed.value)
       return
     }
-    applyTask(broker.handleSandboxMessage(event.data))
+    applyTask(broker.handleSandboxMessage(parsed.value))
   }
 
   const handleLoad = (): void => {

@@ -5,6 +5,7 @@ import { action, Genui } from "./registry.js"
 import { createSurfaceBroker, type SurfaceBrokerEffect } from "./dom/surface-broker.js"
 import type { SurfaceBrokerTask } from "./dom/surface-broker.js"
 import { protocolChannel } from "./dom/protocol.js"
+import type { ActionSandboxMessage } from "./dom/sandbox-message-schema.js"
 import { isRecord, testSchema } from "./test-schema.test-support.js"
 
 interface SearchOrdersInput {
@@ -154,7 +155,12 @@ const ordersSurfaceHtml = `
   </script>
 `
 
-const actionMessage = (surface: Surface, action: string, input: unknown, callId: string) => ({
+const actionMessage = (
+  surface: Surface,
+  action: string,
+  input: unknown,
+  callId: string,
+): ActionSandboxMessage => ({
   channel: protocolChannel,
   surfaceId: surface.id,
   callId,

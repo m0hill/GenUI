@@ -7,6 +7,7 @@ import {
 import { codeDialect, type Action, type Surface } from "@genui/protocol"
 import { isRecord, jsonRoundTrip } from "../test-support.test-support.js"
 import { protocolChannel } from "./protocol.js"
+import type { ActionSandboxMessage } from "./sandbox-message-schema.js"
 
 export { isRecord, jsonRoundTrip }
 
@@ -37,7 +38,7 @@ export const testSurface = (actions: Surface["grant"]["actions"], html = ""): Su
 export const sandboxActionMessage = (
   surface: Surface,
   action = "dice.roll",
-): Readonly<Record<string, unknown>> => ({
+): ActionSandboxMessage => ({
   channel: protocolChannel,
   surfaceId: surface.id,
   callId: "call-1",
@@ -88,7 +89,7 @@ export const flushAsync = async (): Promise<void> => {
 export const dispatchSandboxMessage = (
   window: Window,
   iframe: HappyIFrameElement,
-  data: Readonly<Record<string, unknown>>,
+  data: unknown,
 ): void => {
   window.dispatchEvent(
     new window.MessageEvent("message", {
