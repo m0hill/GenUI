@@ -4,9 +4,9 @@ import { guestErrorFixture, ordersDashboardFixture } from "./fixtures.js"
 import { parseExecuteEnvelope, type PlaygroundEvent } from "./playground-codecs.js"
 
 const requiredElement = <ElementType extends Element>(selector: string): ElementType => {
-  const element = document.querySelector(selector)
+  const element = document.querySelector<ElementType>(selector)
   if (element === null) throw new Error(`Missing playground element: ${selector}`)
-  return element as ElementType
+  return element
 }
 
 const editor = requiredElement<HTMLTextAreaElement>("#surface-source")
@@ -27,10 +27,7 @@ const appendEvent = (event: PlaygroundEvent): void => {
   eventLog.append(item)
 }
 
-const transport = async (
-  call: Parameters<Parameters<typeof mount>[2]["transport"]>[0],
-  options: Parameters<Parameters<typeof mount>[2]["transport"]>[1],
-) => {
+const transport: Parameters<typeof mount>[2]["transport"] = async (call, options) => {
   const response = await fetch("/genui/execute", {
     method: "POST",
     headers: { "content-type": "application/json" },
