@@ -178,7 +178,12 @@ export const memoryStore = (): SurfaceStore => {
       calls.set(request.callId, entry)
       try {
         const value = await result
-        entry.expiresAt = Date.now() + request.windowMs
+        if (!value.ok && value.error.code === "approval_required") {
+          if (calls.get(request.callId) === entry) calls.delete(request.callId)
+          if (calls.size === 0) idempotency.delete(request.surfaceId)
+        } else {
+          entry.expiresAt = Date.now() + request.windowMs
+        }
         return { status: "result", result: value }
       } catch (error) {
         if (calls.get(request.callId) === entry) calls.delete(request.callId)

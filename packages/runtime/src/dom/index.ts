@@ -21,8 +21,12 @@ export type { SurfaceEvent, SurfaceViolationReason, TransportOptions } from "./s
 
 export interface MountOptions {
   readonly transport: (call: ActionCall, options: TransportOptions) => Promise<ActionResult>
-  /** Best-effort host UX confirmation over the raw sandbox call. */
-  readonly confirm?: (action: Action, call: ActionCall) => boolean | Promise<boolean>
+  /** Trusted consent UI using the kernel-rendered canonical action intent. */
+  readonly confirm?: (
+    action: Action,
+    call: ActionCall,
+    intent: string,
+  ) => boolean | Promise<boolean>
   readonly imagePolicy?: ImagePolicy
   readonly maxHeight?: number
   readonly onEvent?: (event: SurfaceEvent) => void

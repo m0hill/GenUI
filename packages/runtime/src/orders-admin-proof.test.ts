@@ -229,11 +229,13 @@ void test("code/0 orders-admin proof exercises grants, approval, nested data, an
   const transportCalls: ActionCall[] = []
   const brokerApprovals: ActionCall[] = []
   const registryApprovalInputs: unknown[] = []
+  const approvedCalls = new Set<string>()
   let brokerApproves = true
 
   const broker = createSurfaceBroker(surface, {
     confirm: (_descriptor, call) => {
       brokerApprovals.push(call)
+      if (brokerApproves) approvedCalls.add(call.callId)
       return brokerApproves
     },
     transport: async (call): Promise<ActionResult> => {
@@ -241,7 +243,7 @@ void test("code/0 orders-admin proof exercises grants, approval, nested data, an
       return registry.execute(call, ctx, {
         approve: (_descriptor, input) => {
           registryApprovalInputs.push(input)
-          return true
+          return approvedCalls.delete(call.callId) || undefined
         },
       })
     },
@@ -265,7 +267,7 @@ void test("code/0 orders-admin proof exercises grants, approval, nested data, an
     ctx,
   )
   assert.equal(directDenied.ok, false)
-  assert.equal(directDenied.ok ? undefined : directDenied.error.code, "approval_denied")
+  assert.equal(directDenied.ok ? undefined : directDenied.error.code, "approval_required")
 
   const searchResult = resultMessage(
     await taskEffects(
@@ -342,7 +344,14 @@ void test("code/0 orders-admin proof exercises grants, approval, nested data, an
   assert.equal(limitedTransportCalled, false)
   assert.deepEqual(
     transportCalls.map((call) => call.action),
-    ["orders.search", "orders.refund", "orders.add_note"],
+    [
+      "orders.search",
+      "orders.refund",
+      "orders.refund",
+      "orders.refund",
+      "orders.add_note",
+      "orders.add_note",
+    ],
   )
   assert.deepEqual(
     brokerApprovals.map((call) => call.callId),
@@ -350,6 +359,9 @@ void test("code/0 orders-admin proof exercises grants, approval, nested data, an
   )
   assert.deepEqual(registryApprovalInputs, [
     { id: "order-1" },
+    { id: "order-1" },
+    { id: "order-1" },
+    { id: "order-1", note: "Priority follow-up" },
     { id: "order-1", note: "Priority follow-up" },
   ])
 })

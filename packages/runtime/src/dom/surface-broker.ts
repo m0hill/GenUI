@@ -40,7 +40,11 @@ export interface TransportOptions {
 
 export interface SurfaceBrokerOptions {
   readonly transport: (call: ActionCall, options: TransportOptions) => Promise<ActionResult>
-  readonly confirm?: (action: Action, call: ActionCall) => boolean | Promise<boolean>
+  readonly confirm?: (
+    action: Action,
+    call: ActionCall,
+    intent: string,
+  ) => boolean | Promise<boolean>
   readonly maxHeight?: number
 }
 
@@ -126,8 +130,18 @@ export const createSurfaceBroker = (
   ): Promise<readonly SurfaceBrokerEffect[]> => {
     pendingControllers.add(request.controller)
     try {
-      if (request.action.requiresApproval) {
-        const confirmed = await options.confirm?.(request.action, request.call)
+      let result =
+        parseActionResult(
+          await options.transport(request.call, { signal: request.controller.signal }),
+        ) ?? actionError("execution_failed", "Action returned an invalid result.")
+      if (request.controller.signal.aborted) return []
+
+      if (!result.ok && result.error.code === "approval_required") {
+        const confirmed = await options.confirm?.(
+          request.action,
+          request.call,
+          result.error.message,
+        )
         if (request.controller.signal.aborted) return []
         if (confirmed !== true) {
           return resultEffects(
@@ -138,17 +152,19 @@ export const createSurfaceBroker = (
             actionError("approval_denied", "Action was denied."),
           )
         }
+        result =
+          parseActionResult(
+            await options.transport(request.call, { signal: request.controller.signal }),
+          ) ?? actionError("execution_failed", "Action returned an invalid result.")
+        if (request.controller.signal.aborted) return []
       }
 
-      const result = parseActionResult(
-        await options.transport(request.call, { signal: request.controller.signal }),
-      )
       return resultEffects(
         request.call.surfaceId,
         request.surfaceRevision,
         request.call.callId,
         request.call.action,
-        result ?? actionError("execution_failed", "Action returned an invalid result."),
+        result,
       )
     } catch {
       return resultEffects(

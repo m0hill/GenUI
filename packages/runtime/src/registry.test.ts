@@ -556,7 +556,7 @@ void test("registry approval is the authoritative execution gate", async () => {
     input: { text: "hi" },
   }
 
-  assertErrorCode(await registry.execute(call, { userId: "u1" }), "approval_denied")
+  assertErrorCode(await registry.execute(call, { userId: "u1" }), "approval_required")
   assert.equal(executed, 0)
 
   assertErrorCode(
@@ -663,7 +663,7 @@ void test("dangerous actions require approval by default", async () => {
     action: "system.destroy",
     input: {},
   }
-  assertErrorCode(await registry.execute(call, { userId: "u1" }), "approval_denied")
+  assertErrorCode(await registry.execute(call, { userId: "u1" }), "approval_required")
   assert.equal(executed, false)
   assert.deepEqual(
     await registry.execute(
@@ -825,7 +825,7 @@ void test("registry returns every expected capability error as a value", async (
       { surfaceId: surface.id, callId: "call-4", action: "demo.approve", input: { text: "x" } },
       { userId: "u1" },
     ),
-    "approval_denied",
+    "approval_required",
   )
   assertErrorCode(
     await registry.execute(

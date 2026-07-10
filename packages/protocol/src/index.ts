@@ -96,6 +96,7 @@ export type ActionErrorCode =
   | "blocked"
   | "invalid_input"
   | "invalid_output"
+  | "approval_required"
   | "approval_denied"
   | "rate_limited"
   | "storage_unavailable"
@@ -225,6 +226,7 @@ const isActionErrorCode = (value: unknown): value is ActionErrorCode =>
   value === "blocked" ||
   value === "invalid_input" ||
   value === "invalid_output" ||
+  value === "approval_required" ||
   value === "approval_denied" ||
   value === "rate_limited" ||
   value === "storage_unavailable" ||

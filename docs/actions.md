@@ -70,15 +70,26 @@ Default policy is derived from `effect`:
 Set `policy: "allow" | "ask" | "block"` only when the action needs an explicit
 override. Explicit policy always wins.
 
-The browser's `confirm` hook is best-effort trusted UX over raw call input. The
-kernel's `approve` hook is authoritative and runs after validation with the
-canonical input.
+The kernel's `approve` hook is authoritative and runs after validation with the
+canonical input. Its result has three meanings:
+
+- `true` approves execution.
+- `false` returns the terminal `approval_denied` result.
+- `undefined` returns `approval_required` with the server-rendered intent in
+  its message.
+
+The browser broker transports a call before showing consent UI. When the
+kernel returns `approval_required`, the broker passes that trusted intent to
+`confirm`, then retries the identical call at most once after consent is stored
+server-side.
 
 `write` and `dangerous` calls are idempotent by `(surfaceId, callId)` for five
 minutes after completion. Concurrent retries share one result and do not ask
 for approval or execute twice. Object key order is ignored recursively when
 comparing retry input. Reusing a call ID with a different action, JSON value, or
 array order returns `invalid_input`. `local` and `read` actions are not deduped.
+`approval_required` is provisional and is not retained in the idempotency
+window; an approved retry must be able to proceed.
 
 ## Approval intent
 
@@ -97,7 +108,8 @@ const updateStatus = action({
 ```
 
 Placeholders use `{input.path}`. Only primitive values render directly. Missing
-or non-primitive values render as `?`.
+or non-primitive values render as `?`. Rendering happens from canonical input
+inside the kernel, not from raw guest input in the browser.
 
 ## Confidentiality
 

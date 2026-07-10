@@ -15,6 +15,12 @@ const objectInput = testSchema<Readonly<Record<string, unknown>>>((input) =>
   isRecord(input) ? { ok: true, value: input } : { ok: false, message: "Expected an object." },
 )
 
+const canonicalTextInput = testSchema<Readonly<{ text: string }>>((input) =>
+  isRecord(input) && typeof input.text === "string"
+    ? { ok: true, value: { text: input.text.trim() } }
+    : { ok: false, message: "Expected text." },
+)
+
 for (const effect of ["write", "dangerous"] satisfies readonly Effect[]) {
   void test(`call id makes ${effect} actions idempotent`, async () => {
     let approvals = 0
@@ -135,6 +141,49 @@ void test("idempotency ignores recursive JSON object key order", async () => {
 
   assert.deepEqual(first, { ok: true, value: { execution: 1 } })
   assert.deepEqual(reordered, first)
+  assert.equal(executions, 1)
+})
+
+void test("approval-required retries execute an effectful call exactly once", async () => {
+  let approval: boolean | undefined
+  let approvalChecks = 0
+  let executions = 0
+  const runtime = new Genui({
+    actions: [
+      action({
+        name: "notes.create",
+        description: "Create a note.",
+        effect: "write",
+        intent: "Create note {input.text}",
+        input: canonicalTextInput,
+        execute: (_context, input) => ({ execution: ++executions, text: input.text }),
+      }),
+    ],
+  })
+  const surface = await runtime.surface({ content: "", actions: ["notes.create"] })
+  const call = {
+    surfaceId: surface.id,
+    callId: "call-pending-approval",
+    action: "notes.create",
+    input: { text: "  hello  " },
+  }
+  const approve = () => {
+    approvalChecks += 1
+    return approval
+  }
+
+  assert.deepEqual(await runtime.execute(call, {}, { approve }), {
+    ok: false,
+    error: { code: "approval_required", message: "Create note hello" },
+  })
+  assert.equal(approvalChecks, 1)
+  assert.equal(executions, 0)
+
+  approval = true
+  const approved = await runtime.execute(call, {}, { approve })
+  assert.deepEqual(approved, { ok: true, value: { execution: 1, text: "hello" } })
+  assert.deepEqual(await runtime.execute(call, {}, { approve }), approved)
+  assert.equal(approvalChecks, 2)
   assert.equal(executions, 1)
 })
 

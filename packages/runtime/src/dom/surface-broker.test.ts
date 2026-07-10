@@ -124,16 +124,57 @@ void test("red team: ungranted calls return not_granted without transport", () =
   )
 })
 
-void test("surface broker denies approval-gated calls without confirmation", async () => {
+void test("surface broker confirms authoritative approval intent and retries once", async () => {
   const current = testSurface([approvedDescriptor])
+  const calls: ActionCall[] = []
+  let confirmedIntent: string | undefined
   const broker = createSurfaceBroker(current, {
-    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+    confirm: (_action, _call, intent) => {
+      confirmedIntent = intent
+      return true
+    },
+    transport: async (call): Promise<ActionResult> => {
+      calls.push(call)
+      return calls.length === 1
+        ? {
+            ok: false,
+            error: { code: "approval_required", message: "Create note hello" },
+          }
+        : { ok: true, value: { created: true } }
+    },
+  })
+
+  const effects = await pendingEffects(
+    broker.handleSandboxMessage(sandboxActionMessage(current, "notes.create")),
+  )
+  assert.equal(confirmedIntent, "Create note hello")
+  assert.equal(calls.length, 2)
+  assert.deepEqual(calls[0], calls[1])
+  const post = resultPost(effects)
+  assert.deepEqual(post?.type === "post_result" ? post.message.result : undefined, {
+    ok: true,
+    value: { created: true },
+  })
+})
+
+void test("surface broker turns declined authoritative approval into a denial", async () => {
+  const current = testSurface([approvedDescriptor])
+  let transportCalls = 0
+  const broker = createSurfaceBroker(current, {
+    transport: async (): Promise<ActionResult> => {
+      transportCalls += 1
+      return {
+        ok: false,
+        error: { code: "approval_required", message: "Create a note" },
+      }
+    },
   })
 
   const effects = await pendingEffects(
     broker.handleSandboxMessage(sandboxActionMessage(current, "notes.create")),
   )
   const post = resultPost(effects)
+  assert.equal(transportCalls, 1)
   assert.equal(
     post?.type === "post_result" && !post.message.result.ok
       ? post.message.result.error.code
@@ -142,10 +183,14 @@ void test("surface broker denies approval-gated calls without confirmation", asy
   )
 })
 
-void test("surface broker treats confirmation as UX and preserves transport denial", async () => {
+void test("surface broker does not prompt for a terminal transport result", async () => {
   const current = testSurface([approvedDescriptor])
+  let confirmations = 0
   const broker = createSurfaceBroker(current, {
-    confirm: () => true,
+    confirm: () => {
+      confirmations += 1
+      return true
+    },
     transport: async (): Promise<ActionResult> => ({
       ok: false,
       error: { code: "approval_denied", message: "Kernel denied the action." },
@@ -156,6 +201,7 @@ void test("surface broker treats confirmation as UX and preserves transport deni
     broker.handleSandboxMessage(sandboxActionMessage(current, "notes.create")),
   )
   const post = resultPost(effects)
+  assert.equal(confirmations, 0)
   assert.equal(
     post?.type === "post_result" && !post.message.result.ok
       ? post.message.result.error.code

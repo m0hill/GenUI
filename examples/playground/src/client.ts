@@ -1,4 +1,3 @@
-import { renderActionIntent } from "@genui/genui"
 import { mount, type Mounted, type SurfaceEvent } from "@genui/genui/dom"
 import { actionError, parseActionResult, parseSurface } from "@genui/protocol"
 import { guestErrorFixture, ordersDashboardFixture } from "./fixtures.js"
@@ -14,7 +13,6 @@ const form = requiredElement<HTMLFormElement>("#surface-form")
 const surfaceRoot = requiredElement<HTMLElement>("#surface")
 const eventLog = requiredElement<HTMLOListElement>("#event-log")
 const status = requiredElement<HTMLOutputElement>("#host-status")
-const confirmedCalls = new Set<string>()
 let mounted: Mounted | undefined
 
 const showStatus = (message: string, error = false): void => {
@@ -32,11 +30,10 @@ const transport = async (
   call: Parameters<Parameters<typeof mount>[2]["transport"]>[0],
   options: Parameters<Parameters<typeof mount>[2]["transport"]>[1],
 ) => {
-  const approved = confirmedCalls.delete(call.callId)
   const response = await fetch("/genui/execute", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ call, approved }),
+    body: JSON.stringify({ call }),
     signal: options.signal,
   })
   const result = parseActionResult(await response.json())
@@ -54,19 +51,19 @@ const createSurface = async (content: string): Promise<void> => {
   if (!response.ok || surface === undefined) throw new Error("Host returned an invalid surface.")
 
   mounted?.dispose()
-  confirmedCalls.clear()
   eventLog.replaceChildren()
   mounted = mount(surfaceRoot, surface, {
     maxHeight: 720,
     transport,
-    confirm: (action, call) => {
-      const intent =
-        action.intent === undefined
-          ? action.description
-          : renderActionIntent(action.intent, call.input)
-      const approved = window.confirm(`${intent}\n\nInput:\n${JSON.stringify(call.input, null, 2)}`)
-      if (approved) confirmedCalls.add(call.callId)
-      return approved
+    confirm: async (_action, call, intent) => {
+      if (!window.confirm(intent)) return false
+      const response = await fetch("/genui/approve", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ surfaceId: call.surfaceId, callId: call.callId }),
+      })
+      if (!response.ok) throw new Error("Host could not register action approval.")
+      return true
     },
     onEvent: appendEvent,
   })

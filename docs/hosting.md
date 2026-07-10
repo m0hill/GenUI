@@ -34,8 +34,9 @@ A custom `SurfaceStore` implements `get`, `set`, `revoke`, and `runIdempotent`.
 `get` and `set` must preserve an optional `SurfaceRecord.subject` unchanged.
 `runIdempotent` must atomically join concurrent calls with the same surface ID,
 call ID, and fingerprint, retain the completed result for the requested window,
-and report conflicting fingerprints. The bundled `memoryStore()` implements
-this contract for one process.
+and report conflicting fingerprints. It must return `approval_required` to
+current callers without retaining that provisional result. The bundled
+`memoryStore()` implements this contract for one process.
 
 ## Create code surfaces
 
@@ -94,13 +95,28 @@ if (call === undefined) {
 
 const result = await genui.execute(call, appContext, {
   subject: currentSession.id,
-  approve: (_action, canonicalInput) => trustedApproval(body, canonicalInput),
+  approve: (action, canonicalInput) =>
+    pendingApprovals.check({
+      surfaceId: call.surfaceId,
+      callId: call.callId,
+      subject: currentSession.id,
+      action: action.name,
+      input: canonicalInput,
+    }),
 })
 return Response.json(result)
 ```
 
 Treat the kernel `approve` hook as authoritative. It runs after schema
-validation and receives canonical input. Never approve from guest-rendered UI.
+validation and receives canonical input. Return `undefined` while consent is
+pending, `false` for an explicit denial, and `true` only after trusted consent.
+Never approve from guest-rendered UI.
+
+Keep pending approvals on the server. Key lookup by `(surfaceId, callId)`, bind
+each record to the subject, action, and canonical input fingerprint, expire it,
+and consume approval once. An approval endpoint may mark only an existing
+pending record for the authenticated subject. Do not accept preapproval or an
+`approved: true` field on the execute request.
 
 Authenticate the request before calling `surface()` or `execute()`. Use the
 same opaque `subject` value for both operations. A subject-bound grant echoes
@@ -112,7 +128,6 @@ authoritative.
 Parse server responses before mounting or returning transport results.
 
 ```ts
-import { renderActionIntent } from "@genui/genui"
 import { mount } from "@genui/genui/dom"
 import {
   actionError,
@@ -123,23 +138,21 @@ import {
 const surface = parseSurface(await surfaceResponse.json())
 if (surface === undefined) throw new Error("Invalid surface response")
 
-const confirmedCalls = new Set<string>()
-
 const mounted = mount(container, surface, {
-  confirm: (action, call) => {
-    const message = action.intent
-      ? renderActionIntent(action.intent, call.input)
-      : action.description
-    const approved = window.confirm(message)
-    if (approved) confirmedCalls.add(call.callId)
-    return approved
+  confirm: async (_action, call, intent) => {
+    if (!window.confirm(intent)) return false
+    const response = await fetch("/genui/approve", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ surfaceId: call.surfaceId, callId: call.callId }),
+    })
+    return response.ok
   },
   transport: async (call, { signal }) => {
-    const approved = confirmedCalls.delete(call.callId)
     const response = await fetch("/genui/execute", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ call, approved }),
+      body: JSON.stringify({ call }),
       signal,
     })
     return (
@@ -151,9 +164,10 @@ const mounted = mount(container, surface, {
 })
 ```
 
-The browser `confirm` hook is trusted consent UX over raw input. The example
-tracks accepted `callId` values and forwards that decision with the transport
-request. The server decides how to authenticate and honor that signal.
+The broker calls transport first. On `approval_required`, it passes the
+kernel-rendered canonical intent to `confirm`. A successful callback registers
+consent on the server; the broker retries the identical call once. A declined
+callback returns `approval_denied` without a retry.
 
 Call `mounted.dispose()` before removing the host view. Use `replace()` to load
 a new supported surface into a live mount. Pending calls are aborted on replace

@@ -9,6 +9,7 @@ import { createSurfaceRuntime, type SurfaceRuntime } from "./surface-runtime.js"
 import {
   actionError,
   isValidActionName,
+  renderActionIntent,
   type Action,
   type ActionCall,
   type ActionDefinition,
@@ -149,13 +150,20 @@ export class Genui<Ctx> {
       if (!input.ok) return actionError("invalid_input", input.message)
 
       if (actionPolicy(definition) === "ask") {
-        let approved = false
+        let approved: boolean | undefined
         try {
-          approved = (await options?.approve?.(granted, input.value)) === true
+          approved = await options?.approve?.(granted, input.value)
         } catch {
           return actionError("execution_failed", "Action approval failed.")
         }
-        if (approved !== true) return actionError("approval_denied", "Action was denied.")
+        if (approved === undefined) {
+          const intent =
+            granted.intent === undefined
+              ? granted.description
+              : renderActionIntent(granted.intent, input.value)
+          return actionError("approval_required", intent)
+        }
+        if (!approved) return actionError("approval_denied", "Action was denied.")
       }
 
       try {

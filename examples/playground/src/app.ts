@@ -3,6 +3,7 @@ import { codeDialect, Genui } from "@genui/genui"
 import { actionError, parseActionCall } from "@genui/protocol"
 import { Hono } from "hono"
 import { demoActionNames, demoActions } from "./actions.js"
+import { createPendingApprovals } from "./pending-approvals.js"
 
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -15,13 +16,41 @@ const requestJson = async (request: Request): Promise<unknown> => {
   }
 }
 
+const sessionCookieName = "genui_session"
+const sessionSubject = (request: Request): string | undefined => {
+  const cookie = request.headers.get("cookie")
+  if (cookie === null) return undefined
+
+  for (const part of cookie.split(";")) {
+    const separator = part.indexOf("=")
+    if (separator < 0 || part.slice(0, separator).trim() !== sessionCookieName) continue
+    try {
+      const subject = decodeURIComponent(part.slice(separator + 1).trim())
+      return subject.length > 0 && subject.length <= 256 ? subject : undefined
+    } catch {
+      return undefined
+    }
+  }
+  return undefined
+}
+
+const pendingApprovals = createPendingApprovals()
+
+export const resetPendingApprovals = (): void => pendingApprovals.clear()
+
 export const genui = new Genui<Readonly<Record<string, never>>>({ actions: demoActions })
 
 export const app = new Hono()
 
-app.get("/", async (context) =>
-  context.html(await readFile(new URL("../index.html", import.meta.url), "utf8")),
-)
+app.get("/", async (context) => {
+  if (sessionSubject(context.req.raw) === undefined) {
+    context.header(
+      "set-cookie",
+      `${sessionCookieName}=${encodeURIComponent(globalThis.crypto.randomUUID())}; HttpOnly; SameSite=Strict; Path=/`,
+    )
+  }
+  return context.html(await readFile(new URL("../index.html", import.meta.url), "utf8"))
+})
 
 app.get("/client.js", async (context) => {
   const source = await readFile(new URL("../dist/client.js", import.meta.url), "utf8")
@@ -34,6 +63,10 @@ app.get("/client.js", async (context) => {
 app.get("/genui/instructions", (context) => context.text(genui.instructions()))
 
 app.post("/genui/surface", async (context) => {
+  const subject = sessionSubject(context.req.raw)
+  if (subject === undefined) {
+    return context.json(actionError("not_granted", "Playground session is required."), 401)
+  }
   const body = await requestJson(context.req.raw)
   if (!isRecord(body) || typeof body.content !== "string") {
     return context.json(actionError("invalid_input", "Surface content must be a string."), 400)
@@ -43,18 +76,60 @@ app.post("/genui/surface", async (context) => {
     dialect: codeDialect,
     content: body.content,
     actions: demoActionNames,
+    subject,
   })
   return context.json(surface)
 })
 
 app.post("/genui/execute", async (context) => {
+  const subject = sessionSubject(context.req.raw)
+  if (subject === undefined) {
+    return context.json(actionError("not_granted", "Playground session is required."), 401)
+  }
   const body = await requestJson(context.req.raw)
   const call = isRecord(body) ? parseActionCall(body.call) : undefined
   if (call === undefined) {
     return context.json(actionError("invalid_input", "Malformed action call."), 400)
   }
 
-  const approved = isRecord(body) && body.approved === true
-  const result = await genui.execute(call, {}, { approve: () => approved })
+  const result = await genui.execute(
+    call,
+    {},
+    {
+      subject,
+      approve: (action, input) =>
+        pendingApprovals.check({
+          surfaceId: call.surfaceId,
+          callId: call.callId,
+          subject,
+          action: action.name,
+          input,
+        }),
+    },
+  )
   return context.json(result)
+})
+
+app.post("/genui/approve", async (context) => {
+  const subject = sessionSubject(context.req.raw)
+  if (subject === undefined) {
+    return context.json(actionError("not_granted", "Playground session is required."), 401)
+  }
+  const body = await requestJson(context.req.raw)
+  if (!isRecord(body) || typeof body.surfaceId !== "string" || typeof body.callId !== "string") {
+    return context.json(actionError("invalid_input", "Malformed approval request."), 400)
+  }
+
+  const approved = pendingApprovals.approve({
+    surfaceId: body.surfaceId,
+    callId: body.callId,
+    subject,
+  })
+  if (approved === undefined) {
+    return context.json(actionError("not_granted", "Approval is not pending."), 409)
+  }
+  if (!approved) {
+    return context.json(actionError("not_granted", "Approval belongs to another subject."), 403)
+  }
+  return context.body(null, 204)
 })

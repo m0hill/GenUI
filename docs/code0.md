@@ -113,13 +113,14 @@ snapshot unavailable.
 ## Host enforcement
 
 The host broker rejects calls missing from the surface grant before transport.
-It invokes `confirm(action, rawCall)` for actions requiring client-side consent.
 The kernel independently reloads the surface record, checks current policy and
 grant, validates input, obtains authoritative approval, executes, and validates
-output.
+output. If it returns `approval_required`, the broker invokes
+`confirm(action, call, intent)` with the server-rendered intent and retries the
+same call once after confirmation.
 
-Render consent UI in trusted host code. Use the descriptor and raw input for
-the browser preview. Use canonical validated input for kernel approval.
+Render consent UI in trusted host code. Display the supplied intent instead of
+reconstructing approval text from raw guest input.
 
 ## Errors, navigation, and liveness
 

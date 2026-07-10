@@ -372,3 +372,12 @@ delete earlier entries.
   invariant simulates missing heartbeats while the host remains schedulable —
   guaranteed CPU termination requires an out-of-process renderer deferred by
   §9.
+- 2026-07-10 Approval hooks are tri-state: `undefined` requests consent,
+  `false` denies, and `true` approves; `approval_required` carries the
+  canonical rendered intent in the existing error message and is never retained
+  by idempotency stores — approved same-call retries can proceed without a new
+  wire envelope.
+- 2026-07-10 Browser confirmation reacts to an authoritative
+  `approval_required` result and retries transport at most once; pending consent
+  is one-shot server state bound to subject, action, and canonical input — raw
+  browser booleans cannot authorize effects or changed retry input.

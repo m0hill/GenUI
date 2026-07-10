@@ -121,6 +121,7 @@ export interface SurfaceStore {
   get(id: string): MaybePromise<SurfaceRecord | undefined>
   set(record: SurfaceRecord): MaybePromise<void>
   revoke(id: string): MaybePromise<void>
+  /** Do not retain provisional approval_required results after their callers receive them. */
   runIdempotent(
     request: IdempotencyRequest,
     operation: () => Promise<ActionResult>,
@@ -131,6 +132,6 @@ export interface SurfaceStore {
 export interface ExecuteOptions {
   /** Opaque identity expected by a subject-bound surface. */
   readonly subject?: string
-  /** Authoritatively approve an action using its schema-validated canonical input. */
-  approve?(action: Action, input: unknown): boolean | Promise<boolean>
+  /** Return true to approve, false to deny, or undefined when trusted consent is pending. */
+  approve?(action: Action, input: unknown): MaybePromise<boolean | undefined>
 }
