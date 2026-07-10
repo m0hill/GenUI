@@ -13,9 +13,12 @@ import {
   type Action,
   type ActionCall,
   type ActionDefinition,
+  type ActionErrorCode,
   type ActionResult,
   type AnyActionDefinition,
+  type Effect,
   type ExecuteOptions,
+  type MaybePromise,
   type Surface,
   type SurfaceInput,
   type SurfaceRecord,
@@ -46,6 +49,18 @@ const serializeActionInput = (input: unknown): string | undefined => {
 export interface GenuiOptions<Ctx> {
   readonly actions: readonly AnyActionDefinition<Ctx>[]
   readonly store?: SurfaceStore
+  readonly onCall?: (entry: CallAuditEntry) => MaybePromise<void>
+}
+
+/** Safe outcome metadata emitted once for every top-level execute attempt. */
+export interface CallAuditEntry {
+  readonly surfaceId: string
+  readonly callId: string
+  readonly subject?: string
+  readonly action: string
+  readonly effect: Effect | "unknown"
+  readonly outcome: ActionErrorCode | "ok"
+  readonly at: number
 }
 
 /** Preserve an action definition's input and output types at declaration sites. */
@@ -57,6 +72,7 @@ export const action = <Ctx, Input, Output>(
 export class Genui<Ctx> {
   readonly #byName: ReadonlyMap<string, AnyActionDefinition<Ctx>>
   readonly #surfaceRuntime: SurfaceRuntime
+  readonly #onCall: ((entry: CallAuditEntry) => MaybePromise<void>) | undefined
   readonly #inFlightBySurface = new Map<string, number>()
 
   constructor(options: GenuiOptions<Ctx>) {
@@ -74,6 +90,7 @@ export class Genui<Ctx> {
 
     this.#byName = byName
     this.#surfaceRuntime = createSurfaceRuntime({ byName, store: options.store })
+    this.#onCall = options.onCall
   }
 
   surface(input: SurfaceInput): Promise<Surface> {
@@ -94,6 +111,16 @@ export class Genui<Ctx> {
   }
 
   async execute(call: ActionCall, ctx: Ctx, options?: ExecuteOptions): Promise<ActionResult> {
+    const result = await this.#executeResult(call, ctx, options)
+    this.#emitCallAudit(call, options, result)
+    return result
+  }
+
+  async #executeResult(
+    call: ActionCall,
+    ctx: Ctx,
+    options?: ExecuteOptions,
+  ): Promise<ActionResult> {
     let record: SurfaceRecord | undefined
     try {
       record = await this.#surfaceRuntime.getRecord(call.surfaceId)
@@ -202,6 +229,28 @@ export class Genui<Ctx> {
       const remaining = (this.#inFlightBySurface.get(call.surfaceId) ?? 1) - 1
       if (remaining === 0) this.#inFlightBySurface.delete(call.surfaceId)
       else this.#inFlightBySurface.set(call.surfaceId, remaining)
+    }
+  }
+
+  #emitCallAudit(
+    call: ActionCall,
+    options: ExecuteOptions | undefined,
+    result: ActionResult,
+  ): void {
+    if (this.#onCall === undefined) return
+    const entry: CallAuditEntry = Object.freeze({
+      surfaceId: call.surfaceId,
+      callId: call.callId,
+      ...(options?.subject === undefined ? {} : { subject: options.subject }),
+      action: call.action,
+      effect: this.#byName.get(call.action)?.effect ?? "unknown",
+      outcome: result.ok ? "ok" : result.error.code,
+      at: Date.now(),
+    })
+    try {
+      void Promise.resolve(this.#onCall(entry)).catch(() => undefined)
+    } catch {
+      // Audit is observational and cannot change action behavior.
     }
   }
 

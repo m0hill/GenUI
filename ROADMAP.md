@@ -381,3 +381,7 @@ delete earlier entries.
   `approval_required` result and retries transport at most once; pending consent
   is one-shot server state bound to subject, action, and canonical input — raw
   browser booleans cannot authorize effects or changed retry input.
+- 2026-07-10 Audit entries are emitted per top-level `execute()` attempt using
+  the attempted subject and effect `unknown` for unregistered actions; hooks
+  are fire-and-forget and isolated from results — denied/unknown attempts stay
+  observable without inventing authority metadata or delaying execution.

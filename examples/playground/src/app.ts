@@ -1,8 +1,9 @@
 import { readFile } from "node:fs/promises"
-import { codeDialect, Genui } from "@genui/genui"
+import { codeDialect, Genui, type CallAuditEntry } from "@genui/genui"
 import { actionError, parseActionCall } from "@genui/protocol"
 import { Hono } from "hono"
 import { demoActionNames, demoActions } from "./actions.js"
+import type { ExecuteEnvelope } from "./execute-envelope.js"
 import { createPendingApprovals } from "./pending-approvals.js"
 
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
@@ -35,10 +36,29 @@ const sessionSubject = (request: Request): string | undefined => {
 }
 
 const pendingApprovals = createPendingApprovals()
+const callAudits = new Map<string, CallAuditEntry[]>()
+const callKey = (surfaceId: string, callId: string): string => JSON.stringify([surfaceId, callId])
+const takeCallAudits = (surfaceId: string, callId: string): readonly CallAuditEntry[] => {
+  const key = callKey(surfaceId, callId)
+  const entries = callAudits.get(key) ?? []
+  callAudits.delete(key)
+  return entries
+}
 
-export const resetPendingApprovals = (): void => pendingApprovals.clear()
+export const resetPlaygroundState = (): void => {
+  pendingApprovals.clear()
+  callAudits.clear()
+}
 
-export const genui = new Genui<Readonly<Record<string, never>>>({ actions: demoActions })
+export const genui = new Genui<Readonly<Record<string, never>>>({
+  actions: demoActions,
+  onCall: (entry) => {
+    const key = callKey(entry.surfaceId, entry.callId)
+    const entries = callAudits.get(key) ?? []
+    entries.push(entry)
+    callAudits.set(key, entries)
+  },
+})
 
 export const app = new Hono()
 
@@ -84,12 +104,24 @@ app.post("/genui/surface", async (context) => {
 app.post("/genui/execute", async (context) => {
   const subject = sessionSubject(context.req.raw)
   if (subject === undefined) {
-    return context.json(actionError("not_granted", "Playground session is required."), 401)
+    return context.json(
+      {
+        result: actionError("not_granted", "Playground session is required."),
+        audit: [],
+      } satisfies ExecuteEnvelope,
+      401,
+    )
   }
   const body = await requestJson(context.req.raw)
   const call = isRecord(body) ? parseActionCall(body.call) : undefined
   if (call === undefined) {
-    return context.json(actionError("invalid_input", "Malformed action call."), 400)
+    return context.json(
+      {
+        result: actionError("invalid_input", "Malformed action call."),
+        audit: [],
+      } satisfies ExecuteEnvelope,
+      400,
+    )
   }
 
   const result = await genui.execute(
@@ -107,7 +139,10 @@ app.post("/genui/execute", async (context) => {
         }),
     },
   )
-  return context.json(result)
+  return context.json({
+    result,
+    audit: takeCallAudits(call.surfaceId, call.callId),
+  } satisfies ExecuteEnvelope)
 })
 
 app.post("/genui/approve", async (context) => {

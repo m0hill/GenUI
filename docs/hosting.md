@@ -123,6 +123,34 @@ same opaque `subject` value for both operations. A subject-bound grant echoes
 that value for inspection, but the server-side surface record remains
 authoritative.
 
+## Record call outcomes
+
+Set `GenuiOptions.onCall` to observe one safe audit entry after every
+`execute()` attempt:
+
+```ts
+const genui = new Genui({
+  actions,
+  onCall: (entry) => {
+    auditQueue.push(entry)
+  },
+})
+```
+
+Entries contain `surfaceId`, `callId`, attempted `subject`, action, effect,
+outcome, and completion time. They never contain action input or output.
+Unregistered action names use effect `unknown`.
+
+Audit is per request, not per underlying effect. Idempotent replays and the
+`approval_required`/approved retry each produce an entry even when app code
+executes once. The kernel does not await the hook, and synchronous throws or
+rejected promises cannot change the action result. Put durable buffering in
+the hook when audit delivery must be guaranteed.
+
+The playground uses an app-specific `{ result, audit }` HTTP envelope to drain
+synchronous audit entries into its event panel. That envelope is not part of
+`@genui/protocol`; hosts may send audit data to any trusted sink.
+
 ## Mount in the browser
 
 Parse server responses before mounting or returning transport results.

@@ -103,6 +103,12 @@ void test("playground drives paste, mount, action, approval, and guest-error flo
   assert.equal(approve.surfaceId, firstExecute.call.surfaceId)
   assert.equal(approve.callId, firstExecute.call.callId)
 
+  const eventLog = page.locator("#event-log")
+  const eventText = await eventLog.textContent()
+  assert.equal(eventText?.includes('"type": "audit"'), true)
+  assert.equal(eventText?.includes('"outcome": "approval_required"'), true)
+  assert.equal(eventText?.includes('"outcome": "ok"'), true)
+
   await page.locator("#fixture-error").click()
   await frame.locator("#throw-error").click()
   await page.locator("#event-log").getByText("Fixture guest failure", { exact: false }).waitFor()

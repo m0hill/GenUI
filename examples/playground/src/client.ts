@@ -1,5 +1,7 @@
+import type { CallAuditEntry } from "@genui/genui"
 import { mount, type Mounted, type SurfaceEvent } from "@genui/genui/dom"
-import { actionError, parseActionResult, parseSurface } from "@genui/protocol"
+import { actionError, parseSurface } from "@genui/protocol"
+import { parseExecuteEnvelope } from "./execute-envelope.js"
 import { guestErrorFixture, ordersDashboardFixture } from "./fixtures.js"
 
 const requiredElement = <ElementType extends Element>(selector: string): ElementType => {
@@ -20,7 +22,9 @@ const showStatus = (message: string, error = false): void => {
   status.dataset.error = String(error)
 }
 
-const appendEvent = (event: SurfaceEvent): void => {
+type PlaygroundEvent = SurfaceEvent | { readonly type: "audit"; readonly entry: CallAuditEntry }
+
+const appendEvent = (event: PlaygroundEvent): void => {
   const item = document.createElement("li")
   item.textContent = JSON.stringify(event, null, 2)
   eventLog.append(item)
@@ -36,8 +40,12 @@ const transport = async (
     body: JSON.stringify({ call }),
     signal: options.signal,
   })
-  const result = parseActionResult(await response.json())
-  return result ?? actionError("execution_failed", "Host returned an invalid action result.")
+  const envelope = parseExecuteEnvelope(await response.json())
+  if (envelope === undefined) {
+    return actionError("execution_failed", "Host returned an invalid action result.")
+  }
+  for (const entry of envelope.audit) appendEvent({ type: "audit", entry })
+  return envelope.result
 }
 
 const createSurface = async (content: string): Promise<void> => {

@@ -2,14 +2,14 @@ import assert from "node:assert/strict"
 import { beforeEach, test } from "node:test"
 import {
   codeDialect,
-  parseActionResult,
   parseSurface,
   type ActionCall,
   type ActionResult,
   type Surface,
 } from "@genui/protocol"
-import { app, resetPendingApprovals } from "./app.js"
+import { app, resetPlaygroundState } from "./app.js"
 import { resetDemoOrders } from "./actions.js"
+import { parseExecuteEnvelope } from "./execute-envelope.js"
 
 const sessionCookie = (subject: string): string => `genui_session=${subject}`
 const defaultCookie = sessionCookie("session-test")
@@ -31,14 +31,14 @@ const createSurface = async (content = `<p>Orders</p>`): Promise<Surface> => {
 
 const execute = async (call: ActionCall, cookie = defaultCookie): Promise<ActionResult> => {
   const response = await postJson("/genui/execute", { call }, cookie)
-  const result = parseActionResult(await response.json())
-  if (result === undefined) throw new Error("Expected an action result response.")
-  return result
+  const envelope = parseExecuteEnvelope(await response.json())
+  if (envelope === undefined) throw new Error("Expected an execute response envelope.")
+  return envelope.result
 }
 
 beforeEach(() => {
   resetDemoOrders()
-  resetPendingApprovals()
+  resetPlaygroundState()
 })
 
 void test("playground creates verbatim code surfaces with projected demo grants", async () => {
@@ -76,13 +76,18 @@ void test("playground requires one server-held approval before executing a write
   assert.equal((await postJson("/genui/approve", updateCall)).status, 409)
 
   const bypass = await postJson("/genui/execute", { call: updateCall, approved: true })
-  assert.deepEqual(parseActionResult(await bypass.json()), {
+  const pending = parseExecuteEnvelope(await bypass.json())
+  assert.deepEqual(pending?.result, {
     ok: false,
     error: {
       code: "approval_required",
       message: "Change order ord-1001 to shipped",
     },
   })
+  assert.deepEqual(
+    pending?.audit.map((entry) => entry.outcome),
+    ["approval_required"],
+  )
   assert.equal(
     (await postJson("/genui/approve", updateCall, sessionCookie("session-other"))).status,
     403,
@@ -110,7 +115,7 @@ void test("playground requires one server-held approval before executing a write
 
 void test("playground rejects malformed execute envelopes with a codec error", async () => {
   const response = await postJson("/genui/execute", { call: { action: "orders.search" } })
-  const result = parseActionResult(await response.json())
+  const result = parseExecuteEnvelope(await response.json())?.result
 
   assert.equal(response.status, 400)
   assert.deepEqual(result, {
