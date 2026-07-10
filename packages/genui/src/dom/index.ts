@@ -1,6 +1,11 @@
 import { codeDialect, type Action, type ActionCall, type Surface } from "../protocol/index.js"
 import { codeBootstrapScript } from "../code/bootstrap.js"
-import { parseHostContext, renderHostStyleVariables, type HostContext } from "../host-context.js"
+import {
+  parseHostContext,
+  renderHostStyleVariables,
+  type GuestHostContext,
+  type HostContext,
+} from "../host-context.js"
 import { createHeartbeatTripwire, type HeartbeatTripwire } from "./heartbeat-tripwire.js"
 import type { HostCapabilities, HostCapabilityFlags } from "./host-capabilities.js"
 import { protocolChannel } from "./protocol.js"
@@ -13,6 +18,7 @@ import {
 } from "./sandbox-message-schema.js"
 import {
   createSurfaceBroker,
+  defaultMaxSurfaceHeight,
   type SurfaceBrokerEffect,
   type SurfaceBrokerTask,
   type SurfaceEvent,
@@ -20,7 +26,7 @@ import {
 } from "./surface-broker.js"
 
 export type { SurfaceEvent } from "./surface-broker.js"
-export type { HostContext, McpUiStyleVariableKey } from "../host-context.js"
+export type { ContainerDimensions, HostContext, McpUiStyleVariableKey } from "../host-context.js"
 export type {
   HostCapabilities,
   HostCapabilityName,
@@ -40,11 +46,10 @@ interface MountOptions {
   ) => boolean | Promise<boolean>
   /** HTTPS policies permit outbound image requests and can exfiltrate sandbox-visible data. */
   readonly imagePolicy?: ImagePolicy
-  /** MCP Apps-compatible theme and standardized CSS variables supplied by trusted host code. */
+  /** MCP Apps-compatible runtime context and standardized CSS variables from trusted host code. */
   readonly hostContext?: HostContext
   /** Optional host functions advertised to and callable by the generated surface. */
   readonly capabilities?: HostCapabilities
-  readonly maxHeight?: number
   readonly onEvent?: (event: SurfaceEvent) => void
   readonly snapshot?: SnapshotValue
   readonly snapshotTimeoutMs?: number
@@ -65,7 +70,7 @@ export interface Mounted {
   readonly surface: Surface
   snapshot(): Promise<SnapshotValue | undefined>
   replace(surface: Surface, options?: ReplaceOptions): Promise<void>
-  /** Apply theme changes live; style-variable changes render on the next replacement. */
+  /** Apply runtime context live; style-variable changes render on the next replacement. */
   updateHostContext(partial: HostContext): void
   /** Ask the guest to clean up and return its final snapshot before disposal. */
   teardown(options?: TeardownOptions): Promise<SnapshotValue | undefined>
@@ -96,6 +101,16 @@ const imageSourcePolicy = (policy: ImagePolicy): string => {
   return "'none'"
 }
 
+const guestHostContext = (hostContext: HostContext): GuestHostContext => ({
+  ...(hostContext.theme === undefined ? {} : { theme: hostContext.theme }),
+  ...(hostContext.containerDimensions === undefined
+    ? {}
+    : { containerDimensions: { ...hostContext.containerDimensions } }),
+  ...(hostContext.locale === undefined ? {} : { locale: hostContext.locale }),
+  ...(hostContext.timeZone === undefined ? {} : { timeZone: hostContext.timeZone }),
+  ...(hostContext.platform === undefined ? {} : { platform: hostContext.platform }),
+})
+
 const surfaceDocument = (
   surface: Surface,
   imagePolicy: ImagePolicy,
@@ -108,7 +123,7 @@ const surfaceDocument = (
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src ${imageSourcePolicy(imagePolicy)}; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 ${renderHostStyleVariables(hostContext)}</head>
-<body><script>${codeBootstrapScript({ channel: protocolChannel, surfaceId: surface.id, actions: surface.grant.actions, ...capabilities, ...(restore === undefined ? {} : { restore }), ...(hostContext.theme === undefined ? {} : { theme: hostContext.theme }) })}</script>${surface.content}</body>
+<body><script>${codeBootstrapScript({ channel: protocolChannel, surfaceId: surface.id, actions: surface.grant.actions, ...capabilities, hostContext: guestHostContext(hostContext), ...(restore === undefined ? {} : { restore }) })}</script>${surface.content}</body>
 </html>`
 
 const assertSupportedSurface = (surface: Surface): void => {
@@ -128,6 +143,7 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
     updateModelContext: hostCapabilities.updateModelContext !== undefined,
   }
   const ownerDocument = element.ownerDocument
+  const ownerWindow = ownerDocument.defaultView
   const imagePolicy = options.imagePolicy ?? "none"
   const initialSnapshot = options.snapshot
   const snapshotTimeoutMs =
@@ -147,13 +163,14 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
   let errorElement: Element | undefined
   let heartbeatTripwire: HeartbeatTripwire | undefined
   let intersectionObserver: IntersectionObserver | undefined
+  let normalizeFlexibleWidthReports = hostContext.containerDimensions?.width === undefined
   const pendingSnapshots = new Map<string, PendingSnapshotRequest>()
 
   const broker = createSurfaceBroker(surface, {
     transport: options.transport,
     capabilities: hostCapabilities,
     confirm: options.confirm,
-    maxHeight: options.maxHeight,
+    containerDimensions: hostContext.containerDimensions,
   })
   const iframe = ownerDocument.createElement("iframe")
   iframe.setAttribute("sandbox", "allow-scripts allow-forms")
@@ -162,15 +179,29 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
   iframe.style.display = "block"
   iframe.style.width = "100%"
 
+  const applyContainerConstraints = (dimensions: HostContext["containerDimensions"]): void => {
+    if (dimensions?.width === undefined && dimensions?.maxWidth !== undefined) {
+      iframe.style.maxWidth = `${dimensions.maxWidth}px`
+    } else {
+      iframe.style.removeProperty("max-width")
+    }
+    if (dimensions?.height === undefined) {
+      iframe.style.maxHeight = `${dimensions?.maxHeight ?? defaultMaxSurfaceHeight}px`
+    } else {
+      iframe.style.removeProperty("max-height")
+    }
+  }
+  applyContainerConstraints(hostContext.containerDimensions)
+
   const emit = (event: SurfaceEvent): void => options.onEvent?.(event)
 
-  const postHostTheme = (theme: "light" | "dark"): void => {
+  const postHostContext = (context: GuestHostContext): void => {
     iframe.contentWindow?.postMessage(
       {
         channel: protocolChannel,
         type: "host_context_changed",
         surfaceId: broker.surface.id,
-        theme,
+        context,
       },
       "*",
     )
@@ -182,8 +213,13 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
       emit(effect.event)
       return
     }
+    if (effect.type === "set_width") {
+      iframe.style.width = effect.width === undefined ? "100%" : `${effect.width}px`
+      return
+    }
     if (effect.type === "set_height") {
-      iframe.style.height = `${effect.height}px`
+      if (effect.height === undefined) iframe.style.removeProperty("height")
+      else iframe.style.height = `${effect.height}px`
       return
     }
     iframe.contentWindow?.postMessage(effect.message, "*")
@@ -194,6 +230,14 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
     if (task.pending !== undefined) {
       void task.pending.then((effects) => effects.forEach(applyEffect))
     }
+  }
+
+  const updateFlexibleWidthNormalization = (
+    dimensions: HostContext["containerDimensions"],
+  ): void => {
+    // Resize reports have no policy revision. After releasing a flexible width, always use the
+    // owned iframe's effective width so arbitrarily delayed reports cannot restore an older size.
+    normalizeFlexibleWidthReports = dimensions?.width === undefined
   }
 
   const finishSnapshotRequest = (requestId: string, snapshot: SnapshotValue | undefined): void => {
@@ -322,6 +366,12 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
       handleTeardownMessage(parsed.value)
       return
     }
+    if (parsed.value.type === "resize" && normalizeFlexibleWidthReports) {
+      // The borderless iframe's untransformed integer client width matches guest innerWidth.
+      const effectiveWidth = iframe.clientWidth
+      applyTask(broker.handleSandboxMessage({ ...parsed.value, width: effectiveWidth }))
+      return
+    }
     applyTask(broker.handleSandboxMessage(parsed.value))
   }
 
@@ -329,7 +379,10 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
     if (disposed || terminated) return
     if (expectedDocumentLoads > 0) {
       expectedDocumentLoads -= 1
-      if (hostContext.theme !== undefined) postHostTheme(hostContext.theme)
+      const currentGuestHostContext = guestHostContext(hostContext)
+      if (Object.keys(currentGuestHostContext).length > 0) {
+        postHostContext(currentGuestHostContext)
+      }
       return
     }
 
@@ -342,7 +395,6 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
     iframe.srcdoc = surfaceDocument(nextSurface, imagePolicy, hostContext, capabilityFlags, restore)
   }
 
-  const ownerWindow = ownerDocument.defaultView
   heartbeatTripwire = createHeartbeatTripwire({
     now: () => ownerWindow?.performance.now() ?? Date.now(),
     schedule: (check, intervalMs) => {
@@ -364,6 +416,7 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
 
   ownerWindow?.addEventListener("message", handleMessage)
   iframe.addEventListener("load", handleLoad)
+  applyTask(broker.updateContainerDimensions(hostContext.containerDimensions))
   setDocument(broker.surface, initialSnapshot)
   element.replaceChildren(iframe)
 
@@ -395,6 +448,9 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
               : undefined
         if (disposed || terminated || teardownPromise !== undefined) return
         broker.replace(nextSurface)
+        applyContainerConstraints(hostContext.containerDimensions)
+        applyTask(broker.updateContainerDimensions(hostContext.containerDimensions))
+        updateFlexibleWidthNormalization(hostContext.containerDimensions)
         setDocument(nextSurface, restore)
       })
       replacementQueue = replacement.catch(() => undefined)
@@ -404,8 +460,14 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
       const update = parseHostContext(partial)
       if (disposed || terminated || teardownPromise !== undefined) return
       hostContext = { ...hostContext, ...update }
-      if (update.theme === undefined) return
-      postHostTheme(update.theme)
+      if (update.containerDimensions !== undefined) {
+        applyContainerConstraints(update.containerDimensions)
+        applyTask(broker.updateContainerDimensions(update.containerDimensions))
+        updateFlexibleWidthNormalization(update.containerDimensions)
+      }
+      const guestUpdate = guestHostContext(update)
+      if (Object.keys(guestUpdate).length === 0) return
+      postHostContext(guestUpdate)
     },
     teardown(teardownOptions = {}) {
       const reason = teardownOptions.reason

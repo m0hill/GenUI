@@ -34,6 +34,8 @@ The trusted bridge available as \`window.genui\` has exactly this API:
 
 - \`genui.surfaceId\`: this surface's string identifier.
 - \`genui.actions\`: the granted action descriptors listed below.
+- \`genui.hostContext\`: the current deeply frozen host environment.
+- \`genui.onHostContextChange(handler)\`: registers one live-context handler.
 - \`await genui.call(name, input)\`: resolves to the action output or rejects with a
   \`GenuiActionError\` containing \`code\` and \`message\`.
 - \`genui.capabilities\`: frozen booleans for optional host capabilities.
@@ -55,6 +57,34 @@ Schemas. Example:
     const orders = await genui.call("orders.search", { status: "open" })
     document.querySelector("#result").textContent = JSON.stringify(orders)
   }
+</script>
+\`\`\`
+
+## Host context
+
+\`genui.hostContext\` may provide \`theme\`, \`containerDimensions\`, \`locale\`, \`timeZone\`,
+and \`platform\`. Pass locale and time zone explicitly to \`Intl\`; do not rely on browser defaults.
+Use platform only for small adaptations instead of user-agent sniffing. Use responsive CSS and keep
+content usable inside fixed host-owned dimensions; do not resize or navigate the parent. A change
+handler receives a frozen partial update; read the merged \`genui.hostContext\` inside it.
+
+\`\`\`html
+<time id="local-time"></time>
+<script type="module">
+  const renderHostContext = () => {
+    const {
+      locale = "en-US",
+      timeZone = "UTC",
+      platform = "web",
+      containerDimensions = {},
+    } = genui.hostContext
+    document.querySelector("#local-time").textContent =
+      new Intl.DateTimeFormat(locale, { timeZone }).format(new Date())
+    document.documentElement.dataset.platform = platform
+    document.documentElement.classList.toggle("fixed-height", "height" in containerDimensions)
+  }
+  genui.onHostContextChange(renderHostContext)
+  renderHostContext()
 </script>
 \`\`\`
 

@@ -116,6 +116,98 @@ const startupGrantSurface: Surface = {
   },
 }
 
+const hostContextSurface: Surface = {
+  id: "surface-host-context-browser",
+  dialect: "code/0",
+  content: `
+    <style>
+      html, body { margin: 0; }
+      #resizable-content { height: 40px; }
+    </style>
+    <output id="startup-context"></output>
+    <output id="context-change"></output>
+    <button id="grow-content">Grow</button>
+    <div id="resizable-content"></div>
+    <script type="module">
+      const startupContext = genui.hostContext
+      document.querySelector("#startup-context").textContent = JSON.stringify({
+        context: startupContext,
+        frozen: Object.isFrozen(startupContext),
+        dimensionsFrozen: Object.isFrozen(startupContext.containerDimensions),
+      })
+
+      let state = { changes: 0, context: startupContext }
+      genui.onHostContextChange((partial) => {
+        state = { changes: state.changes + 1, context: genui.hostContext }
+        document.querySelector("#context-change").textContent = JSON.stringify({
+          partial,
+          current: genui.hostContext,
+          partialFrozen: Object.isFrozen(partial),
+          dimensionsFrozen: Object.isFrozen(partial.containerDimensions),
+        })
+      })
+      genui.snapshot(() => state)
+      genui.teardown(async () => {
+        await Promise.resolve()
+        state = { ...state, tornDown: true }
+      })
+      document.querySelector("#grow-content").onclick = () => {
+        document.querySelector("#resizable-content").style.height = "1000px"
+      }
+    </script>
+  `,
+  grant: { surfaceId: "surface-host-context-browser", actions: [] },
+}
+
+const replacementContextSurface: Surface = {
+  id: "surface-host-context-replacement-browser",
+  dialect: "code/0",
+  content: `
+    <output id="replacement-context"></output>
+    <output id="replacement-changes">0</output>
+    <script type="module">
+      let changes = 0
+      const render = () => {
+        document.querySelector("#replacement-context").textContent =
+          JSON.stringify(genui.hostContext)
+        document.querySelector("#replacement-changes").textContent = String(changes)
+      }
+      genui.onHostContextChange(() => {
+        changes += 1
+        render()
+      })
+      render()
+    </script>
+  `,
+  grant: { surfaceId: "surface-host-context-replacement-browser", actions: [] },
+}
+
+const syntheticContextSurface: Surface = {
+  id: "surface-synthetic-context-browser",
+  dialect: "code/0",
+  content: `
+    <output id="synthetic-context"></output>
+    <script type="module">
+      let changes = 0
+      genui.onHostContextChange(() => {
+        changes += 1
+      })
+      window.dispatchEvent(new MessageEvent("message", {
+        source: window.parent,
+        data: {
+          channel: "genui/dom/0",
+          type: "host_context_changed",
+          surfaceId: genui.surfaceId,
+          context: { locale: "ja-JP" },
+        },
+      }))
+      document.querySelector("#synthetic-context").textContent =
+        JSON.stringify({ context: genui.hostContext, changes })
+    </script>
+  `,
+  grant: { surfaceId: "surface-synthetic-context-browser", actions: [] },
+}
+
 const heartbeatSurface: Surface = {
   id: "surface-heartbeat-browser",
   dialect: "code/0",
@@ -253,6 +345,228 @@ void test("guest startup scripts receive the embedded grant", async (context) =>
   const output = page.frameLocator("iframe").locator("#startup-actions")
   await output.waitFor({ state: "visible" })
   assert.equal(await output.textContent(), "dice.roll")
+})
+
+void test("guest context, bidirectional sizing, live updates, and teardown compose in a browser", async (context) => {
+  const page = await newPage()
+  context.after(async () => {
+    await page.close()
+  })
+
+  await page.evaluate((surfaceValue) => {
+    const root = document.querySelector("#root")
+    if (root === null) throw new Error("Missing mount root.")
+    const events: SurfaceEvent[] = []
+    const mounted = window.GenuiDom.mount(root, surfaceValue, {
+      hostContext: {
+        theme: "dark",
+        styles: { variables: { "--color-text-primary": "rgb(1, 2, 3)" } },
+        containerDimensions: { width: 320, maxHeight: 180 },
+        locale: "en-US",
+        timeZone: "UTC",
+        platform: "web",
+      },
+      transport: async () => ({ ok: true, value: {} }),
+      onEvent: (event) => events.push(event),
+    })
+    Object.assign(window, { __codeHost: { calls: [], events, mounted } })
+  }, hostContextSurface)
+
+  const frame = page.frameLocator("iframe")
+  const startup = frame.locator("#startup-context")
+  await startup.waitFor({ state: "visible" })
+  assert.deepEqual(JSON.parse((await startup.textContent()) ?? "null"), {
+    context: {
+      theme: "dark",
+      containerDimensions: { maxHeight: 180, width: 320 },
+      locale: "en-US",
+      timeZone: "UTC",
+      platform: "web",
+    },
+    frozen: true,
+    dimensionsFrozen: true,
+  })
+  assert.deepEqual(
+    await page.locator("iframe").evaluate((iframe) => ({
+      maxHeight: iframe.style.maxHeight,
+      maxWidth: iframe.style.maxWidth,
+    })),
+    { maxHeight: "180px", maxWidth: "" },
+  )
+
+  await page.waitForFunction(() =>
+    window.__codeHost.events.some(
+      (event) => event.type === "resize" && event.width === 320 && event.height > 0,
+    ),
+  )
+  const settledResizeCount = await page.evaluate(
+    () => window.__codeHost.events.filter((event) => event.type === "resize").length,
+  )
+  await page.waitForTimeout(200)
+  assert.equal(
+    await page.evaluate(
+      () => window.__codeHost.events.filter((event) => event.type === "resize").length,
+    ),
+    settledResizeCount,
+  )
+
+  await frame.locator("#grow-content").click()
+  await page.waitForFunction(() => document.querySelector("iframe")?.style.height === "180px")
+  assert.equal(await page.locator("iframe").evaluate((iframe) => iframe.style.width), "320px")
+  assert.deepEqual(await page.evaluate(() => window.__codeHost.events.at(-1)), {
+    type: "resize",
+    width: 320,
+    height: 180,
+  })
+
+  await page.evaluate(() =>
+    window.__codeHost.mounted.updateHostContext({
+      containerDimensions: { maxWidth: 280, maxHeight: 120 },
+      locale: "ja-JP",
+      timeZone: "Asia/Tokyo",
+      platform: "mobile",
+    }),
+  )
+  const change = frame.locator("#context-change")
+  await change.waitFor({ state: "visible" })
+  await page.waitForFunction(
+    () => document.querySelector("iframe")?.getBoundingClientRect().width === 280,
+  )
+  assert.equal(await page.locator("iframe").evaluate((iframe) => iframe.style.height), "120px")
+  assert.deepEqual(
+    await page.locator("iframe").evaluate((iframe) => ({
+      maxHeight: iframe.style.maxHeight,
+      maxWidth: iframe.style.maxWidth,
+    })),
+    { maxHeight: "120px", maxWidth: "280px" },
+  )
+  assert.deepEqual(JSON.parse((await change.textContent()) ?? "null"), {
+    partial: {
+      containerDimensions: { maxHeight: 120, maxWidth: 280 },
+      locale: "ja-JP",
+      timeZone: "Asia/Tokyo",
+      platform: "mobile",
+    },
+    current: {
+      theme: "dark",
+      containerDimensions: { maxHeight: 120, maxWidth: 280 },
+      locale: "ja-JP",
+      timeZone: "Asia/Tokyo",
+      platform: "mobile",
+    },
+    partialFrozen: true,
+    dimensionsFrozen: true,
+  })
+
+  await page.locator("iframe").evaluate((iframe) => {
+    iframe.style.transform = "scale(0.5)"
+  })
+  await page.evaluate(() =>
+    window.__codeHost.mounted.updateHostContext({
+      containerDimensions: { maxWidth: 600, maxHeight: 120 },
+    }),
+  )
+  await page.waitForFunction(() => document.querySelector("iframe")?.clientWidth === 600)
+  await page.waitForTimeout(100)
+  assert.equal(await page.locator("iframe").evaluate((iframe) => iframe.clientWidth), 600)
+  assert.equal(await page.locator("iframe").evaluate((iframe) => iframe.style.width), "600px")
+  assert.equal(
+    await page.locator("iframe").evaluate((iframe) => iframe.getBoundingClientRect().width),
+    300,
+  )
+  assert.equal(await page.locator("iframe").evaluate((iframe) => iframe.style.maxWidth), "600px")
+
+  const finalSnapshot = await page.evaluate(() =>
+    window.__codeHost.mounted.teardown({ reason: "browser_test" }),
+  )
+  assert.deepEqual(finalSnapshot, {
+    changes: 2,
+    context: {
+      theme: "dark",
+      containerDimensions: { maxHeight: 120, maxWidth: 600 },
+      locale: "ja-JP",
+      timeZone: "Asia/Tokyo",
+      platform: "mobile",
+    },
+    tornDown: true,
+  })
+  assert.equal(await page.locator("iframe").count(), 0)
+})
+
+void test("a replaced document ignores stale host context messages", async (context) => {
+  const page = await newPage()
+  context.after(async () => {
+    await page.close()
+  })
+
+  await page.evaluate((surfaceValue) => {
+    const root = document.querySelector("#root")
+    if (root === null) throw new Error("Missing mount root.")
+    const events: SurfaceEvent[] = []
+    const mounted = window.GenuiDom.mount(root, surfaceValue, {
+      hostContext: { locale: "fr-FR", timeZone: "UTC", platform: "web" },
+      transport: async () => ({ ok: true, value: {} }),
+      onEvent: (event) => events.push(event),
+    })
+    Object.assign(window, { __codeHost: { calls: [], events, mounted } })
+  }, hostContextSurface)
+
+  await page.evaluate(async (surfaceValue) => {
+    await window.__codeHost.mounted.replace(surfaceValue)
+  }, replacementContextSurface)
+  const frame = page.frameLocator("iframe")
+  const output = frame.locator("#replacement-context")
+  await output.waitFor({ state: "visible" })
+
+  await page.evaluate((staleSurfaceId) => {
+    document.querySelector("iframe")?.contentWindow?.postMessage(
+      {
+        channel: "genui/dom/0",
+        type: "host_context_changed",
+        surfaceId: staleSurfaceId,
+        context: { locale: "stale" },
+      },
+      "*",
+    )
+  }, hostContextSurface.id)
+  await page.waitForTimeout(50)
+  assert.deepEqual(JSON.parse((await output.textContent()) ?? "null"), {
+    locale: "fr-FR",
+    timeZone: "UTC",
+    platform: "web",
+  })
+  assert.equal(await frame.locator("#replacement-changes").textContent(), "0")
+
+  await page.evaluate(() => window.__codeHost.mounted.updateHostContext({ locale: "de-DE" }))
+  await frame.locator("#replacement-changes").getByText("1", { exact: true }).waitFor()
+  assert.deepEqual(JSON.parse((await output.textContent()) ?? "null"), {
+    locale: "de-DE",
+    timeZone: "UTC",
+    platform: "web",
+  })
+})
+
+void test("guest code cannot synthesize a parent-sourced context update", async (context) => {
+  const page = await newPage()
+  context.after(async () => {
+    await page.close()
+  })
+
+  await page.evaluate((surfaceValue) => {
+    const root = document.querySelector("#root")
+    if (root === null) throw new Error("Missing mount root.")
+    window.GenuiDom.mount(root, surfaceValue, {
+      hostContext: { locale: "en-US" },
+      transport: async () => ({ ok: true, value: {} }),
+    })
+  }, syntheticContextSurface)
+
+  const output = page.frameLocator("iframe").locator("#synthetic-context")
+  await output.waitFor({ state: "visible" })
+  assert.deepEqual(JSON.parse((await output.textContent()) ?? "null"), {
+    context: { locale: "en-US" },
+    changes: 0,
+  })
 })
 
 void test("guest feature-detects and invokes host capabilities", async (context) => {
@@ -451,7 +765,7 @@ void test("red team: self-navigation kills the surface and emits a violation", a
         calls.push(call)
         return { ok: true, value: { total: 6 } }
       },
-      maxHeight: 80,
+      hostContext: { containerDimensions: { maxHeight: 80 } },
       onEvent: (event) => events.push(event),
     })
     Object.assign(window, { __codeHost: { calls, events, mounted } })

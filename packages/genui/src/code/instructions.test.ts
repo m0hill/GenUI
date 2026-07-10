@@ -75,6 +75,20 @@ void test("code instructions teach graceful teardown", () => {
   assert.match(instructions, /deadline/)
 })
 
+void test("code instructions teach portable host context", () => {
+  const instructions = codeInstructions([])
+
+  assert.match(instructions, /genui\.hostContext/)
+  assert.match(instructions, /genui\.onHostContextChange\(/)
+  assert.match(instructions, /Intl\.DateTimeFormat\(locale, \{ timeZone \}\)/)
+  assert.match(instructions, /containerDimensions/)
+  assert.match(instructions, /platform/)
+  assert.match(instructions, /user-agent sniffing/)
+  assert.match(instructions, /responsive CSS/)
+  assert.match(instructions, /fixed host-owned dimensions/)
+  assert.match(instructions, /merged `genui\.hostContext`/)
+})
+
 void test("code instructions list every standardized host style variable", () => {
   const instructions = codeInstructions([])
 

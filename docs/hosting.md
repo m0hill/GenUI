@@ -497,7 +497,7 @@ live only until final disposal. While the mount remains active, `onEvent`
 reports each request and outcome with the capability name; request events
 report payload byte length rather than the full `sendMessage` text.
 
-## Theme generated surfaces
+## Provide host context and sizing
 
 Pass the MCP Apps-aligned host context through `mount()`. Add this block to the
 mount options in the example above:
@@ -505,6 +505,10 @@ mount options in the example above:
 ```ts
 hostContext: {
   theme: "light",
+  containerDimensions: { maxHeight: 720 },
+  locale: "en-US",
+  timeZone: "UTC",
+  platform: "web",
   styles: {
     variables: {
       "--color-background-primary": "light-dark(#ffffff, #171717)",
@@ -518,35 +522,80 @@ hostContext: {
 },
 ```
 
-The host may provide any subset of the standardized variables. Use
-`light-dark(light, dark)` for theme-aware color values. `mount()` validates the
-context, emits the variables in a trusted `:root` style block before the guest
-bootstrap and generated content. When `theme` is present, the bootstrap sets
-both `data-theme` and `color-scheme` on the document root.
+The guest receives a deeply frozen JavaScript context containing any supplied
+`theme`, `containerDimensions`, `locale`, `timeZone`, and `platform`. Trusted
+`styles` never enter that object. They render as a trusted `:root` style block
+before the bootstrap and generated content.
 
-Change the live color scheme through the `Mounted` handle:
+Each container axis independently uses one of these modes:
+
+- `width` or `height` fixes that axis in CSS pixels. The host owns it and
+  ignores guest size requests for that axis.
+- `maxWidth` or `maxHeight` lets guest content size that axis up to the supplied
+  limit.
+- Omitting both fields leaves that axis in genui's default mode. Width remains
+  `100%`. Height follows guest content up to 1,200 pixels.
+
+An empty dimensions object is valid. Values must be finite and non-negative;
+zero deliberately collapses an axis. Supplying a fixed and maximum field for
+the same axis is invalid. MCP Apps describes an omitted axis as unbounded.
+Genui deliberately retains `100%` default width and the 1,200-pixel default
+height ceiling for host layout containment.
+
+`mount()` applies fixed sizes and maximum constraints synchronously, before it
+needs any guest size report. Guest reports then refine flexible dimensions
+within those already-enforced bounds.
+
+The bootstrap reports both content dimensions automatically. Accepted reports
+are rounded up and surface through `onEvent` as:
 
 ```ts
-mounted.updateHostContext({ theme: "dark" })
+{ type: "resize", width, height }
 ```
 
-A theme update applies to the live document without replacing the surface. It
-changes the document root so existing `light-dark()` values resolve again.
+Treat resize events as untrusted guest-authored observations. `mount()` applies
+fixed dimensions, configured maxima, and safe defaults only to its owned iframe
+before emitting the effective size.
 
-Host-context updates merge their supplied top-level fields with the current
-context. A `styles` update replaces the previous `styles` field, so include
-every variable that the next document should retain. Updated variables are
-validated immediately but do not change the live document. They take effect on
-the next `replace()`. The current host context is reused for every replacement,
-including a same-surface replacement that captures and restores a guest
-snapshot.
+Change runtime context through the `Mounted` handle:
 
-Only standardized variable names are accepted. Values must be non-empty CSS
-strings without `<`, `>`, `{`, `}`, control characters, or a top-level
+```ts
+mounted.updateHostContext({
+  theme: "dark",
+  locale: "ja-JP",
+  timeZone: "Asia/Tokyo",
+  containerDimensions: { width: 480, maxHeight: 900 },
+})
+```
+
+Theme, dimensions, locale, time zone, and platform update live. New dimensions
+are applied to the iframe before later guest resize reports are handled. The
+guest callback receives the frozen partial update after its merged
+`genui.hostContext` accessor has changed. Handler throws or rejected promises
+emit `guest_error`; they do not roll back the valid host update.
+
+Updates merge supplied top-level fields. Omitted or `undefined` fields leave
+the current value unchanged. `containerDimensions` replaces the whole previous
+dimensions object. A `styles` update likewise replaces the previous `styles`
+field, so include every variable that the next document should retain. Style
+changes are validated immediately but take effect only on the next
+`replace()`.
+
+The latest complete runtime context is replayed after iframe load and carried
+into replacements. The current trusted styles are also reused when rendering a
+replacement, including a same-surface replacement that restores a snapshot.
+
+Use `light-dark(light, dark)` for theme-aware colors. When `theme` is present,
+the bootstrap sets both `data-theme` and `color-scheme` on the document root.
+Only standardized style-variable names are accepted. Values must be non-empty
+CSS strings without `<`, `>`, `{`, `}`, control characters, or a top-level
 semicolon. Quotes, parentheses, and brackets must balance; semicolons inside
-quoted strings or balanced groups are accepted. Invalid themes, keys, and
-values throw `TypeError` from `mount()` or `updateHostContext()` as host
-programming errors.
+quoted strings or balanced groups are accepted.
+
+Invalid context throws `TypeError` from `mount()` or `updateHostContext()`
+before changing host state. This includes unknown fields, malformed locale or
+time-zone identifiers, unsupported platforms, invalid dimension combinations,
+and unsafe style values.
 
 ## Expose failures
 

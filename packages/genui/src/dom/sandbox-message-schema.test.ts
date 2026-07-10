@@ -102,7 +102,8 @@ void test("sandbox message schema parses code calls and runtime reports", () => 
       channel: protocolChannel,
       type: "resize",
       surfaceId: "surface-1",
-      height: 320,
+      width: 479.2,
+      height: 319.1,
     }),
     {
       ok: true,
@@ -110,6 +111,7 @@ void test("sandbox message schema parses code calls and runtime reports", () => 
         channel: protocolChannel,
         type: "resize",
         surfaceId: "surface-1",
+        width: 480,
         height: 320,
       },
     },
@@ -229,8 +231,79 @@ void test("sandbox message schema rejects malformed boundary data", () => {
 
   const longIdentifier = "x".repeat(257)
   for (const message of [
-    { channel: protocolChannel, type: "resize", surfaceId: "surface-1", height: Number.NaN },
-    { channel: protocolChannel, type: "resize", surfaceId: longIdentifier, height: 100 },
+    { channel: protocolChannel, type: "resize", surfaceId: "surface-1", height: 100 },
+    { channel: protocolChannel, type: "resize", surfaceId: "surface-1", width: 100 },
+    {
+      channel: protocolChannel,
+      type: "resize",
+      surfaceId: "surface-1",
+      width: -1,
+      height: 100,
+    },
+    {
+      channel: protocolChannel,
+      type: "resize",
+      surfaceId: "surface-1",
+      width: 100,
+      height: -1,
+    },
+    {
+      channel: protocolChannel,
+      type: "resize",
+      surfaceId: "surface-1",
+      width: Number.NaN,
+      height: 100,
+    },
+    {
+      channel: protocolChannel,
+      type: "resize",
+      surfaceId: "surface-1",
+      width: Number.POSITIVE_INFINITY,
+      height: 100,
+    },
+    {
+      channel: protocolChannel,
+      type: "resize",
+      surfaceId: "surface-1",
+      width: 100,
+      height: Number.NaN,
+    },
+    {
+      channel: protocolChannel,
+      type: "resize",
+      surfaceId: "surface-1",
+      width: 100,
+      height: Number.POSITIVE_INFINITY,
+    },
+    {
+      channel: protocolChannel,
+      type: "resize",
+      surfaceId: "surface-1",
+      width: "100",
+      height: 100,
+    },
+    {
+      channel: protocolChannel,
+      type: "resize",
+      surfaceId: "surface-1",
+      width: 100,
+      height: "100",
+    },
+    {
+      channel: protocolChannel,
+      type: "resize",
+      surfaceId: "surface-1",
+      width: 100,
+      height: 100,
+      unexpected: true,
+    },
+    {
+      channel: protocolChannel,
+      type: "resize",
+      surfaceId: longIdentifier,
+      width: 100,
+      height: 100,
+    },
     { channel: protocolChannel, type: "heartbeat" },
     { channel: protocolChannel, type: "heartbeat", surfaceId: longIdentifier },
     {
@@ -346,4 +419,11 @@ void test("sandbox message schema rejects malformed boundary data", () => {
     }),
     { ok: false, reason: "bad_message" },
   )
+
+  const inheritedResize = Object.assign(Object.create({ width: 100, height: 100 }), {
+    channel: protocolChannel,
+    type: "resize",
+    surfaceId: "surface-1",
+  })
+  assert.deepEqual(parseSandboxMessage(inheritedResize), { ok: false, reason: "bad_message" })
 })

@@ -55,6 +55,10 @@ void test("mount renders trusted host theme variables before guest content", () 
   const instance = mount(asDomElement(element), surface, {
     hostContext: {
       theme: "dark",
+      containerDimensions: { width: 480, maxHeight: 720 },
+      locale: "en-US",
+      timeZone: "UTC",
+      platform: "web",
       styles: {
         variables: {
           "--color-background-primary": "light-dark(#ffffff, #171717)",
@@ -66,7 +70,10 @@ void test("mount renders trusted host theme variables before guest content", () 
   })
   const document = mountedIframe(element).srcdoc
 
-  assert.match(document, /"theme":"dark"/)
+  assert.match(
+    document,
+    /"hostContext":\{"theme":"dark","containerDimensions":\{"maxHeight":720,"width":480\},"locale":"en-US","timeZone":"UTC","platform":"web"\}/,
+  )
   assert.match(
     document,
     /<style>:root \{\n  --color-background-primary: light-dark\(#ffffff, #171717\);\n  --font-sans: "Host; Sans", system-ui, sans-serif;\n\}<\/style>/,
@@ -235,10 +242,22 @@ void test("updateHostContext applies theme live and defers copied variables unti
     "--color-text-primary": "#222222",
   }
 
-  instance.updateHostContext({ styles: { variables } })
+  instance.updateHostContext({ styles: { variables }, locale: "fr-FR" })
   variables["--color-text-primary"] = "#333333"
-  assert.deepEqual(hostMessages, [])
+  assert.deepEqual(hostMessages, [
+    {
+      channel: protocolChannel,
+      type: "host_context_changed",
+      surfaceId: first.id,
+      context: { locale: "fr-FR" },
+    },
+  ])
   assert.match(iframe.srcdoc, /--color-text-primary: #111111/)
+
+  const omittedUpdate: HostContext = {}
+  Reflect.set(omittedUpdate, "locale", undefined)
+  instance.updateHostContext(omittedUpdate)
+  assert.equal(hostMessages.length, 1)
 
   instance.updateHostContext({ theme: "dark" })
   assert.deepEqual(hostMessages, [
@@ -246,22 +265,35 @@ void test("updateHostContext applies theme live and defers copied variables unti
       channel: protocolChannel,
       type: "host_context_changed",
       surfaceId: first.id,
-      theme: "dark",
+      context: { locale: "fr-FR" },
+    },
+    {
+      channel: protocolChannel,
+      type: "host_context_changed",
+      surfaceId: first.id,
+      context: { theme: "dark" },
     },
   ])
 
   await instance.replace(second)
   assert.match(iframe.srcdoc, /"theme":"dark"/)
+  assert.match(iframe.srcdoc, /"locale":"fr-FR"/)
   assert.match(iframe.srcdoc, /--color-text-primary: #222222/)
   assert.doesNotMatch(iframe.srcdoc, /--color-text-primary: #111111|#333333/)
   instance.dispose()
 })
 
-void test("mount replays the latest host theme after the sandbox bootstrap loads", () => {
+void test("mount replays and replaces with the latest complete runtime context", async () => {
   const { window, element } = createMountTarget()
   const surface = testSurface([])
   const instance = mount(asDomElement(element), surface, {
-    hostContext: { theme: "light" },
+    hostContext: {
+      theme: "light",
+      containerDimensions: { maxHeight: 720 },
+      locale: "en-US",
+      timeZone: "UTC",
+      platform: "web",
+    },
     transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
   })
   const iframe = mountedIframe(element)
@@ -271,7 +303,13 @@ void test("mount replays the latest host theme after the sandbox bootstrap loads
     hostMessages.push(message)
   }
 
-  instance.updateHostContext({ theme: "dark" })
+  instance.updateHostContext({
+    theme: "dark",
+    containerDimensions: { width: 400, maxHeight: 600 },
+    locale: "fr-FR",
+    timeZone: "Europe/Paris",
+    platform: "desktop",
+  })
   hostMessages.length = 0
   iframe.dispatchEvent(new window.Event("load"))
 
@@ -280,9 +318,42 @@ void test("mount replays the latest host theme after the sandbox bootstrap loads
       channel: protocolChannel,
       type: "host_context_changed",
       surfaceId: surface.id,
-      theme: "dark",
+      context: {
+        theme: "dark",
+        containerDimensions: { maxHeight: 600, width: 400 },
+        locale: "fr-FR",
+        timeZone: "Europe/Paris",
+        platform: "desktop",
+      },
     },
   ])
+
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "resize",
+    surfaceId: surface.id,
+    width: 900,
+    height: 500,
+  })
+  assert.equal(iframe.style.height, "500px")
+
+  const replacement = { ...surface, content: "<p>Same-surface replacement</p>" }
+  await instance.replace(replacement, { snapshot: {} })
+  assert.match(iframe.srcdoc, /"locale":"fr-FR"/)
+  assert.match(iframe.srcdoc, /"timeZone":"Europe\/Paris"/)
+  assert.match(iframe.srcdoc, /"platform":"desktop"/)
+  assert.match(iframe.srcdoc, /"containerDimensions":\{"maxHeight":600,"width":400\}/)
+  assert.equal(iframe.style.width, "400px")
+  assert.equal(iframe.style.height, "")
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "resize",
+    surfaceId: replacement.id,
+    width: 900,
+    height: 900,
+  })
+  assert.equal(iframe.style.width, "400px")
+  assert.equal(iframe.style.height, "600px")
   instance.dispose()
 })
 
@@ -308,6 +379,15 @@ void test("updateHostContext rejects invalid updates without changing current co
     () => instance.updateHostContext({ styles: { variables: hostileVariables } }),
     /contains unsafe CSS/,
   )
+  const invalidDimensions: HostContext = { theme: "dark" }
+  Reflect.set(invalidDimensions, "containerDimensions", { width: 400, maxWidth: 800 })
+  assert.throws(
+    () => instance.updateHostContext(invalidDimensions),
+    /cannot contain width and maxWidth/,
+  )
+  const invalidLocale: HostContext = {}
+  Reflect.set(invalidLocale, "locale", "not_a_locale")
+  assert.throws(() => instance.updateHostContext(invalidLocale), /valid BCP-47 locale/)
 
   await instance.replace(second)
   const document = mountedIframe(element).srcdoc
@@ -382,23 +462,251 @@ void test("mount applies image policies and brokered resize", () => {
   ] as const) {
     const { window, element } = createMountTarget()
     const surface = testSurface([], `<img alt="fixture">`)
+    const events: SurfaceEvent[] = []
     const instance = mount(asDomElement(element), surface, {
       ...(imagePolicy === undefined ? {} : { imagePolicy }),
-      maxHeight: 320,
+      hostContext: { containerDimensions: { maxHeight: 320 } },
+      onEvent: (event) => events.push(event),
       transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
     })
     const iframe = mountedIframe(element)
+    Object.defineProperty(iframe, "clientWidth", { configurable: true, value: 640 })
     assert.match(iframe.srcdoc, new RegExp(expected.replaceAll("'", "\\'")))
 
     dispatchSandboxMessage(window, iframe, {
       channel: protocolChannel,
       type: "resize",
       surfaceId: surface.id,
+      width: 640,
       height: 999,
     })
+    assert.equal(iframe.style.width, "100%")
+    assert.equal(iframe.style.maxHeight, "320px")
     assert.equal(iframe.style.height, "320px")
+    assert.deepEqual(events, [{ type: "resize", width: 640, height: 320 }])
     instance.dispose()
   }
+})
+
+void test("initial default width reports the iframe's effective width", (context) => {
+  const { window, element } = createMountTarget()
+  const surface = testSurface([])
+  const events: SurfaceEvent[] = []
+  const instance = mount(asDomElement(element), surface, {
+    onEvent: (event) => events.push(event),
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+  })
+  context.after(() => instance.dispose())
+  const iframe = mountedIframe(element)
+  Object.defineProperty(iframe, "clientWidth", { configurable: true, value: 480 })
+
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "resize",
+    surfaceId: surface.id,
+    width: 100_000,
+    height: 200,
+  })
+
+  assert.equal(iframe.style.width, "100%")
+  assert.deepEqual(events, [{ type: "resize", width: 480, height: 200 }])
+})
+
+void test("mount applies fixed, flexible, and safe-default sizing independently", () => {
+  const cases = [
+    {
+      dimensions: { width: 400, maxHeight: 500 },
+      expectedWidth: "400px",
+      expectedHeight: "500px",
+      expectedMaxWidth: "",
+      expectedMaxHeight: "500px",
+      effectiveWidth: 400,
+      event: { type: "resize", width: 400, height: 500 },
+    },
+    {
+      dimensions: { maxWidth: 600, height: 300 },
+      expectedWidth: "600px",
+      expectedHeight: "300px",
+      expectedMaxWidth: "600px",
+      expectedMaxHeight: "",
+      effectiveWidth: 600,
+      event: { type: "resize", width: 600, height: 300 },
+    },
+    {
+      dimensions: { width: 400, height: 300 },
+      expectedWidth: "400px",
+      expectedHeight: "300px",
+      expectedMaxWidth: "",
+      expectedMaxHeight: "",
+      effectiveWidth: 400,
+      event: { type: "resize", width: 400, height: 300 },
+    },
+    {
+      dimensions: { maxWidth: 600, maxHeight: 500 },
+      expectedWidth: "600px",
+      expectedHeight: "500px",
+      expectedMaxWidth: "600px",
+      expectedMaxHeight: "500px",
+      effectiveWidth: 600,
+      event: { type: "resize", width: 600, height: 500 },
+    },
+    {
+      dimensions: {},
+      expectedWidth: "100%",
+      expectedHeight: "1200px",
+      expectedMaxWidth: "",
+      expectedMaxHeight: "1200px",
+      effectiveWidth: 480,
+      event: { type: "resize", width: 480, height: 1_200 },
+    },
+    {
+      dimensions: { maxWidth: 0, maxHeight: 0 },
+      expectedWidth: "0px",
+      expectedHeight: "0px",
+      expectedMaxWidth: "0px",
+      expectedMaxHeight: "0px",
+      effectiveWidth: 0,
+      event: { type: "resize", width: 0, height: 0 },
+    },
+  ] as const
+
+  for (const sizing of cases) {
+    const { window, element } = createMountTarget()
+    const surface = testSurface([])
+    const events: SurfaceEvent[] = []
+    const instance = mount(asDomElement(element), surface, {
+      hostContext: { containerDimensions: sizing.dimensions },
+      onEvent: (event) => events.push(event),
+      transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+    })
+    const iframe = mountedIframe(element)
+    Object.defineProperty(iframe, "clientWidth", {
+      configurable: true,
+      value: sizing.effectiveWidth,
+    })
+
+    assert.equal(iframe.style.maxWidth, sizing.expectedMaxWidth)
+    assert.equal(iframe.style.maxHeight, sizing.expectedMaxHeight)
+
+    dispatchSandboxMessage(window, iframe, {
+      channel: protocolChannel,
+      type: "resize",
+      surfaceId: surface.id,
+      width: 800.2,
+      height: 1_400.2,
+    })
+
+    assert.equal(iframe.style.width, sizing.expectedWidth)
+    assert.equal(iframe.style.height, sizing.expectedHeight)
+    assert.deepEqual(events, [sizing.event])
+    instance.dispose()
+  }
+})
+
+void test("live container updates replace the axis policy before later resize reports", () => {
+  const { window, element } = createMountTarget()
+  const surface = testSurface([])
+  const events: SurfaceEvent[] = []
+  const instance = mount(asDomElement(element), surface, {
+    hostContext: { containerDimensions: { width: 400, height: 300 } },
+    onEvent: (event) => events.push(event),
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+  })
+  const iframe = mountedIframe(element)
+  let effectiveWidth = 400
+  Object.defineProperty(iframe, "clientWidth", {
+    configurable: true,
+    get: () => effectiveWidth,
+  })
+  const hostMessages: unknown[] = []
+  if (iframe.contentWindow === null) throw new Error("Expected an iframe content window.")
+  iframe.contentWindow.postMessage = (message: unknown): void => {
+    hostMessages.push(message)
+  }
+
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "resize",
+    surfaceId: surface.id,
+    width: 800,
+    height: 900,
+  })
+  assert.equal(iframe.style.width, "400px")
+  assert.equal(iframe.style.height, "300px")
+
+  const dimensions = { maxWidth: 500, maxHeight: 600 }
+  instance.updateHostContext({ containerDimensions: dimensions })
+  effectiveWidth = 500
+  dimensions.maxWidth = 700
+  assert.equal(iframe.style.width, "100%")
+  assert.equal(iframe.style.height, "600px")
+  assert.equal(iframe.style.maxWidth, "500px")
+  assert.equal(iframe.style.maxHeight, "600px")
+  assert.deepEqual(hostMessages, [
+    {
+      channel: protocolChannel,
+      type: "host_context_changed",
+      surfaceId: surface.id,
+      context: { containerDimensions: { maxHeight: 600, maxWidth: 500 } },
+    },
+  ])
+
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "resize",
+    surfaceId: surface.id,
+    width: 500,
+    height: 900,
+  })
+  assert.equal(iframe.style.width, "500px")
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "resize",
+    surfaceId: surface.id,
+    width: 400,
+    height: 900,
+  })
+  assert.equal(iframe.style.width, "500px")
+
+  instance.updateHostContext({
+    containerDimensions: { maxWidth: 700, maxHeight: 600 },
+  })
+  effectiveWidth = 700
+  assert.equal(iframe.style.width, "100%")
+  assert.equal(iframe.style.maxWidth, "700px")
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "resize",
+    surfaceId: surface.id,
+    width: 500,
+    height: 900,
+  })
+  assert.equal(iframe.style.width, "700px")
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "resize",
+    surfaceId: surface.id,
+    width: 700,
+    height: 900,
+  })
+  assert.equal(iframe.style.width, "700px")
+
+  instance.updateHostContext({ containerDimensions: {} })
+  assert.equal(iframe.style.width, "100%")
+  assert.equal(iframe.style.height, "900px")
+  assert.equal(iframe.style.maxWidth, "")
+  assert.equal(iframe.style.maxHeight, "1200px")
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "resize",
+    surfaceId: surface.id,
+    width: 700,
+    height: 1_500,
+  })
+  assert.equal(iframe.style.width, "100%")
+  assert.equal(iframe.style.height, "1200px")
+  assert.deepEqual(events.at(-1), { type: "resize", width: 700, height: 1_200 })
+  instance.dispose()
 })
 
 void test("mount reports malformed sandbox messages", () => {
@@ -414,6 +722,7 @@ void test("mount reports malformed sandbox messages", () => {
     channel: protocolChannel,
     type: "resize",
     surfaceId: surface.id,
+    width: 100,
     height: "too-tall",
   })
 
@@ -703,6 +1012,10 @@ void test("teardown makes replacement and host-context updates inert", async () 
 
   const teardown = instance.teardown({ timeoutMs: 100 })
   instance.updateHostContext({ theme: "dark" })
+  instance.updateHostContext({
+    containerDimensions: { width: 10, height: 10 },
+    locale: "fr-FR",
+  })
   const laterReplacement = instance.replace(third)
   dispatchSandboxMessage(window, iframe, {
     channel: protocolChannel,
@@ -716,9 +1029,14 @@ void test("teardown makes replacement and host-context updates inert", async () 
 
   assert.equal(instance.surface, first)
   assert.match(iframe.srcdoc, /<p>First<\/p>/)
+  assert.equal(iframe.style.width, "100%")
+  assert.equal(iframe.style.height, "")
   assert.equal(
     hostMessages.some(
-      (message) => message.type === "host_context_changed" && message.theme === "dark",
+      (message) =>
+        message.type === "host_context_changed" &&
+        isRecord(message.context) &&
+        message.context.theme === "dark",
     ),
     false,
   )

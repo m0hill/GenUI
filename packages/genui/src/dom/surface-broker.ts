@@ -6,6 +6,7 @@ import {
   type ActionResult,
   type Surface,
 } from "../protocol/index.js"
+import type { ContainerDimensions } from "../host-context.js"
 import type {
   HostCapabilities,
   HostCapabilityName,
@@ -18,7 +19,8 @@ import type {
   SandboxMessage,
 } from "./sandbox-message-schema.js"
 
-const defaultMaxHeight = 1_200
+/** Safe height ceiling when the host does not provide an explicit height policy. */
+export const defaultMaxSurfaceHeight = 1_200
 // Host capabilities use a tighter boundary than the kernel's 64 KiB action-input limit.
 const maxCapabilityPayloadBytes = 16 * 1_024
 
@@ -53,7 +55,7 @@ export type SurfaceEvent =
       readonly capability: HostCapabilityName
       readonly outcome: HostCapabilityOutcome
     }
-  | { readonly type: "resize"; readonly height: number }
+  | { readonly type: "resize"; readonly width: number; readonly height: number }
   | { readonly type: "guest_error"; readonly message: string; readonly stack?: string }
   | {
       readonly type: "violation"
@@ -73,7 +75,7 @@ interface SurfaceBrokerOptions {
     call: ActionCall,
     intent: string,
   ) => boolean | Promise<boolean>
-  readonly maxHeight?: number
+  readonly containerDimensions?: ContainerDimensions
 }
 
 type HostCapabilityErrorCode = Exclude<HostCapabilityOutcome, "ok" | "superseded">
@@ -105,7 +107,8 @@ interface CapabilityResultMessage {
 
 export type SurfaceBrokerEffect =
   | { readonly type: "emit"; readonly event: SurfaceEvent }
-  | { readonly type: "set_height"; readonly height: number }
+  | { readonly type: "set_width"; readonly width: number | undefined }
+  | { readonly type: "set_height"; readonly height: number | undefined }
   | { readonly type: "post_result"; readonly message: SurfaceResultMessage }
   | { readonly type: "post_capability_result"; readonly message: CapabilityResultMessage }
 
@@ -117,6 +120,7 @@ export interface SurfaceBrokerTask {
 interface SurfaceBroker {
   readonly surface: Surface
   handleSandboxMessage(message: SandboxMessage): SurfaceBrokerTask
+  updateContainerDimensions(dimensions: ContainerDimensions | undefined): SurfaceBrokerTask
   replace(surface: Surface): void
   dispose(): void
 }
@@ -147,8 +151,7 @@ interface QueuedCapabilityRequest {
   resolve(effects: readonly SurfaceBrokerEffect[]): void
 }
 
-const clampHeight = (height: number, maxHeight: number): number =>
-  Math.max(0, Math.min(Math.ceil(height), maxHeight))
+const clampDimension = (value: number, maximum: number): number => Math.min(value, maximum)
 
 const emit = (event: SurfaceEvent): SurfaceBrokerEffect => ({ type: "emit", event })
 
@@ -188,9 +191,59 @@ export const createSurfaceBroker = (
   let currentSurface = initialSurface
   let disposed = false
   let surfaceRevision = 0
+  let containerDimensions = options.containerDimensions
+  let lastResize: { readonly width: number; readonly height: number } | undefined
   const pendingControllers = new Set<AbortController>()
   const activeCapabilityRequests = new Map<HostCapabilityName, BrokerCapabilityRequest>()
   let queuedModelContextRequest: QueuedCapabilityRequest | undefined
+
+  const resizeEffects = (
+    report: { readonly width: number; readonly height: number } | undefined,
+  ): readonly SurfaceBrokerEffect[] => {
+    const width =
+      containerDimensions?.width ??
+      (report === undefined
+        ? undefined
+        : containerDimensions?.maxWidth === undefined
+          ? undefined
+          : clampDimension(report.width, containerDimensions.maxWidth))
+    const height =
+      containerDimensions?.height ??
+      (report === undefined
+        ? undefined
+        : clampDimension(report.height, containerDimensions?.maxHeight ?? defaultMaxSurfaceHeight))
+    const effects: SurfaceBrokerEffect[] = [
+      { type: "set_width", width },
+      { type: "set_height", height },
+    ]
+    if (report !== undefined) {
+      effects.push(
+        emit({
+          type: "resize",
+          width: width ?? report.width,
+          // A flexible height always has the explicit or default maximum above.
+          height: height ?? report.height,
+        }),
+      )
+    }
+    return effects
+  }
+
+  const dimensionPolicyEffects = (): readonly SurfaceBrokerEffect[] => {
+    const height =
+      containerDimensions?.height ??
+      (lastResize === undefined
+        ? undefined
+        : clampDimension(
+            lastResize.height,
+            containerDimensions?.maxHeight ?? defaultMaxSurfaceHeight,
+          ))
+    return [
+      // Release a flexible width so the next innerWidth report can observe a larger container.
+      { type: "set_width", width: containerDimensions?.width },
+      { type: "set_height", height },
+    ]
+  }
 
   const resultEffects = (
     surfaceId: string,
@@ -570,8 +623,8 @@ export const createSurfaceBroker = (
     if (message.surfaceId !== currentSurface.id) return task([])
     if (message.type === "heartbeat") return task([])
     if (message.type === "resize") {
-      const height = clampHeight(message.height, options.maxHeight ?? defaultMaxHeight)
-      return task([{ type: "set_height", height }, emit({ type: "resize", height })])
+      lastResize = { width: message.width, height: message.height }
+      return task(resizeEffects(lastResize))
     }
     if (message.type === "guest_error") {
       return task([
@@ -592,6 +645,11 @@ export const createSurfaceBroker = (
       return currentSurface
     },
     handleSandboxMessage,
+    updateContainerDimensions(dimensions) {
+      if (disposed) return task([])
+      containerDimensions = dimensions
+      return task(dimensionPolicyEffects())
+    },
     replace(surface) {
       const sameSurface = currentSurface.id === surface.id
       abortPending()
@@ -605,6 +663,7 @@ export const createSurfaceBroker = (
       if (!sameSurface) activeCapabilityRequests.clear()
       surfaceRevision += 1
       currentSurface = surface
+      lastResize = undefined
     },
     dispose() {
       disposed = true
@@ -612,6 +671,7 @@ export const createSurfaceBroker = (
       queuedModelContextRequest?.resolve([])
       queuedModelContextRequest = undefined
       activeCapabilityRequests.clear()
+      lastResize = undefined
     },
   }
 }

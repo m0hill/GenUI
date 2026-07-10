@@ -98,6 +98,9 @@ const parseCapabilityOutcome = (value: unknown): CapabilityOutcome | undefined =
 const isNonNegativeInteger = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0
 
+const isNonNegativeFiniteNumber = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0
+
 const parseAuditEntry = (value: unknown): CallAuditEntry | undefined => {
   const record = parseRecord(value)
   if (record === undefined) return undefined
@@ -296,8 +299,8 @@ export const parsePlaygroundEvent = (value: unknown): PlaygroundEvent | undefine
           }
         : undefined
     case "resize":
-      return typeof record.height === "number" && Number.isFinite(record.height)
-        ? { type: "resize", height: record.height }
+      return isNonNegativeFiniteNumber(record.width) && isNonNegativeFiniteNumber(record.height)
+        ? { type: "resize", width: record.width, height: record.height }
         : undefined
     case "guest_error":
       if (

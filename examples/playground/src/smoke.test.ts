@@ -38,6 +38,19 @@ const stoppedLoadFixture = `
   <p id="stopped-load">Stopped load fixture</p>
   <script>window.stop()</script>
 `
+const hostContextFixture = `
+  <output id="host-context"></output>
+  <script type="module">
+    const context = genui.hostContext
+    const output = document.querySelector("#host-context")
+    output.textContent = JSON.stringify({
+      context,
+      frozen: Object.isFrozen(context),
+      dimensionsFrozen: Object.isFrozen(context.containerDimensions),
+    })
+    output.dataset.ready = "true"
+  </script>
+`
 const capabilitiesFixture = `
   <p id="capabilities"></p>
   <button id="send-message" hidden>Send message</button>
@@ -298,6 +311,32 @@ void test("playground advertises and delivers host capabilities", async (context
       { capability: "openLink", outcome: "ok" },
     ],
   )
+})
+
+void test("playground exposes host context before guest startup", async (context) => {
+  if (browser === undefined) throw new Error("Browser was not initialized.")
+  const page = await browser.newPage()
+  context.after(async () => {
+    await page.close()
+  })
+
+  await page.goto(origin)
+  await page.locator("#surface-source").fill(hostContextFixture)
+  await page.locator("#create-surface").click()
+
+  const output = page.frameLocator("#surface iframe").locator('#host-context[data-ready="true"]')
+  await output.waitFor()
+  const encoded = await output.textContent()
+  assert.deepEqual(JSON.parse(encoded ?? "null"), {
+    context: {
+      containerDimensions: { maxHeight: 720 },
+      locale: "en-US",
+      timeZone: "UTC",
+      platform: "web",
+    },
+    frozen: true,
+    dimensionsFrozen: true,
+  })
 })
 
 void test("playground serializes overlapping surface replacements", async (context) => {

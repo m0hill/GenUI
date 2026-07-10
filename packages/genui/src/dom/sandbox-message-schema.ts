@@ -32,6 +32,7 @@ interface ResizeSandboxMessage {
   readonly channel: typeof protocolChannel
   readonly type: "resize"
   readonly surfaceId: string
+  readonly width: number
   readonly height: number
 }
 
@@ -157,6 +158,13 @@ const sendMessageParamKeys: ReadonlySet<string> = new Set(["role", "content"])
 const textContentKeys: ReadonlySet<string> = new Set(["type", "text"])
 const openLinkParamKeys: ReadonlySet<string> = new Set(["url"])
 const updateModelContextParamKeys: ReadonlySet<string> = new Set(["content", "structuredContent"])
+const resizeMessageKeys: ReadonlySet<string> = new Set([
+  "channel",
+  "type",
+  "surfaceId",
+  "width",
+  "height",
+])
 const teardownSuccessKeys: ReadonlySet<string> = new Set([
   "channel",
   "type",
@@ -270,9 +278,34 @@ const parseResizeMessage = (
   value: Readonly<Record<string, unknown>>,
 ): ResizeSandboxMessage | undefined => {
   const surfaceId = boundedString(value.surfaceId, maxIdentifierLength)
-  if (surfaceId === undefined) return undefined
-  if (typeof value.height !== "number" || !Number.isFinite(value.height)) return undefined
-  return { channel: protocolChannel, type: "resize", surfaceId, height: value.height }
+  if (
+    surfaceId === undefined ||
+    !hasOnlyKeys(value, resizeMessageKeys) ||
+    !Object.hasOwn(value, "channel") ||
+    !Object.hasOwn(value, "type") ||
+    !Object.hasOwn(value, "surfaceId") ||
+    !Object.hasOwn(value, "width") ||
+    !Object.hasOwn(value, "height")
+  ) {
+    return undefined
+  }
+  if (
+    typeof value.width !== "number" ||
+    !Number.isFinite(value.width) ||
+    value.width < 0 ||
+    typeof value.height !== "number" ||
+    !Number.isFinite(value.height) ||
+    value.height < 0
+  ) {
+    return undefined
+  }
+  return {
+    channel: protocolChannel,
+    type: "resize",
+    surfaceId,
+    width: Math.max(0, Math.ceil(value.width)),
+    height: Math.max(0, Math.ceil(value.height)),
+  }
 }
 
 const parseHeartbeatMessage = (

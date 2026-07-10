@@ -7,6 +7,7 @@ import {
   isRecord,
   jsonRoundTrip,
 } from "../dom/test-support.test-support.js"
+import type { GuestHostContext } from "../host-context.js"
 import type { Action } from "../protocol/index.js"
 import { codeBootstrapScript } from "./bootstrap.js"
 
@@ -21,12 +22,14 @@ interface GuestApi {
     readonly openLink: boolean
     readonly updateModelContext: boolean
   }
+  readonly hostContext: GuestHostContext
   call(name: string, input: unknown): Promise<unknown>
   sendMessage(text: unknown): Promise<void>
   openLink(url: unknown): Promise<void>
   updateModelContext(params: unknown): Promise<void>
   snapshot(provider: (restored?: unknown) => unknown): void
   teardown(handler: (context: { readonly reason?: string }) => unknown): void
+  onHostContextChange(handler: (partial: GuestApi["hostContext"]) => unknown): void
 }
 
 interface HarnessOptions {
@@ -35,7 +38,7 @@ interface HarnessOptions {
   readonly openLink?: boolean
   readonly updateModelContext?: boolean
   readonly restore?: unknown
-  readonly theme?: "light" | "dark"
+  readonly hostContext?: GuestApi["hostContext"]
 }
 
 interface CapturedInterval {
@@ -44,21 +47,36 @@ interface CapturedInterval {
   wasCleared(): boolean
 }
 
+interface CapturedResizeObserver {
+  readonly observedTargets: readonly Element[]
+  notify(): void
+  runAnimationFrame(): void
+  wasDisconnected(): boolean
+  wasAnimationFrameCanceled(): boolean
+}
+
 type SandboxWindow = ReturnType<typeof createSandboxWindow>["window"]
+const trustedMessageHandlerKey = "__genuiTestTrustedMessageHandler"
 
 const dispatchInboundMessage = (
   window: SandboxWindow,
   data: unknown,
   source: "parent" | "self" | "forged" = "parent",
 ): void => {
+  const handler = Reflect.get(window, trustedMessageHandlerKey)
+  if (typeof handler !== "function") throw new Error("Expected a captured message handler.")
+  const eventSource =
+    source === "parent" ? Reflect.get(window, "parent") : source === "self" ? window : null
+  Reflect.apply(handler, window, [{ data, source: eventSource, isTrusted: true }])
+}
+
+const dispatchSyntheticInboundMessage = (window: SandboxWindow, data: unknown): void => {
   const dataKey = "__genuiTestInboundMessage"
-  const sourceExpression =
-    source === "parent" ? "window.parent" : source === "self" ? "window" : "null"
   Reflect.set(window, dataKey, data)
   try {
     window.eval(`window.dispatchEvent(new MessageEvent("message", {
       data: window.${dataKey},
-      source: ${sourceExpression}
+      source: window.parent
     }))`)
   } finally {
     Reflect.deleteProperty(window, dataKey)
@@ -70,8 +88,20 @@ const createHarness = (
 ): ReturnType<typeof createSandboxWindow> & {
   readonly genui: GuestApi
   readonly interval: CapturedInterval
+  readonly resizeObserver: CapturedResizeObserver
 } => {
   const harness = createSandboxWindow("")
+  const addEventListener = harness.window.addEventListener.bind(harness.window)
+  Reflect.set(
+    harness.window,
+    "addEventListener",
+    (type: unknown, listener: unknown, options: unknown): void => {
+      if (type === "message" && typeof listener === "function") {
+        Reflect.set(harness.window, trustedMessageHandlerKey, listener)
+      }
+      Reflect.apply(addEventListener, harness.window, [type, listener, options])
+    },
+  )
   Object.defineProperty(harness.window, "parent", {
     configurable: true,
     value: {
@@ -83,6 +113,11 @@ const createHarness = (
   let intervalCallback: (() => void) | undefined
   let intervalDelayMs: number | undefined
   let intervalCleared = false
+  let resizeCallback: (() => void) | undefined
+  let animationFrameCallback: (() => void) | undefined
+  let animationFrameCanceled = false
+  let resizeObserverDisconnected = false
+  const observedTargets: Element[] = []
   Reflect.set(harness.window, "setInterval", (callback: unknown, delayMs: unknown): number => {
     if (typeof callback !== "function" || typeof delayMs !== "number") {
       throw new TypeError("Expected a function interval callback and numeric delay.")
@@ -94,6 +129,36 @@ const createHarness = (
   Reflect.set(harness.window, "clearInterval", (intervalId: unknown): void => {
     if (intervalId === 1) intervalCleared = true
   })
+  Reflect.set(harness.window, "requestAnimationFrame", (callback: unknown): number => {
+    if (typeof callback !== "function") throw new TypeError("Expected an animation callback.")
+    animationFrameCallback = () => Reflect.apply(callback, harness.window, [0])
+    animationFrameCanceled = false
+    return 1
+  })
+  Reflect.set(harness.window, "cancelAnimationFrame", (frameId: unknown): void => {
+    if (frameId === 1) {
+      animationFrameCallback = undefined
+      animationFrameCanceled = true
+    }
+  })
+  Reflect.set(
+    harness.window,
+    "ResizeObserver",
+    class {
+      constructor(callback: unknown) {
+        if (typeof callback !== "function") throw new TypeError("Expected a resize callback.")
+        resizeCallback = () => Reflect.apply(callback, harness.window, [[], this])
+      }
+
+      observe(target: Element): void {
+        observedTargets.push(target)
+      }
+
+      disconnect(): void {
+        resizeObserverDisconnected = true
+      }
+    },
+  )
   harness.window.eval(
     codeBootstrapScript({
       channel,
@@ -102,8 +167,8 @@ const createHarness = (
       sendMessage: options.sendMessage ?? false,
       openLink: options.openLink ?? false,
       updateModelContext: options.updateModelContext ?? false,
+      hostContext: options.hostContext ?? {},
       ...(options.restore === undefined ? {} : { restore: options.restore }),
-      ...(options.theme === undefined ? {} : { theme: options.theme }),
     }),
   )
   const genui = Reflect.get(harness.window, "genui")
@@ -124,6 +189,21 @@ const createHarness = (
         intervalCallback()
       },
       wasCleared: () => intervalCleared,
+    },
+    resizeObserver: {
+      observedTargets,
+      notify() {
+        if (resizeCallback === undefined) throw new Error("Expected a captured resize observer.")
+        resizeCallback()
+      },
+      runAnimationFrame() {
+        const callback = animationFrameCallback
+        if (callback === undefined) throw new Error("Expected a captured animation frame.")
+        animationFrameCallback = undefined
+        callback()
+      },
+      wasDisconnected: () => resizeObserverDisconnected,
+      wasAnimationFrameCanceled: () => animationFrameCanceled,
     },
   }
 }
@@ -168,6 +248,29 @@ void test("code bootstrap exposes frozen host capability flags and methods", () 
   assert.equal(typeof genui.sendMessage, "function")
   assert.equal(typeof genui.openLink, "function")
   assert.equal(typeof genui.updateModelContext, "function")
+})
+
+void test("code bootstrap exposes the initial deeply frozen host context", () => {
+  const { genui } = createHarness({
+    hostContext: {
+      theme: "dark",
+      containerDimensions: { width: 480, maxHeight: 720 },
+      locale: "en-US",
+      timeZone: "UTC",
+      platform: "web",
+    },
+  })
+
+  assert.deepEqual(jsonRoundTrip(genui.hostContext), {
+    theme: "dark",
+    containerDimensions: { width: 480, maxHeight: 720 },
+    locale: "en-US",
+    timeZone: "UTC",
+    platform: "web",
+  })
+  assert.equal(Object.isFrozen(genui.hostContext), true)
+  assert.equal(Object.isFrozen(genui.hostContext.containerDimensions), true)
+  assert.equal(typeof genui.onHostContextChange, "function")
 })
 
 void test("code bootstrap awaits teardown cleanup before capturing final state", async () => {
@@ -601,42 +704,216 @@ void test("red team: guest-posted capability results cannot settle pending reque
 })
 
 void test("code bootstrap applies the initial document theme", () => {
-  const { window } = createHarness({ theme: "dark" })
+  const { window } = createHarness({ hostContext: { theme: "dark" } })
 
   assert.equal(window.document.documentElement.getAttribute("data-theme"), "dark")
   assert.equal(window.document.documentElement.style.colorScheme, "dark")
 })
 
 void test("code bootstrap applies live host theme changes", () => {
-  const { window } = createHarness({ theme: "light" })
+  const { window } = createHarness({ hostContext: { theme: "light" } })
 
   dispatchInboundMessage(window, {
     channel,
     type: "host_context_changed",
     surfaceId,
-    theme: "dark",
+    context: { theme: "dark" },
   })
 
   assert.equal(window.document.documentElement.getAttribute("data-theme"), "dark")
   assert.equal(window.document.documentElement.style.colorScheme, "dark")
 })
 
+void test("code bootstrap merges frozen host context updates before invoking the latest handler", async () => {
+  const { genui, window } = createHarness({
+    hostContext: {
+      theme: "light",
+      containerDimensions: { width: 480, maxHeight: 720 },
+      locale: "en-US",
+      timeZone: "UTC",
+    },
+  })
+  let replacedHandlerCalls = 0
+  let received: GuestApi["hostContext"] | undefined
+  genui.onHostContextChange(() => {
+    replacedHandlerCalls += 1
+  })
+  genui.onHostContextChange((partial) => {
+    received = partial
+  })
+
+  dispatchInboundMessage(window, {
+    channel,
+    type: "host_context_changed",
+    surfaceId,
+    context: {
+      containerDimensions: { maxWidth: 360, height: 240 },
+      locale: "fr-FR",
+      platform: "mobile",
+    },
+  })
+
+  assert.deepEqual(jsonRoundTrip(genui.hostContext), {
+    theme: "light",
+    containerDimensions: { maxWidth: 360, height: 240 },
+    locale: "fr-FR",
+    timeZone: "UTC",
+    platform: "mobile",
+  })
+  await flushAsync()
+  assert.equal(replacedHandlerCalls, 0)
+  assert.deepEqual(jsonRoundTrip(received), {
+    containerDimensions: { maxWidth: 360, height: 240 },
+    locale: "fr-FR",
+    platform: "mobile",
+  })
+  assert.equal(Object.isFrozen(received), true)
+  assert.equal(Object.isFrozen(received?.containerDimensions), true)
+
+  received = undefined
+  dispatchInboundMessage(window, {
+    channel,
+    type: "host_context_changed",
+    surfaceId,
+    context: {
+      theme: "light",
+      containerDimensions: { maxWidth: 360, height: 240 },
+      locale: "fr-FR",
+      timeZone: "UTC",
+      platform: "mobile",
+    },
+  })
+  await flushAsync()
+  assert.equal(received, undefined)
+})
+
+void test("code bootstrap reports host context handler failures after applying updates", async () => {
+  const { genui, messages, window } = createHarness({ hostContext: { locale: "en-US" } })
+  assert.throws(
+    () => genui.onHostContextChange("invalid" as never),
+    /Host context change handler must be a function/,
+  )
+  genui.onHostContextChange(() => {
+    throw new Error("Context handler failed")
+  })
+
+  dispatchInboundMessage(window, {
+    channel,
+    type: "host_context_changed",
+    surfaceId,
+    context: { locale: "de-DE" },
+  })
+  await flushAsync()
+
+  assert.equal(genui.hostContext.locale, "de-DE")
+  const guestError = messages.find((message) => isRecord(message) && message.type === "guest_error")
+  assert.ok(isRecord(guestError))
+  assert.equal(guestError.message, "Context handler failed")
+
+  genui.onHostContextChange(async () => {
+    throw new Error("Async context handler failed")
+  })
+  dispatchInboundMessage(window, {
+    channel,
+    type: "host_context_changed",
+    surfaceId,
+    context: { timeZone: "Europe/Berlin" },
+  })
+  await flushAsync()
+
+  assert.equal(genui.hostContext.timeZone, "Europe/Berlin")
+  assert.deepEqual(
+    messages
+      .filter((message) => isRecord(message) && message.type === "guest_error")
+      .map((message) => (isRecord(message) ? message.message : undefined)),
+    ["Context handler failed", "Async context handler failed"],
+  )
+})
+
 void test("red team: code bootstrap ignores forged and invalid host theme changes", () => {
-  const { window } = createHarness({ theme: "light" })
+  const { window } = createHarness({ hostContext: { theme: "light" } })
   const update = {
     channel,
     type: "host_context_changed",
     surfaceId,
-    theme: "dark",
+    context: { theme: "dark" },
   }
 
   dispatchInboundMessage(window, update, "forged")
   dispatchInboundMessage(window, { ...update, channel: "forged/channel" })
   dispatchInboundMessage(window, { ...update, surfaceId: "forged-surface" })
-  dispatchInboundMessage(window, { ...update, theme: "sepia" })
+  dispatchInboundMessage(window, { ...update, context: { theme: "sepia" } })
+  dispatchInboundMessage(window, { ...update, context: { locale: "not_a_locale" } })
+  dispatchInboundMessage(window, {
+    ...update,
+    context: { containerDimensions: { width: 100, maxWidth: 200 } },
+  })
+  dispatchInboundMessage(window, { ...update, extra: true })
+  dispatchInboundMessage(window, {
+    ...update,
+    context: Object.create({ theme: "dark" }),
+  })
 
   assert.equal(window.document.documentElement.getAttribute("data-theme"), "light")
   assert.equal(window.document.documentElement.style.colorScheme, "light")
+})
+
+void test("red team: guest intrinsic tampering cannot weaken live context validation or freezing", async () => {
+  const { genui, window } = createHarness({ hostContext: { locale: "en-US" } })
+  let received: GuestHostContext | undefined
+  genui.onHostContextChange((partial) => {
+    received = partial
+  })
+  window.eval(`
+    Object.freeze = (value) => value
+    Object.keys = () => []
+    Array.isArray = () => true
+    Array.prototype.every = () => true
+    Array.prototype.some = () => false
+    Number.isFinite = () => false
+    Set.prototype.has = () => true
+    Promise.resolve = () => ({ then() { return this }, catch() { return this } })
+    Intl.getCanonicalLocales = () => []
+    Intl.DateTimeFormat = function () { throw new Error("tampered") }
+  `)
+
+  dispatchInboundMessage(window, {
+    channel,
+    type: "host_context_changed",
+    surfaceId,
+    context: {
+      containerDimensions: { width: 320, maxHeight: 480 },
+      locale: "ja-JP",
+      timeZone: "Asia/Tokyo",
+    },
+  })
+  await flushAsync()
+
+  assert.equal(genui.hostContext.locale, "ja-JP")
+  assert.equal(genui.hostContext.timeZone, "Asia/Tokyo")
+  assert.equal(Object.isFrozen(genui.hostContext), true)
+  assert.equal(Object.isFrozen(genui.hostContext.containerDimensions), true)
+  assert.equal(Object.isFrozen(received), true)
+  assert.equal(Object.isFrozen(received?.containerDimensions), true)
+})
+
+void test("red team: a synthetic parent-sourced event cannot forge host context", async () => {
+  const { genui, window } = createHarness({ hostContext: { locale: "en-US" } })
+  let handlerCalls = 0
+  genui.onHostContextChange(() => {
+    handlerCalls += 1
+  })
+
+  dispatchSyntheticInboundMessage(window, {
+    channel,
+    type: "host_context_changed",
+    surfaceId,
+    context: { locale: "ja-JP" },
+  })
+  await flushAsync()
+
+  assert.equal(genui.hostContext.locale, "en-US")
+  assert.equal(handlerCalls, 0)
 })
 
 void test("code bootstrap posts a heartbeat every second until pagehide", () => {
@@ -652,6 +929,51 @@ void test("code bootstrap posts a heartbeat every second until pagehide", () => 
 
   window.dispatchEvent(new window.Event("pagehide"))
   assert.equal(interval.wasCleared(), true)
+})
+
+void test("code bootstrap debounces complete size reports and stops observing on pagehide", async () => {
+  const { messages, resizeObserver, window } = createHarness()
+  let contentHeight = 80.2
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 319.2 })
+  Object.defineProperty(window.document.documentElement, "getBoundingClientRect", {
+    configurable: true,
+    value: () => ({ height: contentHeight }),
+  })
+  window.document.documentElement.style.height = "25px"
+
+  await Promise.resolve()
+  resizeObserver.notify()
+  resizeObserver.notify()
+  resizeObserver.runAnimationFrame()
+
+  const sizeReports = () =>
+    messages.filter((message) => isRecord(message) && message.type === "resize")
+  assert.deepEqual(sizeReports().map(jsonRoundTrip), [
+    { channel, surfaceId, type: "resize", width: 320, height: 81 },
+  ])
+  assert.deepEqual(resizeObserver.observedTargets, [
+    window.document.documentElement,
+    window.document.body,
+  ])
+  assert.equal(window.document.documentElement.style.height, "25px")
+
+  resizeObserver.notify()
+  resizeObserver.runAnimationFrame()
+  assert.equal(sizeReports().length, 1)
+
+  contentHeight = 100.1
+  resizeObserver.notify()
+  resizeObserver.runAnimationFrame()
+  assert.deepEqual(sizeReports().map(jsonRoundTrip), [
+    { channel, surfaceId, type: "resize", width: 320, height: 81 },
+    { channel, surfaceId, type: "resize", width: 320, height: 101 },
+  ])
+
+  resizeObserver.notify()
+  window.dispatchEvent(new window.Event("pagehide"))
+  assert.equal(resizeObserver.wasDisconnected(), true)
+  assert.equal(resizeObserver.wasAnimationFrameCanceled(), true)
+  assert.equal(sizeReports().length, 2)
 })
 
 void test("red team: unknown, replayed, and duplicate results are ignored", async () => {

@@ -191,6 +191,29 @@ type MissingStyleVariableKey = Exclude<
 const includesEveryStyleVariableKey: MissingStyleVariableKey extends never ? true : never = true
 void includesEveryStyleVariableKey
 
+type HeightDimensions =
+  | {
+      readonly height: number
+      readonly maxHeight?: never
+    }
+  | {
+      readonly height?: never
+      readonly maxHeight?: number
+    }
+
+type WidthDimensions =
+  | {
+      readonly width: number
+      readonly maxWidth?: never
+    }
+  | {
+      readonly width?: never
+      readonly maxWidth?: number
+    }
+
+/** Independent fixed or flexible pixel constraints for each surface axis. */
+export type ContainerDimensions = HeightDimensions & WidthDimensions
+
 /** The MCP Apps host-context subset accepted by a generated surface mount. */
 export interface HostContext {
   /** Current root color scheme. */
@@ -199,7 +222,20 @@ export interface HostContext {
     /** Trusted values for standardized MCP Apps CSS custom properties. */
     readonly variables?: Partial<Record<McpUiStyleVariableKey, string>>
   }
+  /** Fixed or flexible iframe dimensions in CSS pixels. */
+  readonly containerDimensions?: ContainerDimensions
+  /** BCP-47 language and region preference. */
+  readonly locale?: string
+  /** Time-zone preference accepted by Intl.DateTimeFormat. */
+  readonly timeZone?: string
+  /** Host platform category for small surface adaptations. */
+  readonly platform?: "web" | "desktop" | "mobile"
 }
+
+/** Host context fields exposed to generated JavaScript. Trusted CSS variables stay CSS-only. */
+export type GuestHostContext = Readonly<
+  Pick<HostContext, "theme" | "containerDimensions" | "locale" | "timeZone" | "platform">
+>
 
 const styleVariableKeys: ReadonlySet<string> = new Set(mcpUiStyleVariableKeys)
 
@@ -216,6 +252,11 @@ const assertOnlyKeys = (
 ): void => {
   for (const key of Object.keys(value)) {
     if (!allowed.has(key)) throw new TypeError(`${path} contains unsupported key ${key}.`)
+  }
+  for (const key of allowed) {
+    if (!Object.hasOwn(value, key) && value[key] !== undefined) {
+      throw new TypeError(`${path} contains inherited key ${key}.`)
+    }
   }
 }
 
@@ -277,8 +318,87 @@ const assertSafeCssValue = (key: McpUiStyleVariableKey, value: unknown): string 
   return value
 }
 
-const hostContextKeys: ReadonlySet<string> = new Set(["theme", "styles"])
+const hostContextKeys: ReadonlySet<string> = new Set([
+  "theme",
+  "styles",
+  "containerDimensions",
+  "locale",
+  "timeZone",
+  "platform",
+])
 const hostStyleKeys: ReadonlySet<string> = new Set(["variables"])
+const containerDimensionKeys: ReadonlySet<string> = new Set([
+  "height",
+  "maxHeight",
+  "width",
+  "maxWidth",
+])
+const maxLocaleTimeZoneLength = 128
+
+const parseDimensionValue = (value: unknown, name: string): number => {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new TypeError(`Host context ${name} must be a finite non-negative number.`)
+  }
+  return value
+}
+
+const parseContainerDimensions = (value: unknown): ContainerDimensions => {
+  if (!isRecord(value)) throw new TypeError("Host context containerDimensions must be an object.")
+  assertOnlyKeys(value, containerDimensionKeys, "Host context containerDimensions")
+
+  const hasHeight = Object.hasOwn(value, "height")
+  const hasMaxHeight = Object.hasOwn(value, "maxHeight")
+  const hasWidth = Object.hasOwn(value, "width")
+  const hasMaxWidth = Object.hasOwn(value, "maxWidth")
+  if (hasHeight && hasMaxHeight) {
+    throw new TypeError("Host context containerDimensions cannot contain height and maxHeight.")
+  }
+  if (hasWidth && hasMaxWidth) {
+    throw new TypeError("Host context containerDimensions cannot contain width and maxWidth.")
+  }
+
+  const heightDimensions: HeightDimensions = hasHeight
+    ? { height: parseDimensionValue(value.height, "containerDimensions.height") }
+    : hasMaxHeight
+      ? { maxHeight: parseDimensionValue(value.maxHeight, "containerDimensions.maxHeight") }
+      : {}
+  const widthDimensions: WidthDimensions = hasWidth
+    ? { width: parseDimensionValue(value.width, "containerDimensions.width") }
+    : hasMaxWidth
+      ? { maxWidth: parseDimensionValue(value.maxWidth, "containerDimensions.maxWidth") }
+      : {}
+  return { ...heightDimensions, ...widthDimensions }
+}
+
+const parseLocale = (value: unknown): string | undefined => {
+  if (value === undefined) return undefined
+  if (typeof value !== "string" || value.length === 0 || value.length > maxLocaleTimeZoneLength) {
+    throw new TypeError(
+      `Host context locale must be a non-empty string of at most ${maxLocaleTimeZoneLength} characters.`,
+    )
+  }
+  try {
+    Intl.getCanonicalLocales(value)
+  } catch {
+    throw new TypeError("Host context locale must be a valid BCP-47 locale.")
+  }
+  return value
+}
+
+const parseTimeZone = (value: unknown): string | undefined => {
+  if (value === undefined) return undefined
+  if (typeof value !== "string" || value.length === 0 || value.length > maxLocaleTimeZoneLength) {
+    throw new TypeError(
+      `Host context timeZone must be a non-empty string of at most ${maxLocaleTimeZoneLength} characters.`,
+    )
+  }
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value })
+  } catch {
+    throw new TypeError("Host context timeZone must be accepted by Intl.DateTimeFormat.")
+  }
+  return value
+}
 
 export const parseHostContext = (value: unknown): HostContext => {
   if (!isRecord(value)) throw new TypeError("Host context must be an object.")
@@ -289,30 +409,54 @@ export const parseHostContext = (value: unknown): HostContext => {
     throw new TypeError('Host context theme must be "light" or "dark".')
   }
 
+  const containerDimensions =
+    value.containerDimensions === undefined
+      ? undefined
+      : parseContainerDimensions(value.containerDimensions)
+  const locale = parseLocale(value.locale)
+  const timeZone = parseTimeZone(value.timeZone)
+  const platform = value.platform
+  if (
+    platform !== undefined &&
+    platform !== "web" &&
+    platform !== "desktop" &&
+    platform !== "mobile"
+  ) {
+    throw new TypeError('Host context platform must be "web", "desktop", or "mobile".')
+  }
+
   const styles = value.styles
-  if (styles === undefined) return theme === undefined ? {} : { theme }
-  if (!isRecord(styles)) throw new TypeError("Host context styles must be an object.")
-  assertOnlyKeys(styles, hostStyleKeys, "Host context styles")
+  let parsedStyles: HostContext["styles"]
+  if (styles !== undefined) {
+    if (!isRecord(styles)) throw new TypeError("Host context styles must be an object.")
+    assertOnlyKeys(styles, hostStyleKeys, "Host context styles")
 
-  const inputVariables = styles.variables
-  if (inputVariables === undefined) {
-    return { ...(theme === undefined ? {} : { theme }), styles: {} }
-  }
-  if (!isRecord(inputVariables)) {
-    throw new TypeError("Host context style variables must be an object.")
-  }
+    const inputVariables = styles.variables
+    if (inputVariables === undefined) {
+      parsedStyles = {}
+    } else {
+      if (!isRecord(inputVariables)) {
+        throw new TypeError("Host context style variables must be an object.")
+      }
 
-  const variables: Partial<Record<McpUiStyleVariableKey, string>> = {}
-  for (const [key, inputValue] of Object.entries(inputVariables)) {
-    if (!isStyleVariableKey(key)) {
-      throw new TypeError(`Unsupported MCP Apps style variable ${key}.`)
+      const variables: Partial<Record<McpUiStyleVariableKey, string>> = {}
+      for (const [key, inputValue] of Object.entries(inputVariables)) {
+        if (!isStyleVariableKey(key)) {
+          throw new TypeError(`Unsupported MCP Apps style variable ${key}.`)
+        }
+        variables[key] = assertSafeCssValue(key, inputValue)
+      }
+      parsedStyles = { variables }
     }
-    variables[key] = assertSafeCssValue(key, inputValue)
   }
 
   return {
     ...(theme === undefined ? {} : { theme }),
-    styles: { variables },
+    ...(parsedStyles === undefined ? {} : { styles: parsedStyles }),
+    ...(containerDimensions === undefined ? {} : { containerDimensions }),
+    ...(locale === undefined ? {} : { locale }),
+    ...(timeZone === undefined ? {} : { timeZone }),
+    ...(platform === undefined ? {} : { platform }),
   }
 }
 

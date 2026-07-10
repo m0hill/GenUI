@@ -404,10 +404,9 @@ void test("surface broker reports unavailable and denied capability outcomes", a
   ])
 })
 
-void test("surface broker reports guest errors and clamps resize", () => {
+void test("surface broker reports guest errors and applies the default resize policy", () => {
   const current = testSurface([diceDescriptor])
   const broker = createSurfaceBroker(current, {
-    maxHeight: 320,
     transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
   })
 
@@ -416,11 +415,13 @@ void test("surface broker reports guest errors and clamps resize", () => {
       channel: protocolChannel,
       type: "resize",
       surfaceId: current.id,
-      height: 999,
+      width: 640,
+      height: 1_400,
     }).effects,
     [
-      { type: "set_height", height: 320 },
-      { type: "emit", event: { type: "resize", height: 320 } },
+      { type: "set_width", width: undefined },
+      { type: "set_height", height: 1_200 },
+      { type: "emit", event: { type: "resize", width: 640, height: 1_200 } },
     ],
   )
   assert.deepEqual(
@@ -435,6 +436,183 @@ void test("surface broker reports guest errors and clamps resize", () => {
     ),
     [{ type: "guest_error", message: "Guest failed", stack: "guest.js:1" }],
   )
+})
+
+void test("surface broker applies independent fixed and flexible resize axes", () => {
+  const current = testSurface([])
+  const cases = [
+    {
+      dimensions: { width: 400, height: 300 },
+      width: 400,
+      height: 300,
+    },
+    {
+      dimensions: { width: 400, maxHeight: 500 },
+      width: 400,
+      height: 500,
+    },
+    {
+      dimensions: { maxWidth: 600, height: 300 },
+      width: 600,
+      height: 300,
+    },
+    {
+      dimensions: { maxWidth: 600, maxHeight: 500 },
+      width: 600,
+      height: 500,
+    },
+    {
+      dimensions: { maxWidth: 1_000, maxHeight: 1_000 },
+      width: 800,
+      height: 900,
+    },
+    {
+      dimensions: { maxWidth: 0, maxHeight: 0 },
+      width: 0,
+      height: 0,
+    },
+  ] as const
+
+  for (const { dimensions, width, height } of cases) {
+    const broker = createSurfaceBroker(current, {
+      containerDimensions: dimensions,
+      transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+    })
+
+    assert.deepEqual(
+      broker.handleSandboxMessage({
+        channel: protocolChannel,
+        type: "resize",
+        surfaceId: current.id,
+        width: 800,
+        height: 900,
+      }).effects,
+      [
+        { type: "set_width", width },
+        { type: "set_height", height },
+        { type: "emit", event: { type: "resize", width, height } },
+      ],
+    )
+  }
+})
+
+void test("surface broker reapplies live dimension policy to the latest report", () => {
+  const current = testSurface([])
+  const broker = createSurfaceBroker(current, {
+    containerDimensions: { width: 400, height: 300 },
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+  })
+  broker.handleSandboxMessage({
+    channel: protocolChannel,
+    type: "resize",
+    surfaceId: current.id,
+    width: 800,
+    height: 900,
+  })
+
+  assert.deepEqual(broker.updateContainerDimensions({ maxWidth: 500 }).effects, [
+    { type: "set_width", width: undefined },
+    { type: "set_height", height: 900 },
+  ])
+  assert.deepEqual(
+    broker.handleSandboxMessage({
+      channel: protocolChannel,
+      type: "resize",
+      surfaceId: current.id,
+      width: 450,
+      height: 1_500,
+    }).effects,
+    [
+      { type: "set_width", width: 450 },
+      { type: "set_height", height: 1_200 },
+      { type: "emit", event: { type: "resize", width: 450, height: 1_200 } },
+    ],
+  )
+  assert.deepEqual(broker.updateContainerDimensions({}).effects, [
+    { type: "set_width", width: undefined },
+    { type: "set_height", height: 1_200 },
+  ])
+})
+
+void test("surface broker releases flexible width before probing a larger maximum", () => {
+  const current = testSurface([])
+  const broker = createSurfaceBroker(current, {
+    containerDimensions: { maxWidth: 300 },
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+  })
+  broker.handleSandboxMessage({
+    channel: protocolChannel,
+    type: "resize",
+    surfaceId: current.id,
+    width: 800,
+    height: 200,
+  })
+  broker.handleSandboxMessage({
+    channel: protocolChannel,
+    type: "resize",
+    surfaceId: current.id,
+    width: 300,
+    height: 200,
+  })
+
+  assert.deepEqual(broker.updateContainerDimensions({ maxWidth: 600 }).effects, [
+    { type: "set_width", width: undefined },
+    { type: "set_height", height: 200 },
+  ])
+  assert.deepEqual(
+    broker.handleSandboxMessage({
+      channel: protocolChannel,
+      type: "resize",
+      surfaceId: current.id,
+      width: 600,
+      height: 200,
+    }).effects,
+    [
+      { type: "set_width", width: 600 },
+      { type: "set_height", height: 200 },
+      { type: "emit", event: { type: "resize", width: 600, height: 200 } },
+    ],
+  )
+})
+
+void test("surface broker resets resize state across replacement and disposal", () => {
+  const first = testSurface([])
+  const second = testSurface([])
+  const broker = createSurfaceBroker(first, {
+    containerDimensions: { width: 320, maxHeight: 500 },
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+  })
+
+  assert.deepEqual(broker.updateContainerDimensions({ width: 320, maxHeight: 500 }).effects, [
+    { type: "set_width", width: 320 },
+    { type: "set_height", height: undefined },
+  ])
+  broker.handleSandboxMessage({
+    channel: protocolChannel,
+    type: "resize",
+    surfaceId: first.id,
+    width: 800,
+    height: 900,
+  })
+
+  broker.replace(second)
+  assert.deepEqual(broker.updateContainerDimensions({}).effects, [
+    { type: "set_width", width: undefined },
+    { type: "set_height", height: undefined },
+  ])
+  assert.deepEqual(
+    broker.handleSandboxMessage({
+      channel: protocolChannel,
+      type: "resize",
+      surfaceId: first.id,
+      width: 100,
+      height: 100,
+    }).effects,
+    [],
+  )
+
+  broker.dispose()
+  assert.deepEqual(broker.updateContainerDimensions({ width: 10, height: 10 }).effects, [])
 })
 
 void test("red team: ungranted calls return not_granted without transport", () => {

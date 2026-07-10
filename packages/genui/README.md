@@ -12,8 +12,9 @@ apply policy and approval, execute app code, and validate outputs.
 
 Generated content is ordinary fragment HTML with inline JavaScript. The
 runtime stores it verbatim. `mount()` runs it in an opaque-origin iframe with a
-network-denying CSP and exposes only `genui.call(name, input)` for external
-effects.
+network-denying CSP. Its trusted `window.genui` bridge exposes granted action
+calls, optional host capabilities and context, state snapshots, and lifecycle
+hooks without exposing the parent page.
 
 Security comes from isolation and trusted-side enforcement:
 

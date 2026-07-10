@@ -101,7 +101,12 @@ assert.equal(
   await writeFile(
     join(project, "smoke.ts"),
     `import { Genui, memoryStore } from "genui"
-import { mount, type Mounted } from "genui/dom"
+import {
+  mount,
+  type ContainerDimensions,
+  type HostContext,
+  type Mounted,
+} from "genui/dom"
 import { parseActionCall, parseSurface, type ActionCall, type Surface } from "genui/protocol"
 import { assertSurfaceStoreConformance, type SurfaceStoreFactory } from "genui/testing"
 
@@ -116,6 +121,14 @@ const parsedCall: ActionCall | undefined = parseActionCall(call)
 const parsedSurface: Surface | undefined = parseSurface({})
 const mountFunction: typeof mount = mount
 const mounted: Mounted | undefined = undefined
+const unboundedDimensions: ContainerDimensions = {}
+const constrainedDimensions: ContainerDimensions = { width: 400, maxHeight: 720 }
+const hostContext: HostContext = {
+  containerDimensions: constrainedDimensions,
+  locale: "en-US",
+  timeZone: "UTC",
+  platform: "web",
+}
 const storeFactory: SurfaceStoreFactory = memoryStore
 const conformanceCheck: typeof assertSurfaceStoreConformance = assertSurfaceStoreConformance
 
@@ -124,6 +137,8 @@ void parsedCall
 void parsedSurface
 void mountFunction
 void mounted
+void unboundedDimensions
+void hostContext
 void storeFactory
 void conformanceCheck
 `,

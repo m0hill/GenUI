@@ -97,7 +97,12 @@ const createSurface = (content: string): Promise<void> => {
     approvalTokens.clear()
     retryTokens.clear()
     mounted = mount(surfaceRoot, surface, {
-      maxHeight: 720,
+      hostContext: {
+        containerDimensions: { maxHeight: 720 },
+        locale: "en-US",
+        timeZone: "UTC",
+        platform: "web",
+      },
       transport,
       capabilities: {
         sendMessage: ({ role, content }) => {

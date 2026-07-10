@@ -170,6 +170,8 @@ The bootstrap installs exactly this public API on `window.genui`:
 genui.surfaceId
 genui.actions
 genui.capabilities
+genui.hostContext
+genui.onHostContextChange(handler)
 await genui.call(name, input)
 await genui.sendMessage(text)
 await genui.openLink(url)
@@ -189,10 +191,11 @@ the action name, and input. It resolves to the successful action output. It
 rejects with `GenuiActionError { code, message }` for an action error.
 
 Results correlate by `callId`. Unknown and duplicate result messages are
-ignored. Result, snapshot-request, and teardown-request messages are accepted
-only from the iframe's parent window with the matching channel and surface ID.
-The guest action list is descriptive; mutating it cannot change the host or
-kernel grant.
+ignored. Result, host-context, snapshot-request, and teardown-request messages
+are accepted only through native browser delivery from the iframe's parent
+window with the matching channel and surface ID. Synthetic guest-dispatched
+message events are ignored. The guest action list is descriptive; mutating it
+cannot change the host or kernel grant.
 
 `genui.snapshot(fn)` registers one state provider. The host calls the provider
 without arguments to capture JSON-serializable state. When a replacement
@@ -211,6 +214,59 @@ genui.snapshot((restored) => {
 Keep the provider synchronous and side-effect-free when it is called without
 arguments. Provider failures are reported through `guest_error` and make that
 snapshot unavailable.
+
+### Host context
+
+`genui.hostContext` is available before top-level guest code runs. It is a
+deeply frozen snapshot with any host-provided `theme`, `containerDimensions`,
+`locale`, `timeZone`, and `platform` fields. A host may omit any field. Trusted
+`styles` are applied through CSS custom properties and are deliberately not
+exposed through this JavaScript object.
+
+Register one live-update handler with `genui.onHostContextChange(handler)`. A
+later registration replaces the previous handler. The callback receives the
+deeply frozen partial update. Before it runs, `genui.hostContext` has already
+merged that update, so render from the accessor when the UI needs the complete
+current context:
+
+```html
+<time id="local-date"></time>
+<script type="module">
+  const dateOutput = document.querySelector("#local-date")
+
+  const renderEnvironment = () => {
+    const {
+      locale = "en-US",
+      timeZone = "UTC",
+      platform = "web",
+    } = genui.hostContext
+
+    dateOutput.textContent = new Intl.DateTimeFormat(locale, {
+      timeZone,
+    }).format(new Date())
+    document.documentElement.dataset.platform = platform
+  }
+
+  genui.onHostContextChange(() => renderEnvironment())
+  renderEnvironment()
+</script>
+```
+
+Always pass the selected locale and time zone explicitly to `Intl` formatters.
+The opaque iframe's browser defaults are not the user's declared preferences.
+Use `platform` only for small interaction or layout adaptations instead of
+user-agent sniffing; it grants no authority and is not a security signal.
+
+Each dimension axis is independent. A `width` or `height` is fixed and owned by
+the host. A `maxWidth` or `maxHeight` lets content size that axis up to the host
+limit. Use responsive CSS in both modes and keep content usable inside fixed
+dimensions. Do not attempt to resize or navigate the parent page; the bootstrap
+reports content size to the host automatically.
+
+Omitted or `undefined` update fields leave current values unchanged.
+`containerDimensions` replaces the whole dimensions object when supplied.
+Handler throws and rejected promises emit `guest_error` after the valid update
+has been applied; they do not roll it back.
 
 ### Graceful teardown
 

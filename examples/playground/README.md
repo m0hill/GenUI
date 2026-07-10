@@ -20,8 +20,12 @@ working read/write flow, **Guest error fixture** for error forwarding, and
 
 The root `dev` command builds the `genui` package and browser client before
 starting the server. The event panel shows guest errors, violations, action
-results, host capability requests and deliveries, graceful teardown outcomes,
-and audit entries.
+results, width-and-height resize reports, host capability requests and
+deliveries, graceful teardown outcomes, and audit entries.
+
+The reference browser host supplies `en-US`, `UTC`, and `web` as its locale,
+time zone, and platform context. It uses a flexible 720-pixel height cap and
+the default full-width container policy.
 
 The playground uses an app-specific `{ result, audit, approvalToken? }` HTTP
 envelope to drain synchronous audit entries and carry single-use approval

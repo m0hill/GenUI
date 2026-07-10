@@ -128,7 +128,7 @@ void test("playground events parse at the serialized log boundary", () => {
       reason: "surface_replaced",
       snapshotCaptured: false,
     },
-    { type: "resize", height: 320 },
+    { type: "resize", width: 480.5, height: 320.25 },
     { type: "guest_error", message: "Guest failed.", stack: "stack" },
     { type: "violation", reason: "ungranted_call", detail: "private.read" },
     {
@@ -167,4 +167,6 @@ void test("playground events parse at the serialized log boundary", () => {
   )
   assert.equal(parsePlaygroundEvent({ ...events[6], provenance: "user" }), undefined)
   assert.equal(parsePlaygroundEvent({ ...events[7], snapshotCaptured: "no" }), undefined)
+  assert.equal(parsePlaygroundEvent({ ...events[8], width: undefined }), undefined)
+  assert.equal(parsePlaygroundEvent({ ...events[8], height: Number.POSITIVE_INFINITY }), undefined)
 })
