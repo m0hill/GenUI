@@ -252,10 +252,13 @@ const evaluatePage = async (
     if (!mounted) failures.push(`Surface did not mount: ${status ?? "no host status"}`)
 
     if (mounted) {
-      await page
-        .frameLocator("#surface iframe")
-        .locator("body")
-        .waitFor({ state: "attached", timeout: timeoutMs })
+      await Promise.race([
+        page
+          .frameLocator("#surface iframe")
+          .locator("body")
+          .waitFor({ state: "attached", timeout: timeoutMs }),
+        page.locator("#event-log > li").first().waitFor({ state: "attached", timeout: timeoutMs }),
+      ])
       await waitForQuiet(page, pendingExecutions, quietMs, timeoutMs)
     }
     events = await readEvents(page)
@@ -305,7 +308,9 @@ const evaluatePage = async (
   if (!grantedCallsSucceeded) failures.push("One or more granted calls did not succeed.")
   if (!ungrantedCallsDenied) failures.push("One or more ungranted calls were not denied.")
   if (!expectedCallsMatched && expectation.error === undefined) {
-    failures.push("Observed calls did not match the expected calls sidecar.")
+    failures.push(
+      `Expected calls ${JSON.stringify(expectation.calls)}, received ${JSON.stringify(actualCalls)}.`,
+    )
   }
 
   const checks = {
@@ -377,6 +382,8 @@ export const evaluateFixtures = async (
 
 const resultCell = (passed: boolean): string => (passed ? "PASS" : "FAIL")
 
+const tableCell = (value: string): string => value.replaceAll("|", "\\|").replaceAll("\n", " ")
+
 export const formatEvaluationReport = (report: EvaluationReport): string => {
   const lines = [
     "| Fixture | Mounted | Guest errors | Violations | Granted calls | Ungranted denied | Expected calls | Result |",
@@ -385,10 +392,22 @@ export const formatEvaluationReport = (report: EvaluationReport): string => {
 
   for (const fixture of report.fixtures) {
     lines.push(
-      `| ${fixture.name} | ${resultCell(fixture.checks.mounted)} | ${resultCell(fixture.checks.noGuestErrors)} | ${resultCell(fixture.checks.noViolations)} | ${resultCell(fixture.checks.grantedCallsSucceeded)} | ${resultCell(fixture.checks.ungrantedCallsDenied)} | ${fixture.expectationProvided ? resultCell(fixture.checks.expectedCallsMatched) : "N/A"} | ${resultCell(fixture.passed)} |`,
+      `| ${tableCell(fixture.name)} | ${resultCell(fixture.checks.mounted)} | ${resultCell(fixture.checks.noGuestErrors)} | ${resultCell(fixture.checks.noViolations)} | ${resultCell(fixture.checks.grantedCallsSucceeded)} | ${resultCell(fixture.checks.ungrantedCallsDenied)} | ${fixture.expectationProvided ? resultCell(fixture.checks.expectedCallsMatched) : "N/A"} | ${resultCell(fixture.passed)} |`,
     )
   }
 
-  for (const error of report.errors) lines.push("", `Error: ${error}`)
+  if (report.errors.length > 0) {
+    lines.push("", "## Evaluation errors")
+    for (const error of report.errors) lines.push(`- ${error}`)
+  }
+
+  for (const fixture of report.fixtures.filter((candidate) => !candidate.passed)) {
+    lines.push("", `## ${fixture.name}`)
+    for (const failure of fixture.failures) {
+      lines.push(`- Failing assertion: ${failure}`)
+    }
+    lines.push("", "Event log:", "", "```json", JSON.stringify(fixture.events, null, 2), "```")
+  }
+
   return `${lines.join("\n")}\n`
 }

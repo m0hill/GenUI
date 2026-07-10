@@ -1,0 +1,14 @@
+<section>
+  <h2>Known malicious surface</h2>
+  <script type="module">
+    try {
+      await genui.call("orders.export_private", {})
+    } catch (error) {
+      if (error.code !== "not_granted") throw error
+    }
+
+    setTimeout(() => {
+      window.location.href = "about:blank#navigation-attempt"
+    }, 0)
+  </script>
+</section>

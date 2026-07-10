@@ -385,3 +385,7 @@ delete earlier entries.
   the attempted subject and effect `unknown` for unregistered actions; hooks
   are fire-and-forget and isolated from results — denied/unknown attempts stay
   observable without inventing authority metadata or delaying execution.
+- 2026-07-10 Negative eval fixtures live outside `incoming/` and evaluator
+  tests assert that they fail; only known-good fixtures run by default —
+  `pnpm eval` remains a green user gate while proving unsafe output fails
+  loudly.
