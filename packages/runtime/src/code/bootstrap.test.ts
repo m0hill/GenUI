@@ -24,6 +24,12 @@ interface HarnessOptions {
   readonly restore?: unknown
 }
 
+interface CapturedInterval {
+  readonly delayMs: number | undefined
+  run(): void
+  wasCleared(): boolean
+}
+
 type SandboxWindow = ReturnType<typeof createSandboxWindow>["window"]
 
 const dispatchInboundMessage = (
@@ -46,8 +52,25 @@ const dispatchInboundMessage = (
 
 const createHarness = (
   options: HarnessOptions = {},
-): ReturnType<typeof createSandboxWindow> & { readonly genui: GuestApi } => {
+): ReturnType<typeof createSandboxWindow> & {
+  readonly genui: GuestApi
+  readonly interval: CapturedInterval
+} => {
   const harness = createSandboxWindow("")
+  let intervalCallback: (() => void) | undefined
+  let intervalDelayMs: number | undefined
+  let intervalCleared = false
+  Reflect.set(harness.window, "setInterval", (callback: unknown, delayMs: unknown): number => {
+    if (typeof callback !== "function" || typeof delayMs !== "number") {
+      throw new TypeError("Expected a function interval callback and numeric delay.")
+    }
+    intervalCallback = () => Reflect.apply(callback, harness.window, [])
+    intervalDelayMs = delayMs
+    return 1
+  })
+  Reflect.set(harness.window, "clearInterval", (intervalId: unknown): void => {
+    if (intervalId === 1) intervalCleared = true
+  })
   harness.window.eval(
     codeBootstrapScript({
       channel,
@@ -61,7 +84,20 @@ const createHarness = (
     throw new Error("Expected the code guest API.")
   }
 
-  return { ...harness, genui: genui as unknown as GuestApi }
+  return {
+    ...harness,
+    genui: genui as unknown as GuestApi,
+    interval: {
+      get delayMs() {
+        return intervalDelayMs
+      },
+      run() {
+        if (intervalCallback === undefined) throw new Error("Expected a captured interval.")
+        intervalCallback()
+      },
+      wasCleared: () => intervalCleared,
+    },
+  }
 }
 
 void test("code bootstrap installs the pinned API with its embedded grant", () => {
@@ -81,6 +117,21 @@ void test("code bootstrap installs the pinned API with its embedded grant", () =
 
   assert.equal(genui.surfaceId, surfaceId)
   assert.deepEqual(jsonRoundTrip(genui.actions), actions)
+})
+
+void test("code bootstrap posts a heartbeat every second until pagehide", () => {
+  const { interval, messages, window } = createHarness()
+  const heartbeats = () =>
+    messages.filter((message) => isRecord(message) && message.type === "heartbeat")
+
+  assert.equal(interval.delayMs, 1_000)
+  assert.equal(heartbeats().length, 1)
+
+  interval.run()
+  assert.equal(heartbeats().length, 2)
+
+  window.dispatchEvent(new window.Event("pagehide"))
+  assert.equal(interval.wasCleared(), true)
 })
 
 void test("red team: unknown, replayed, and duplicate results are ignored", async () => {

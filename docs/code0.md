@@ -121,7 +121,7 @@ output.
 Render consent UI in trusted host code. Use the descriptor and raw input for
 the browser preview. Use canonical validated input for kernel approval.
 
-## Errors and navigation
+## Errors, navigation, and liveness
 
 The bootstrap forwards `window.onerror` and `unhandledrejection` as
 `guest_error` events with a message and a stack when available. Handle these in
@@ -138,3 +138,16 @@ kills the iframe, replaces it with an inert error, and emits:
 
 Do not restore or continue a surface after this event. Create and mount a new
 surface instead.
+
+The bootstrap posts a heartbeat immediately and every second. The host checks
+for a gap only while its document is visible and the iframe intersects the
+viewport. A gap over six seconds kills the surface, renders an inert error, and
+emits:
+
+```ts
+{ type: "violation", reason: "unresponsive" }
+```
+
+Heartbeat monitoring is best-effort liveness detection, not CPU or memory
+containment. A synchronous loop in a same-renderer iframe can also starve the
+host monitor. Do not treat the tripwire as an isolation or quota boundary.

@@ -15,6 +15,7 @@ export type SurfaceViolationReason =
   | "bad_message"
   | "ungranted_call"
   | "navigation"
+  | "unresponsive"
   | "snapshot_timeout"
 
 export type SurfaceEvent =
@@ -218,6 +219,7 @@ export const createSurfaceBroker = (
     const message = parsed.value
 
     if (message.surfaceId !== currentSurface.id) return task([])
+    if (message.type === "heartbeat") return task([])
     if (message.type === "resize") {
       const height = clampHeight(message.height, options.maxHeight ?? defaultMaxHeight)
       return task([{ type: "set_height", height }, emit({ type: "resize", height })])

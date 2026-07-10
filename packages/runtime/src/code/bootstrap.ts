@@ -31,6 +31,11 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
 
   const post = (message) => window.parent.postMessage({ channel, surfaceId, ...message }, "*")
 
+  const heartbeat = () => post({ type: "heartbeat" })
+  heartbeat()
+  const heartbeatInterval = window.setInterval(heartbeat, 1000)
+  window.addEventListener("pagehide", () => window.clearInterval(heartbeatInterval), { once: true })
+
   const reportGuestError = (message, error) => {
     const text = typeof message === "string" ? message : String(message)
     const stack = typeof error === "object" && error !== null && typeof error.stack === "string"

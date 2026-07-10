@@ -7,6 +7,12 @@ export interface ActionSandboxMessage extends ActionCall {
   readonly type?: undefined
 }
 
+interface HeartbeatSandboxMessage {
+  readonly channel: typeof protocolChannel
+  readonly type: "heartbeat"
+  readonly surfaceId: string
+}
+
 interface ResizeSandboxMessage {
   readonly channel: typeof protocolChannel
   readonly type: "resize"
@@ -41,6 +47,7 @@ export type SnapshotSandboxMessage =
 
 export type SandboxMessage =
   | ActionSandboxMessage
+  | HeartbeatSandboxMessage
   | ResizeSandboxMessage
   | GuestErrorSandboxMessage
   | SnapshotSandboxMessage
@@ -82,6 +89,15 @@ const parseResizeMessage = (
   if (surfaceId === undefined) return undefined
   if (typeof value.height !== "number" || !Number.isFinite(value.height)) return undefined
   return { channel: protocolChannel, type: "resize", surfaceId, height: value.height }
+}
+
+const parseHeartbeatMessage = (
+  value: Readonly<Record<string, unknown>>,
+): HeartbeatSandboxMessage | undefined => {
+  const surfaceId = boundedString(value.surfaceId, maxIdentifierLength)
+  return surfaceId === undefined
+    ? undefined
+    : { channel: protocolChannel, type: "heartbeat", surfaceId }
 }
 
 const parseGuestErrorMessage = (
@@ -136,12 +152,14 @@ export const parseSandboxMessage = (value: unknown): ParseSandboxMessageResult =
   const message =
     value.type === undefined
       ? parseActionMessage(value)
-      : value.type === "resize"
-        ? parseResizeMessage(value)
-        : value.type === "guest_error"
-          ? parseGuestErrorMessage(value)
-          : value.type === "snapshot"
-            ? parseSnapshotMessage(value)
-            : undefined
+      : value.type === "heartbeat"
+        ? parseHeartbeatMessage(value)
+        : value.type === "resize"
+          ? parseResizeMessage(value)
+          : value.type === "guest_error"
+            ? parseGuestErrorMessage(value)
+            : value.type === "snapshot"
+              ? parseSnapshotMessage(value)
+              : undefined
   return message === undefined ? { ok: false, reason: "bad_message" } : { ok: true, value: message }
 }

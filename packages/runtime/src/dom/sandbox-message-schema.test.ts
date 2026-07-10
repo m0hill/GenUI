@@ -26,6 +26,21 @@ void test("sandbox message schema parses code calls and runtime reports", () => 
   assert.deepEqual(
     parseSandboxMessage({
       channel: protocolChannel,
+      type: "heartbeat",
+      surfaceId: "surface-1",
+    }),
+    {
+      ok: true,
+      value: {
+        channel: protocolChannel,
+        type: "heartbeat",
+        surfaceId: "surface-1",
+      },
+    },
+  )
+  assert.deepEqual(
+    parseSandboxMessage({
+      channel: protocolChannel,
       type: "resize",
       surfaceId: "surface-1",
       height: 320,
@@ -112,6 +127,8 @@ void test("sandbox message schema rejects malformed boundary data", () => {
   for (const message of [
     { channel: protocolChannel, type: "resize", surfaceId: "surface-1", height: Number.NaN },
     { channel: protocolChannel, type: "resize", surfaceId: longIdentifier, height: 100 },
+    { channel: protocolChannel, type: "heartbeat" },
+    { channel: protocolChannel, type: "heartbeat", surfaceId: longIdentifier },
     {
       channel: protocolChannel,
       surfaceId: "surface-1",

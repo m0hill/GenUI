@@ -367,3 +367,8 @@ delete earlier entries.
   protected by confidentiality tiers, not by trying to prevent iframe
   self-navigation — CSP cannot govern navigation and pretending otherwise
   would misstate the threat model.
+- 2026-07-10 Heartbeat monitoring is best-effort liveness, not CPU isolation;
+  a same-renderer synchronous loop can starve the host monitor, so the browser
+  invariant simulates missing heartbeats while the host remains schedulable —
+  guaranteed CPU termination requires an out-of-process renderer deferred by
+  §9.

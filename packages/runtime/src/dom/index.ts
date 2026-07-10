@@ -6,6 +6,7 @@ import {
   type ActionResult,
   type Surface,
 } from "../types.js"
+import { createHeartbeatTripwire, type HeartbeatTripwire } from "./heartbeat-tripwire.js"
 import { protocolChannel } from "./protocol.js"
 import { parseSandboxMessage, type SnapshotSandboxMessage } from "./sandbox-message-schema.js"
 import {
@@ -113,6 +114,8 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
   let nextSnapshotRequestId = 1
   let replacementQueue = Promise.resolve()
   let errorElement: Element | undefined
+  let heartbeatTripwire: HeartbeatTripwire | undefined
+  let intersectionObserver: IntersectionObserver | undefined
   const pendingSnapshots = new Map<string, PendingSnapshotRequest>()
 
   const broker = createSurfaceBroker(surface, {
@@ -163,6 +166,33 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
     }
   }
 
+  const handleVisibilityChange = (): void => {
+    heartbeatTripwire?.setDocumentVisible(ownerDocument.visibilityState === "visible")
+  }
+
+  const stopMonitoring = (): void => {
+    ownerDocument.removeEventListener("visibilitychange", handleVisibilityChange)
+    intersectionObserver?.disconnect()
+    heartbeatTripwire?.dispose()
+  }
+
+  const terminate = (reason: "navigation" | "unresponsive", message: string): void => {
+    if (disposed || terminated) return
+    terminated = true
+    emit({ type: "violation", reason })
+    broker.dispose()
+    finishPendingSnapshots()
+    stopMonitoring()
+    ownerDocument.defaultView?.removeEventListener("message", handleMessage)
+    iframe.removeEventListener("load", handleLoad)
+
+    const error = ownerDocument.createElement("div")
+    error.setAttribute("role", "alert")
+    error.textContent = message
+    errorElement = error
+    element.replaceChildren(error)
+  }
+
   const requestSnapshot = (surfaceId: string): Promise<SnapshotValue | undefined> => {
     const target = iframe.contentWindow
     if (disposed || terminated || target === null) return Promise.resolve(undefined)
@@ -200,6 +230,10 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
   const handleMessage = (event: MessageEvent<unknown>): void => {
     if (disposed || terminated || event.source !== iframe.contentWindow) return
     const parsed = parseSandboxMessage(event.data)
+    if (parsed.ok && parsed.value.type === "heartbeat") {
+      if (parsed.value.surfaceId === broker.surface.id) heartbeatTripwire?.heartbeat()
+      return
+    }
     if (parsed.ok && parsed.value.type === "snapshot") {
       handleSnapshotMessage(parsed.value)
       return
@@ -214,26 +248,36 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
       return
     }
 
-    emit({ type: "violation", reason: "navigation" })
-    terminated = true
-    broker.dispose()
-    finishPendingSnapshots()
-    ownerDocument.defaultView?.removeEventListener("message", handleMessage)
-    iframe.removeEventListener("load", handleLoad)
-
-    const error = ownerDocument.createElement("div")
-    error.setAttribute("role", "alert")
-    error.textContent = "Generated UI navigation blocked."
-    errorElement = error
-    element.replaceChildren(error)
+    terminate("navigation", "Generated UI navigation blocked.")
   }
 
   const setDocument = (nextSurface: Surface, restore?: SnapshotValue): void => {
+    heartbeatTripwire?.reset()
     expectedDocumentLoads += 1
     iframe.srcdoc = surfaceDocument(nextSurface, imagePolicy, restore)
   }
 
-  ownerDocument.defaultView?.addEventListener("message", handleMessage)
+  const ownerWindow = ownerDocument.defaultView
+  heartbeatTripwire = createHeartbeatTripwire({
+    now: () => ownerWindow?.performance.now() ?? Date.now(),
+    schedule: (check, intervalMs) => {
+      if (ownerWindow === null) return () => undefined
+      const intervalId = ownerWindow.setInterval(check, intervalMs)
+      return () => ownerWindow.clearInterval(intervalId)
+    },
+    onUnresponsive: () => terminate("unresponsive", "Generated UI became unresponsive."),
+  })
+  handleVisibilityChange()
+  ownerDocument.addEventListener("visibilitychange", handleVisibilityChange)
+  if (ownerWindow !== null && typeof ownerWindow.IntersectionObserver === "function") {
+    intersectionObserver = new ownerWindow.IntersectionObserver((entries) => {
+      const entry = entries.find((candidate) => candidate.target === iframe)
+      if (entry !== undefined) heartbeatTripwire?.setIntersecting(entry.isIntersecting)
+    })
+    intersectionObserver.observe(iframe)
+  }
+
+  ownerWindow?.addEventListener("message", handleMessage)
   iframe.addEventListener("load", handleLoad)
   setDocument(broker.surface, initialSnapshot)
   element.replaceChildren(iframe)
@@ -269,6 +313,7 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
       disposed = true
       broker.dispose()
       finishPendingSnapshots()
+      stopMonitoring()
       ownerDocument.defaultView?.removeEventListener("message", handleMessage)
       iframe.removeEventListener("load", handleLoad)
       iframe.remove()

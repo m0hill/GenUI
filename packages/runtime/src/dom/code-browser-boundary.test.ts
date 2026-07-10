@@ -24,6 +24,7 @@ interface CodeHostState {
   readonly calls: ActionCall[]
   readonly events: SurfaceEvent[]
   readonly mounted: Mounted
+  readonly setDocumentVisible?: (visible: boolean) => void
 }
 
 declare global {
@@ -120,6 +121,13 @@ const startupGrantSurface: Surface = {
   },
 }
 
+const heartbeatSurface: Surface = {
+  id: "surface-heartbeat-browser",
+  dialect: "code/0",
+  content: `<p id="heartbeat-fixture">Heartbeat fixture</p>`,
+  grant: { surfaceId: "surface-heartbeat-browser", actions: [] },
+}
+
 const newPage = async (): Promise<Page> => {
   if (browser === undefined) throw new Error("Browser was not initialized.")
   const page = await browser.newPage()
@@ -164,6 +172,77 @@ void test("guest startup scripts receive the embedded grant", async (context) =>
   const output = page.frameLocator("iframe").locator("#startup-actions")
   await output.waitFor({ state: "visible" })
   assert.equal(await output.textContent(), "dice.roll")
+})
+
+void test("red team: heartbeat monitor pauses while hidden and kills a visible silent guest", async (context) => {
+  const page = await newPage()
+  context.after(async () => {
+    await page.close()
+  })
+
+  await page.evaluate((surfaceValue) => {
+    let documentVisible = false
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => (documentVisible ? "visible" : "hidden"),
+    })
+    window.addEventListener(
+      "message",
+      (event) => {
+        const data: unknown = event.data
+        if (
+          typeof data === "object" &&
+          data !== null &&
+          Reflect.get(data, "type") === "heartbeat"
+        ) {
+          event.stopImmediatePropagation()
+        }
+      },
+      true,
+    )
+
+    const runtime = Reflect.get(window, "GenuiDom") as BrowserDomRuntime
+    const root = document.querySelector("#root")
+    if (root === null) throw new Error("Missing mount root.")
+    const calls: ActionCall[] = []
+    const events: SurfaceEvent[] = []
+    const mounted = runtime.mount(root, surfaceValue, {
+      transport: async () => ({ ok: true, value: {} }),
+      onEvent: (event) => events.push(event),
+    })
+    const setDocumentVisible = (visible: boolean): void => {
+      documentVisible = visible
+      document.dispatchEvent(new Event("visibilitychange"))
+    }
+    Object.assign(window, { __codeHost: { calls, events, mounted, setDocumentVisible } })
+  }, heartbeatSurface)
+
+  await page.frameLocator("iframe").locator("#heartbeat-fixture").waitFor({ state: "visible" })
+  await page.waitForTimeout(7_200)
+  assert.equal(await page.locator("iframe").count(), 1)
+  assert.equal(
+    await page.evaluate(() =>
+      window.__codeHost.events.some(
+        (event) => event.type === "violation" && event.reason === "unresponsive",
+      ),
+    ),
+    false,
+  )
+
+  await page.evaluate(() => window.__codeHost.setDocumentVisible?.(true))
+  await page.locator('[role="alert"]').waitFor({ timeout: 9_000 })
+  assert.equal(
+    await page.locator('[role="alert"]').textContent(),
+    "Generated UI became unresponsive.",
+  )
+  assert.equal(
+    await page.evaluate(() =>
+      window.__codeHost.events.some(
+        (event) => event.type === "violation" && event.reason === "unresponsive",
+      ),
+    ),
+    true,
+  )
 })
 
 void test("red team: self-navigation kills the surface and emits a violation", async (context) => {
