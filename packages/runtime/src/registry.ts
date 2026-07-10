@@ -27,7 +27,16 @@ const idempotencyWindowMs = 5 * 60 * 1_000
 
 const serializeActionInput = (input: unknown): string | undefined => {
   try {
-    return JSON.stringify(input)
+    const serialized = JSON.stringify(input)
+    if (serialized === undefined) return undefined
+    const normalized: unknown = JSON.parse(serialized)
+    return JSON.stringify(normalized, (_key: string, value: unknown): unknown => {
+      if (typeof value !== "object" || value === null || Array.isArray(value)) return value
+      const entries = Object.entries(value).sort(([left], [right]) =>
+        left < right ? -1 : left > right ? 1 : 0,
+      )
+      return Object.fromEntries(entries)
+    })
   } catch {
     return undefined
   }

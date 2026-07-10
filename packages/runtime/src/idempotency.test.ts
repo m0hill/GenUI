@@ -11,6 +11,10 @@ const valueInput = testSchema<Readonly<{ value: string }>>((input) =>
     : { ok: false, message: "Expected a value." },
 )
 
+const objectInput = testSchema<Readonly<Record<string, unknown>>>((input) =>
+  isRecord(input) ? { ok: true, value: input } : { ok: false, message: "Expected an object." },
+)
+
 for (const effect of ["write", "dangerous"] satisfies readonly Effect[]) {
   void test(`call id makes ${effect} actions idempotent`, async () => {
     let approvals = 0
@@ -84,6 +88,55 @@ for (const effect of ["write", "dangerous"] satisfies readonly Effect[]) {
     assert.equal(executions, 1)
   })
 }
+
+void test("idempotency ignores recursive JSON object key order", async () => {
+  let executions = 0
+  const runtime = new Genui({
+    actions: [
+      action({
+        name: "records.change",
+        description: "Change a record.",
+        effect: "write",
+        policy: "allow",
+        input: objectInput,
+        execute: () => ({ execution: ++executions }),
+      }),
+    ],
+  })
+  const surface = await runtime.surface({ content: "", actions: ["records.change"] })
+  const call = {
+    surfaceId: surface.id,
+    callId: "call-reordered",
+    action: "records.change",
+  }
+
+  const first = await runtime.execute(
+    {
+      ...call,
+      input: {
+        name: "same",
+        nested: { first: 1, second: 2 },
+        rows: [{ left: true, right: false }],
+      },
+    },
+    {},
+  )
+  const reordered = await runtime.execute(
+    {
+      ...call,
+      input: {
+        rows: [{ right: false, left: true }],
+        nested: { second: 2, first: 1 },
+        name: "same",
+      },
+    },
+    {},
+  )
+
+  assert.deepEqual(first, { ok: true, value: { execution: 1 } })
+  assert.deepEqual(reordered, first)
+  assert.equal(executions, 1)
+})
 
 void test("read actions are not deduplicated by call id", async () => {
   let executions = 0

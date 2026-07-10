@@ -76,8 +76,9 @@ canonical input.
 
 `write` and `dangerous` calls are idempotent by `(surfaceId, callId)` for five
 minutes after completion. Concurrent retries share one result and do not ask
-for approval or execute twice. Reusing a call ID with a different action or raw
-JSON input returns `invalid_input`. `local` and `read` actions are not deduped.
+for approval or execute twice. Object key order is ignored recursively when
+comparing retry input. Reusing a call ID with a different action, JSON value, or
+array order returns `invalid_input`. `local` and `read` actions are not deduped.
 
 ## Approval intent
 
