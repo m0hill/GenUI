@@ -288,3 +288,43 @@ working read/write flow, **Guest error fixture** for error forwarding, and
 
 The playground intentionally has no chat UI, model credentials, frontend
 framework, CSS framework, session system, or streaming layer.
+
+## Evaluate model output
+
+Use the file-based loop with any LLM:
+
+1. Run `pnpm dev`, open `http://localhost:3000`, and choose **Copy model
+   instructions**.
+2. Give those instructions to a model and save its raw code/0 output as
+   `examples/playground/fixtures/incoming/<name>.html`.
+3. Optionally add `examples/playground/fixtures/incoming/<name>.json` with the
+   exact ordered startup calls to expect.
+4. Run `pnpm eval` from the repository root.
+
+An expected-calls sidecar is a JSON array. Each item contains only `action` and
+`input`:
+
+```json
+[
+  {
+    "action": "orders.search",
+    "input": { "query": "Aster" }
+  }
+]
+```
+
+Omit the sidecar to skip call matching. Use `[]` to assert that the surface
+makes no granted startup calls. The evaluator does not define selectors or an
+interaction DSL; fixtures must perform behavior under test from their startup
+JavaScript.
+
+The evaluator starts the playground on an ephemeral local port and drives each
+fixture through Chromium, the opaque-origin iframe, the bridge, and the real
+action host. It accepts playground approval dialogs so demo writes can finish
+against in-memory state. It reports mount status, guest errors, violations,
+granted-call results, ungranted-call denials, and expected-call matching as a
+Markdown table.
+
+A failed fixture makes `pnpm eval` exit nonzero. Its report includes every
+failing assertion and the complete event log. Paste that section back to the
+model when requesting a repair.

@@ -31,5 +31,6 @@ pnpm build   # JavaScript and declarations in each package's dist/
 pnpm check   # format + lint + typecheck + tests for all packages
 pnpm test
 pnpm test:pack # pack, install, and import both packages in a temp project
+pnpm eval    # evaluate incoming model output in the real sandbox
 pnpm dev     # playground at http://localhost:3000
 ```
