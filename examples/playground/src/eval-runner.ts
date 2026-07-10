@@ -6,7 +6,12 @@ import { serve, type ServerType } from "@hono/node-server"
 import { chromium, type Browser, type Page, type Request } from "playwright"
 import { app, resetPlaygroundState } from "./app.js"
 import { resetDemoOrders } from "./actions.js"
-import { parseExpectedCalls, parseRecord } from "./playground-codecs.js"
+import {
+  parseExpectedCalls,
+  parsePlaygroundEvent,
+  parseRecord,
+  type PlaygroundEvent,
+} from "./playground-codecs.js"
 
 export interface EvaluationChecks {
   readonly mounted: boolean
@@ -23,7 +28,7 @@ export interface FixtureEvaluation {
   readonly expectationProvided: boolean
   readonly passed: boolean
   readonly failures: readonly string[]
-  readonly events: readonly unknown[]
+  readonly events: readonly PlaygroundEvent[]
 }
 
 export interface EvaluationReport {
@@ -41,72 +46,6 @@ export interface EvaluateFixturesOptions {
 interface LoadedExpectation {
   readonly calls?: ReturnType<typeof parseExpectedCalls>
   readonly error?: string
-}
-
-interface CallEvent {
-  readonly type: "call"
-  readonly call: {
-    readonly callId: string
-    readonly action: string
-    readonly input: unknown
-  }
-}
-
-interface ResultEvent {
-  readonly type: "result"
-  readonly callId: string
-  readonly action: string
-  readonly result: Readonly<Record<string, unknown>>
-}
-
-interface ViolationEvent {
-  readonly type: "violation"
-  readonly reason: string
-  readonly detail?: string
-}
-
-interface GuestErrorEvent {
-  readonly type: "guest_error"
-  readonly message: string
-}
-
-const hasOwn = (value: Readonly<Record<string, unknown>>, key: string): boolean =>
-  Object.prototype.hasOwnProperty.call(value, key)
-
-const isCallEvent = (value: unknown): value is CallEvent => {
-  const event = parseRecord(value)
-  const call = parseRecord(event?.call)
-  return (
-    event?.type === "call" &&
-    call !== undefined &&
-    typeof call.callId === "string" &&
-    typeof call.action === "string" &&
-    hasOwn(call, "input")
-  )
-}
-
-const isResultEvent = (value: unknown): value is ResultEvent => {
-  const event = parseRecord(value)
-  return (
-    event?.type === "result" &&
-    typeof event.callId === "string" &&
-    typeof event.action === "string" &&
-    parseRecord(event.result) !== undefined
-  )
-}
-
-const isViolationEvent = (value: unknown): value is ViolationEvent => {
-  const event = parseRecord(value)
-  return (
-    event?.type === "violation" &&
-    typeof event.reason === "string" &&
-    (event.detail === undefined || typeof event.detail === "string")
-  )
-}
-
-const isGuestErrorEvent = (value: unknown): value is GuestErrorEvent => {
-  const event = parseRecord(value)
-  return event?.type === "guest_error" && typeof event.message === "string"
 }
 
 const directoryPath = (directory: string | URL): string =>
@@ -178,15 +117,15 @@ const waitForQuiet = async (
   throw new Error(`Surface did not become quiet within ${timeoutMs}ms.`)
 }
 
-const readEvents = async (page: Page): Promise<readonly unknown[]> => {
+const readEvents = async (page: Page): Promise<readonly PlaygroundEvent[]> => {
   const encoded = await page.locator("#event-log > li").allTextContents()
-  return encoded.map((value) => JSON.parse(value) as unknown)
+  return encoded.map((value, index) => {
+    const decoded: unknown = JSON.parse(value)
+    const event = parsePlaygroundEvent(decoded)
+    if (event === undefined) throw new Error(`Event ${index + 1} is malformed.`)
+    return event
+  })
 }
-
-const resultSucceeded = (event: ResultEvent | undefined): boolean => event?.result.ok === true
-
-const resultDenied = (event: ResultEvent): boolean =>
-  event.result.ok === false && parseRecord(event.result.error)?.code === "not_granted"
 
 const evaluatePage = async (
   browser: Browser,
@@ -220,7 +159,7 @@ const evaluatePage = async (
   page.on("requestfailed", finishRequest)
 
   let mounted = false
-  let events: readonly unknown[] = []
+  let events: readonly PlaygroundEvent[] = []
 
   try {
     const content = await readFile(htmlPath, "utf8")
@@ -258,26 +197,28 @@ const evaluatePage = async (
 
   for (const message of pageErrors) failures.push(`Page error: ${message}`)
 
-  const calls = events.filter(isCallEvent)
-  const results = events.filter(isResultEvent)
-  const violations = events.filter(isViolationEvent)
-  const guestErrors = events.filter(isGuestErrorEvent)
+  const calls = events.filter((event) => event.type === "call")
+  const results = events.filter((event) => event.type === "result")
+  const violations = events.filter((event) => event.type === "violation")
+  const guestErrors = events.filter((event) => event.type === "guest_error")
   const callIds = new Set(calls.map((event) => event.call.callId))
   const ungrantedViolations = violations.filter((event) => event.reason === "ungranted_call")
   const ungrantedResults = results.filter((event) => !callIds.has(event.callId))
 
   const noGuestErrors = guestErrors.length === 0
   const noViolations = violations.length === 0
-  const grantedCallsSucceeded = calls.every((event) =>
-    resultSucceeded(
+  const grantedCallsSucceeded = calls.every(
+    (event) =>
       results.find(
         (candidate) =>
           candidate.callId === event.call.callId && candidate.action === event.call.action,
-      ),
-    ),
+      )?.result.ok === true,
   )
   const ungrantedCallsDenied =
-    ungrantedViolations.length === ungrantedResults.length && ungrantedResults.every(resultDenied)
+    ungrantedViolations.length === ungrantedResults.length &&
+    ungrantedResults.every(
+      (event) => event.result.ok === false && event.result.error.code === "not_granted",
+    )
   const actualCalls = calls.map((event) => ({
     action: event.call.action,
     input: event.call.input,

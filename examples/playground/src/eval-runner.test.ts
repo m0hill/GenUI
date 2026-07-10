@@ -43,13 +43,7 @@ void test("evaluation rig fails loudly for bad and malicious surfaces", async ()
   assert.equal(malicious.checks.ungrantedCallsDenied, true)
   assert.equal(malicious.passed, false)
   assert.deepEqual(
-    malicious.events
-      .filter(
-        (event): event is Readonly<Record<string, unknown>> =>
-          typeof event === "object" && event !== null && !Array.isArray(event),
-      )
-      .filter((event) => event.type === "violation")
-      .map((event) => event.reason),
+    malicious.events.filter((event) => event.type === "violation").map((event) => event.reason),
     ["ungranted_call", "navigation"],
   )
 

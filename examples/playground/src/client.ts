@@ -1,8 +1,7 @@
-import type { CallAuditEntry } from "@genui/genui"
-import { mount, type Mounted, type SurfaceEvent } from "@genui/genui/dom"
+import { mount, type Mounted } from "@genui/genui/dom"
 import { actionError, parseSurface } from "@genui/protocol"
 import { guestErrorFixture, ordersDashboardFixture } from "./fixtures.js"
-import { parseExecuteEnvelope } from "./playground-codecs.js"
+import { parseExecuteEnvelope, type PlaygroundEvent } from "./playground-codecs.js"
 
 const requiredElement = <ElementType extends Element>(selector: string): ElementType => {
   const element = document.querySelector(selector)
@@ -21,8 +20,6 @@ const showStatus = (message: string, error = false): void => {
   status.textContent = message
   status.dataset.error = String(error)
 }
-
-type PlaygroundEvent = SurfaceEvent | { readonly type: "audit"; readonly entry: CallAuditEntry }
 
 const appendEvent = (event: PlaygroundEvent): void => {
   const item = document.createElement("li")
