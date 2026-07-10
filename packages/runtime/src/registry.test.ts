@@ -341,12 +341,8 @@ void test("returned surface mutations cannot change registry authority", async (
     requiresApproval: false,
   } as const
 
-  try {
-    Reflect.set(surface.grant.actions, "0", forgedDescriptor)
-    Object.defineProperty(surface.grant, "capabilities", { value: [forgedDescriptor] })
-  } catch {
-    // Frozen public surface values are also acceptable; execution must stay denied either way.
-  }
+  Reflect.set(surface.grant.actions, "0", forgedDescriptor)
+  Object.defineProperty(surface.grant, "capabilities", { value: [forgedDescriptor] })
 
   assertErrorCode(
     await registry.execute(

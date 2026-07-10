@@ -240,7 +240,7 @@ export class Genui<Ctx> {
     result: ActionResult,
   ): void {
     if (this.#onCall === undefined) return
-    const entry: CallAuditEntry = Object.freeze({
+    const entry: CallAuditEntry = {
       surfaceId: call.surfaceId,
       callId: call.callId,
       ...(options?.subject === undefined ? {} : { subject: options.subject }),
@@ -248,7 +248,7 @@ export class Genui<Ctx> {
       effect: this.#byName.get(call.action)?.effect ?? "unknown",
       outcome: result.ok ? "ok" : result.error.code,
       at: Date.now(),
-    })
+    }
     try {
       void Promise.resolve(this.#onCall(entry)).catch(() => undefined)
     } catch {

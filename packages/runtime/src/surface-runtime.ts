@@ -52,50 +52,50 @@ export interface SurfaceRuntime {
 }
 
 const copyDropped = (dropped: readonly DroppedAction[]): readonly DroppedAction[] =>
-  Object.freeze(dropped.map((item) => Object.freeze({ ...item })))
+  dropped.map((item) => ({ ...item }))
 
-const copyDiagnostics = (diagnostics: SurfaceProjectionDiagnostics): SurfaceProjectionDiagnostics =>
-  Object.freeze({
-    actions: Object.freeze([...diagnostics.actions]),
-    granted: Object.freeze([...diagnostics.granted]),
-    dropped: copyDropped(diagnostics.dropped),
-  })
+const copyDiagnostics = (
+  diagnostics: SurfaceProjectionDiagnostics,
+): SurfaceProjectionDiagnostics => ({
+  actions: [...diagnostics.actions],
+  granted: [...diagnostics.granted],
+  dropped: copyDropped(diagnostics.dropped),
+})
 
 const copyActions = (actions: readonly Action[]): readonly Action[] =>
-  Object.freeze(actions.map((action) => Object.freeze({ ...action })))
+  actions.map((action) => ({ ...action }))
 
 const copyMeta = (
   meta: Readonly<Record<string, unknown>> | undefined,
-): Readonly<Record<string, unknown>> | undefined =>
-  meta === undefined ? undefined : Object.freeze({ ...meta })
+): Readonly<Record<string, unknown>> | undefined => (meta === undefined ? undefined : { ...meta })
 
 const copySurfaceInput = (source: SurfaceInput): SurfaceInput => {
   const meta = copyMeta(source.meta)
-  return Object.freeze({
+  return {
     content: source.content,
-    actions: Object.freeze([...source.actions]),
+    actions: [...source.actions],
     ...(source.dialect === undefined ? {} : { dialect: source.dialect }),
     ...(source.subject === undefined ? {} : { subject: source.subject }),
     ...(source.ttlMs === undefined ? {} : { ttlMs: source.ttlMs }),
     ...(meta === undefined ? {} : { meta }),
-  })
+  }
 }
 
 const createSurfaceValue = (input: SurfaceValueInput): Surface => {
-  const grant: Grant = Object.freeze({
+  const grant: Grant = {
     surfaceId: input.id,
     actions: copyActions(input.actions),
     ...(input.subject === undefined ? {} : { subject: input.subject }),
     ...(input.expiresAt === undefined ? {} : { expiresAt: input.expiresAt }),
-  })
+  }
   const meta = copyMeta(input.meta)
-  return Object.freeze({
+  return {
     id: input.id,
     content: input.content,
     grant,
     dialect: codeDialect,
     ...(meta === undefined ? {} : { meta }),
-  })
+  }
 }
 
 const copySurface = (surface: Surface): Surface =>
@@ -108,13 +108,12 @@ const copySurface = (surface: Surface): Surface =>
     meta: surface.meta,
   })
 
-const copySurfaceRecord = (record: SurfaceRecord): SurfaceRecord =>
-  Object.freeze({
-    surface: copySurface(record.surface),
-    source: copySurfaceInput(record.source),
-    ...(record.subject === undefined ? {} : { subject: record.subject }),
-    diagnostics: copyDiagnostics(record.diagnostics),
-  })
+const copySurfaceRecord = (record: SurfaceRecord): SurfaceRecord => ({
+  surface: copySurface(record.surface),
+  source: copySurfaceInput(record.source),
+  ...(record.subject === undefined ? {} : { subject: record.subject }),
+  diagnostics: copyDiagnostics(record.diagnostics),
+})
 
 const assertCodeSurface = (source: SurfaceInput): void => {
   if (source.dialect !== undefined && source.dialect !== codeDialect) {
@@ -206,11 +205,11 @@ export const createSurfaceRuntime = <Ctx>({
     return {
       content: source.content,
       actions: grant.actions,
-      diagnostics: Object.freeze({
-        actions: Object.freeze([...source.actions]),
-        granted: Object.freeze(grant.actions.map((action) => action.name)),
+      diagnostics: {
+        actions: [...source.actions],
+        granted: grant.actions.map((action) => action.name),
         dropped: copyDropped(grant.dropped),
-      }),
+      },
     }
   }
 
@@ -230,12 +229,12 @@ export const createSurfaceRuntime = <Ctx>({
       expiresAt: grantExpiry(source),
       meta: source.meta,
     })
-    const record = Object.freeze({
+    const record = {
       surface,
       source,
       ...(source.subject === undefined ? {} : { subject: source.subject }),
       diagnostics: copyDiagnostics(projected.diagnostics),
-    })
+    }
     await store.set(record)
     return copySurface(surface)
   }
@@ -253,12 +252,12 @@ export const createSurfaceRuntime = <Ctx>({
       expiresAt: record.surface.grant.expiresAt,
       meta: record.source.meta,
     })
-    const nextRecord = Object.freeze({
+    const nextRecord = {
       surface,
       source: record.source,
       ...(record.subject === undefined ? {} : { subject: record.subject }),
       diagnostics: copyDiagnostics(projected.diagnostics),
-    })
+    }
     await store.set(nextRecord)
     return copySurface(surface)
   }

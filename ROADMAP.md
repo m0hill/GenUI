@@ -395,3 +395,8 @@ delete earlier entries.
   decision, playground codec adoption — the codebase was built fast by
   agents across two phases and carries duplicated predicates, ceremony, and
   narration that a professional release should not.
+- 2026-07-10 Trusted-host values rely on readonly types, with defensive copies
+  only across caller and store aliases; `Object.freeze` remains only on the
+  generated-code bridge where runtime tampering is hostile — shallow host-side
+  freezes added ceremony without isolating nested values or strengthening
+  authority.
