@@ -17,9 +17,9 @@ import {
   type TransportOptions,
 } from "./surface-broker.js"
 
-export type { SurfaceEvent, SurfaceViolationReason, TransportOptions } from "./surface-broker.js"
+export type { SurfaceEvent } from "./surface-broker.js"
 
-export interface MountOptions {
+interface MountOptions {
   readonly transport: (call: ActionCall, options: TransportOptions) => Promise<ActionResult>
   /** Trusted consent UI using the kernel-rendered canonical action intent. */
   readonly confirm?: (
@@ -34,9 +34,9 @@ export interface MountOptions {
   readonly snapshotTimeoutMs?: number
 }
 
-export type ImagePolicy = "none" | "data" | "https" | "https-and-data"
+type ImagePolicy = "none" | "data" | "https" | "https-and-data"
 
-export type SnapshotValue =
+type SnapshotValue =
   | null
   | boolean
   | number
@@ -44,7 +44,7 @@ export type SnapshotValue =
   | readonly SnapshotValue[]
   | { readonly [key: string]: SnapshotValue }
 
-export interface ReplaceOptions {
+interface ReplaceOptions {
   readonly snapshot?: SnapshotValue
 }
 

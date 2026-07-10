@@ -98,9 +98,9 @@ assert.equal(
 
   await writeFile(
     join(project, "smoke.ts"),
-    `import { Genui, memoryStore, type Surface } from "@genui/genui"
+    `import { Genui, memoryStore } from "@genui/genui"
 import { mount, type Mounted } from "@genui/genui/dom"
-import { parseActionCall, parseSurface, type ActionCall } from "@genui/protocol"
+import { parseActionCall, parseSurface, type ActionCall, type Surface } from "@genui/protocol"
 
 const genui = new Genui<undefined>({ actions: [], store: memoryStore() })
 const call: ActionCall = {

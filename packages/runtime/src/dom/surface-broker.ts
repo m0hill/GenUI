@@ -11,7 +11,7 @@ import { parseSandboxMessage, type ActionSandboxMessage } from "./sandbox-messag
 
 const defaultMaxHeight = 1_200
 
-export type SurfaceViolationReason =
+type SurfaceViolationReason =
   | "bad_message"
   | "ungranted_call"
   | "navigation"
