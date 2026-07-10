@@ -2,12 +2,19 @@
   "name": "@genui/protocol",
   "version": "0.0.0",
   "private": true,
+  "files": [
+    "dist"
+  ],
   "type": "module",
-  "types": "./src/index.ts",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
   "scripts": {
+    "build": "rm -rf dist && tsc --project tsconfig.build.json",
     "test": "nub --test $(find src -name '*.test.ts' -print)",
     "check": "pnpm run lint && pnpm run format:check && tsc --noEmit && nub --test $(find src -name '*.test.ts' -print)",
     "typecheck": "tsc --noEmit",

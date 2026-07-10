@@ -27,6 +27,7 @@ pnpm workspace:
 
 ```sh
 pnpm install
+pnpm build   # JavaScript and declarations in each package's dist/
 pnpm check   # format + lint + typecheck + tests for all packages
 pnpm test
 pnpm dev     # playground at http://localhost:3000

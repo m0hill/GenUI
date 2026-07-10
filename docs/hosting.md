@@ -13,6 +13,21 @@ objects, credentials, direct fetch access, or a reference to the parent DOM.
 Read [actions.md](actions.md) before defining the authority set. Read
 [code0.md](code0.md) for the iframe and guest contract.
 
+## Build the packages
+
+The packages are private while their final npm scope and names are undecided.
+Build the workspace copies before using them locally:
+
+```sh
+pnpm install
+pnpm build
+```
+
+The build emits ESM JavaScript, declarations, and source maps to
+`packages/protocol/dist/` and `packages/runtime/dist/`. Package export maps
+point consumers at those files. The repository's `pnpm check`, `pnpm test`,
+and `pnpm dev` commands build them first.
+
 ## Create the server runtime
 
 Create one `Genui` instance from app-owned actions and a store. The in-memory

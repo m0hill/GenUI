@@ -2,13 +2,23 @@
   "name": "@genui/genui",
   "version": "0.0.0",
   "private": true,
+  "files": [
+    "dist"
+  ],
   "type": "module",
-  "types": "./src/index.ts",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./dom": "./src/dom/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./dom": {
+      "types": "./dist/dom/index.d.ts",
+      "import": "./dist/dom/index.js"
+    }
   },
   "scripts": {
+    "build": "rm -rf dist && tsc --project tsconfig.build.json",
     "browser:install": "playwright install chromium",
     "test": "nub --test $(find src -name '*.test.ts' -print)",
     "check": "pnpm run lint && pnpm run format:check && tsc --noEmit && nub --test $(find src -name '*.test.ts' -print)",
