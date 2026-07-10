@@ -26,7 +26,7 @@ const packPackage = async (name, destination) => {
   const { stdout } = await run(
     "nub",
     ["pack", "--pack-destination", destination, "--json"],
-    join(root, "packages/runtime"),
+    join(root, "packages/genui"),
   )
   const [metadata] = JSON.parse(stdout)
   assert(metadata)
@@ -50,7 +50,7 @@ try {
   await mkdir(project)
 
   await run("nub", ["run", "build"], root)
-  const runtimeTarball = await packPackage("genui", packs)
+  const genuiTarball = await packPackage("genui", packs)
 
   await writeFile(
     join(project, "package.json"),
@@ -60,7 +60,7 @@ try {
         private: true,
         type: "module",
         dependencies: {
-          genui: `file:${runtimeTarball}`,
+          genui: `file:${genuiTarball}`,
         },
       },
       null,
@@ -149,7 +149,7 @@ void mounted
     project,
   )
 
-  process.stdout.write("Packed package runtime and type smoke test passed.\n")
+  process.stdout.write("Packed genui package and type smoke test passed.\n")
 } finally {
   await rm(temp, { force: true, recursive: true })
 }

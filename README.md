@@ -14,7 +14,7 @@ sandboxed surfaces, and hosting.
 
 nub workspace:
 
-- `packages/runtime` — `genui`: dependency-free wire contracts at
+- `packages/genui` — `genui`: dependency-free wire contracts at
   `./protocol`, the capability kernel, and the DOM sandbox host.
 - [`examples/playground`](examples/playground/README.md) — a credential-free
   Hono host with paste mode, model instructions, working fixtures, and a visible
@@ -24,7 +24,7 @@ nub workspace:
 
 ```sh
 nub install
-nub run build   # JavaScript and declarations in packages/runtime/dist/
+nub run build   # JavaScript and declarations in packages/genui/dist/
 nub run check   # format + lint + typecheck + tests for all packages
 nub run test
 nub run test:pack # pack, install, and import every public entrypoint

@@ -15,7 +15,7 @@ Read [actions.md](actions.md) before defining the authority set. Read
 
 ## Build the package
 
-The package is private while its final npm scope and name are undecided. Build
+The `genui` package is private while its final npm scope and name are undecided. Build
 the workspace copy before using it locally:
 
 ```sh
@@ -24,7 +24,7 @@ nub run build
 ```
 
 The build emits ESM JavaScript, declarations, and source maps to
-`packages/runtime/dist/`. Its export map exposes `.`, `./protocol`, and
+`packages/genui/dist/`. Its export map exposes `.`, `./protocol`, and
 `./dom`. The repository's `nub run check` and `nub run test` commands build it
 first.
 
@@ -35,7 +35,7 @@ nub run test:pack
 ```
 
 It packs the private package, installs the tarball into a temporary project
-without registry access, and checks runtime and TypeScript imports through all
+without registry access, and checks JavaScript and TypeScript imports through all
 three public entrypoints. The temporary tarball is deleted after the test.
 
 ## Create the server runtime

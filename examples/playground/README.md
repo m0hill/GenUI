@@ -18,7 +18,7 @@ fixture. Use **Create surface** for paste mode, **Orders fixture** for the
 working read/write flow, **Guest error fixture** for error forwarding, and
 **Copy model instructions** for the manual LLM loop.
 
-The root `dev` command builds the runtime package and browser client before
+The root `dev` command builds the `genui` package and browser client before
 starting the server. The event panel shows guest errors, violations, action
 results, and audit entries.
 

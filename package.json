@@ -16,8 +16,8 @@
     "typecheck": "nub run build && nub run --recursive typecheck",
     "lint": "nub run --recursive lint",
     "lint:fix": "nub run --recursive lint:fix",
-    "format": "oxfmt *.json .*.json scripts packages/runtime/*.json packages/runtime/src examples/playground/*.json examples/playground/src examples/playground/scripts",
-    "format:check": "oxfmt --check *.json .*.json scripts packages/runtime/*.json packages/runtime/src examples/playground/*.json examples/playground/src examples/playground/scripts"
+    "format": "oxfmt *.json .*.json scripts packages/genui/*.json packages/genui/src examples/playground/*.json examples/playground/src examples/playground/scripts",
+    "format:check": "oxfmt --check *.json .*.json scripts packages/genui/*.json packages/genui/src examples/playground/*.json examples/playground/src examples/playground/scripts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
