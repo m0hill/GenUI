@@ -22,6 +22,7 @@ interface GuestApi {
 interface HarnessOptions {
   readonly actions?: readonly Action[]
   readonly restore?: unknown
+  readonly theme?: "light" | "dark"
 }
 
 interface CapturedInterval {
@@ -77,6 +78,7 @@ const createHarness = (
       surfaceId,
       actions: options.actions ?? [],
       ...(options.restore === undefined ? {} : { restore: options.restore }),
+      ...(options.theme === undefined ? {} : { theme: options.theme }),
     }),
   )
   const genui = Reflect.get(harness.window, "genui")
@@ -118,6 +120,45 @@ void test("code bootstrap installs the pinned API with its embedded grant", () =
 
   assert.equal(genui.surfaceId, surfaceId)
   assert.deepEqual(jsonRoundTrip(genui.actions), actions)
+})
+
+void test("code bootstrap applies the initial document theme", () => {
+  const { window } = createHarness({ theme: "dark" })
+
+  assert.equal(window.document.documentElement.getAttribute("data-theme"), "dark")
+  assert.equal(window.document.documentElement.style.colorScheme, "dark")
+})
+
+void test("code bootstrap applies live host theme changes", () => {
+  const { window } = createHarness({ theme: "light" })
+
+  dispatchInboundMessage(window, {
+    channel,
+    type: "host_context_changed",
+    surfaceId,
+    theme: "dark",
+  })
+
+  assert.equal(window.document.documentElement.getAttribute("data-theme"), "dark")
+  assert.equal(window.document.documentElement.style.colorScheme, "dark")
+})
+
+void test("red team: code bootstrap ignores forged and invalid host theme changes", () => {
+  const { window } = createHarness({ theme: "light" })
+  const update = {
+    channel,
+    type: "host_context_changed",
+    surfaceId,
+    theme: "dark",
+  }
+
+  dispatchInboundMessage(window, update, "forged")
+  dispatchInboundMessage(window, { ...update, channel: "forged/channel" })
+  dispatchInboundMessage(window, { ...update, surfaceId: "forged-surface" })
+  dispatchInboundMessage(window, { ...update, theme: "sepia" })
+
+  assert.equal(window.document.documentElement.getAttribute("data-theme"), "light")
+  assert.equal(window.document.documentElement.style.colorScheme, "light")
 })
 
 void test("code bootstrap posts a heartbeat every second until pagehide", () => {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { readdir, readFile } from "node:fs/promises"
-import { join } from "node:path"
+import { join, sep } from "node:path"
 import { test } from "node:test"
 
 const sourceFiles = async (directory: string): Promise<string[]> => {
@@ -42,6 +42,17 @@ void test("runtime source stays decoupled from app, agent, and transport package
     const source = await readFile(file, "utf8")
     assert.doesNotMatch(source, /\bfrom\s+["'](?:node:|hono|zod|datastar-kit)/, file)
     assert.doesNotMatch(source, /\bchat\b/i, file)
+  }
+})
+
+void test("non-DOM source stays decoupled from the browser host", async () => {
+  const files = await sourceFiles("src")
+  const domPrefix = `${join("src", "dom")}${sep}`
+
+  for (const file of files) {
+    if (file.startsWith(domPrefix)) continue
+    const source = await readFile(file, "utf8")
+    assert.doesNotMatch(source, /\bfrom\s+["'][^"']*\/dom\//, file)
   }
 })
 

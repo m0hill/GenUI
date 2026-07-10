@@ -1,5 +1,6 @@
 import { codeDialect, type Action, type ActionCall, type Surface } from "../protocol/index.js"
 import { codeBootstrapScript } from "../code/bootstrap.js"
+import { parseHostContext, renderHostStyleVariables, type HostContext } from "../host-context.js"
 import { createHeartbeatTripwire, type HeartbeatTripwire } from "./heartbeat-tripwire.js"
 import { protocolChannel } from "./protocol.js"
 import {
@@ -17,6 +18,7 @@ import {
 } from "./surface-broker.js"
 
 export type { SurfaceEvent } from "./surface-broker.js"
+export type { HostContext, McpUiStyleVariableKey } from "../host-context.js"
 
 interface MountOptions {
   readonly transport: (call: ActionCall, options: TransportOptions) => Promise<unknown>
@@ -28,6 +30,8 @@ interface MountOptions {
   ) => boolean | Promise<boolean>
   /** HTTPS policies permit outbound image requests and can exfiltrate sandbox-visible data. */
   readonly imagePolicy?: ImagePolicy
+  /** MCP Apps-compatible theme and standardized CSS variables supplied by trusted host code. */
+  readonly hostContext?: HostContext
   readonly maxHeight?: number
   readonly onEvent?: (event: SurfaceEvent) => void
   readonly snapshot?: SnapshotValue
@@ -44,6 +48,8 @@ export interface Mounted {
   readonly surface: Surface
   snapshot(): Promise<SnapshotValue | undefined>
   replace(surface: Surface, options?: ReplaceOptions): Promise<void>
+  /** Apply theme changes live; style-variable changes render on the next replacement. */
+  updateHostContext(partial: HostContext): void
   dispose(): void
 }
 
@@ -65,14 +71,15 @@ const imageSourcePolicy = (policy: ImagePolicy): string => {
 const surfaceDocument = (
   surface: Surface,
   imagePolicy: ImagePolicy,
+  hostContext: HostContext,
   restore?: SnapshotValue,
 ): string => `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src ${imageSourcePolicy(imagePolicy)}; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
-</head>
-<body><script>${codeBootstrapScript({ channel: protocolChannel, surfaceId: surface.id, actions: surface.grant.actions, ...(restore === undefined ? {} : { restore }) })}</script>${surface.content}</body>
+${renderHostStyleVariables(hostContext)}</head>
+<body><script>${codeBootstrapScript({ channel: protocolChannel, surfaceId: surface.id, actions: surface.grant.actions, ...(restore === undefined ? {} : { restore }), ...(hostContext.theme === undefined ? {} : { theme: hostContext.theme }) })}</script>${surface.content}</body>
 </html>`
 
 const assertSupportedSurface = (surface: Surface): void => {
@@ -84,6 +91,7 @@ const assertSupportedSurface = (surface: Surface): void => {
 /** Mount generated code into an isolated iframe and broker its action calls. */
 export const mount = (element: Element, surface: Surface, options: MountOptions): Mounted => {
   assertSupportedSurface(surface)
+  let hostContext = options.hostContext === undefined ? {} : parseHostContext(options.hostContext)
   const ownerDocument = element.ownerDocument
   const imagePolicy = options.imagePolicy ?? "none"
   const initialSnapshot = options.snapshot
@@ -116,6 +124,18 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
   iframe.style.width = "100%"
 
   const emit = (event: SurfaceEvent): void => options.onEvent?.(event)
+
+  const postHostTheme = (theme: "light" | "dark"): void => {
+    iframe.contentWindow?.postMessage(
+      {
+        channel: protocolChannel,
+        type: "host_context_changed",
+        surfaceId: broker.surface.id,
+        theme,
+      },
+      "*",
+    )
+  }
 
   const applyEffect = (effect: SurfaceBrokerEffect): void => {
     if (disposed || terminated) return
@@ -231,6 +251,7 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
     if (disposed || terminated) return
     if (expectedDocumentLoads > 0) {
       expectedDocumentLoads -= 1
+      if (hostContext.theme !== undefined) postHostTheme(hostContext.theme)
       return
     }
 
@@ -240,7 +261,7 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
   const setDocument = (nextSurface: Surface, restore?: SnapshotValue): void => {
     heartbeatTripwire?.reset()
     expectedDocumentLoads += 1
-    iframe.srcdoc = surfaceDocument(nextSurface, imagePolicy, restore)
+    iframe.srcdoc = surfaceDocument(nextSurface, imagePolicy, hostContext, restore)
   }
 
   const ownerWindow = ownerDocument.defaultView
@@ -300,6 +321,13 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
       })
       replacementQueue = replacement.catch(() => undefined)
       return replacement
+    },
+    updateHostContext(partial) {
+      const update = parseHostContext(partial)
+      if (disposed || terminated) return
+      hostContext = { ...hostContext, ...update }
+      if (update.theme === undefined) return
+      postHostTheme(update.theme)
     },
     dispose() {
       if (disposed) return

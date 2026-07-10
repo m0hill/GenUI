@@ -74,6 +74,9 @@ const snapshotSurface: Surface = {
   id: "surface-snapshot-browser",
   dialect: "code/0",
   content: `
+    <style>
+      #count { color: var(--color-text-primary, rgb(1, 2, 3)); }
+    </style>
     <button id="increment">Increment</button>
     <output id="count"></output>
     <script type="module">
@@ -301,7 +304,7 @@ void test("red team: self-navigation kills the surface and emits a violation", a
   )
 })
 
-void test("browser snapshot survives a same-surface replacement", async (context) => {
+void test("browser host theme resolves and survives a snapshot replacement", async (context) => {
   const page = await newPage()
   context.after(async () => {
     await page.close()
@@ -314,22 +317,55 @@ void test("browser snapshot survives a same-surface replacement", async (context
     const calls: ActionCall[] = []
     const events: SurfaceEvent[] = []
     const mounted = runtime.mount(root, surfaceValue, {
+      hostContext: {
+        theme: "light",
+        styles: {
+          variables: {
+            "--color-text-primary": "light-dark(rgb(17, 34, 51), rgb(221, 238, 255))",
+          },
+        },
+      },
       transport: async () => ({ ok: true, value: {} }),
       onEvent: (event) => events.push(event),
     })
+    mounted.updateHostContext({ theme: "dark" })
     Object.assign(window, { __codeHost: { calls, events, mounted } })
   }, snapshotSurface)
 
   const frame = page.frameLocator("iframe")
+  const count = frame.locator("#count")
+  await count.waitFor({ state: "visible" })
+  assert.equal(
+    await count.evaluate((element) => getComputedStyle(element).color),
+    "rgb(221, 238, 255)",
+  )
+
+  await page.evaluate(() => window.__codeHost.mounted.updateHostContext({ theme: "light" }))
+  assert.deepEqual(
+    await frame.locator("html").evaluate((root) => ({
+      colorScheme: getComputedStyle(root).colorScheme,
+      theme: root.getAttribute("data-theme"),
+    })),
+    { colorScheme: "light", theme: "light" },
+  )
+  assert.equal(
+    await count.evaluate((element) => getComputedStyle(element).color),
+    "rgb(17, 34, 51)",
+  )
+
   await frame.locator("#increment").click()
   await frame.locator("#increment").click()
-  assert.equal(await frame.locator("#count").textContent(), "2")
+  assert.equal(await count.textContent(), "2")
   assert.deepEqual(await page.evaluate(() => window.__codeHost.mounted.snapshot()), { count: 2 })
 
-  await page.evaluate(
-    (surfaceValue) => window.__codeHost.mounted.replace(surfaceValue),
-    snapshotSurface,
+  await page.evaluate(async (surfaceValue) => {
+    await window.__codeHost.mounted.replace(surfaceValue)
+    window.__codeHost.mounted.updateHostContext({ theme: "dark" })
+  }, snapshotSurface)
+  await count.waitFor({ state: "visible" })
+  assert.equal(await count.textContent(), "2")
+  assert.equal(
+    await count.evaluate((element) => getComputedStyle(element).color),
+    "rgb(221, 238, 255)",
   )
-  await frame.locator("#count").waitFor({ state: "visible" })
-  assert.equal(await frame.locator("#count").textContent(), "2")
 })

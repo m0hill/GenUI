@@ -1,4 +1,7 @@
+import { mcpUiStyleVariableKeys } from "../host-context.js"
 import type { Action } from "../protocol/index.js"
+
+const hostStyleVariableInstructions = mcpUiStyleVariableKeys.map((key) => `- \`${key}\``).join("\n")
 
 const actionInstructions = (action: Action): string => {
   const details = [
@@ -48,6 +51,17 @@ Schemas. Example:
   }
 </script>
 \`\`\`
+
+## Host styling
+
+The host may provide standardized MCP Apps CSS custom properties. Prefer these tokens over invented
+colors and fonts. Give every token use a sensible fallback, for example
+\`var(--color-background-primary, light-dark(#ffffff, #171717))\` and
+\`var(--font-sans, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif)\`.
+\`light-dark()\` values follow the host's light or dark color scheme. The standardized radius token
+uses the exact name \`--border-radius-sm\`. The complete standardized set is:
+
+${hostStyleVariableInstructions}
 
 ## Granted actions
 

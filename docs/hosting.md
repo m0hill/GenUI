@@ -351,6 +351,57 @@ Use `snapshot` in the initial `mount()` options to seed a new document. Set
 appropriate. A missed deadline resolves to `undefined` and emits a
 `snapshot_timeout` violation.
 
+## Theme generated surfaces
+
+Pass the MCP Apps-aligned host context through `mount()`. Add this block to the
+mount options in the example above:
+
+```ts
+hostContext: {
+  theme: "light",
+  styles: {
+    variables: {
+      "--color-background-primary": "light-dark(#ffffff, #171717)",
+      "--color-text-primary": "light-dark(#171717, #f5f5f5)",
+      "--color-border-primary": "light-dark(#d4d4d4, #404040)",
+      "--border-radius-md": "8px",
+      "--font-sans":
+        'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    },
+  },
+},
+```
+
+The host may provide any subset of the standardized variables. Use
+`light-dark(light, dark)` for theme-aware color values. `mount()` validates the
+context, emits the variables in a trusted `:root` style block before the guest
+bootstrap and generated content. When `theme` is present, the bootstrap sets
+both `data-theme` and `color-scheme` on the document root.
+
+Change the live color scheme through the `Mounted` handle:
+
+```ts
+mounted.updateHostContext({ theme: "dark" })
+```
+
+A theme update applies to the live document without replacing the surface. It
+changes the document root so existing `light-dark()` values resolve again.
+
+Host-context updates merge their supplied top-level fields with the current
+context. A `styles` update replaces the previous `styles` field, so include
+every variable that the next document should retain. Updated variables are
+validated immediately but do not change the live document. They take effect on
+the next `replace()`. The current host context is reused for every replacement,
+including a same-surface replacement that captures and restores a guest
+snapshot.
+
+Only standardized variable names are accepted. Values must be non-empty CSS
+strings without `<`, `>`, `{`, `}`, control characters, or a top-level
+semicolon. Quotes, parentheses, and brackets must balance; semicolons inside
+quoted strings or balanced groups are accepted. Invalid themes, keys, and
+values throw `TypeError` from `mount()` or `updateHostContext()` as host
+programming errors.
+
 ## Expose failures
 
 Render `SurfaceEvent` values from `onEvent` somewhere the user or developer can

@@ -5,6 +5,7 @@ interface CodeBootstrapOptions {
   readonly surfaceId: string
   readonly actions: readonly Action[]
   readonly restore?: unknown
+  readonly theme?: "light" | "dark"
 }
 
 /** Runs before untrusted content and installs its only capability bridge. */
@@ -15,11 +16,20 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
   "use strict"
 
   const config = ${config}
-  const { actions, channel, surfaceId } = config
+  const { actions, channel, surfaceId, theme } = config
   const pending = new Map()
   let nextCallId = 0
   let snapshotProvider
   let restorePending = Object.prototype.hasOwnProperty.call(config, "restore")
+
+  const applyDocumentTheme = (nextTheme) => {
+    document.documentElement.setAttribute("data-theme", nextTheme)
+    document.documentElement.style.colorScheme = nextTheme
+  }
+
+  if (theme !== undefined) {
+    applyDocumentTheme(theme)
+  }
 
   class GenuiActionError extends Error {
     constructor(code, message) {
@@ -96,6 +106,12 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
     const message = event.data
     if (typeof message !== "object" || message === null) return
     if (message.channel !== channel || message.surfaceId !== surfaceId) return
+
+    if (message.type === "host_context_changed" &&
+        (message.theme === "light" || message.theme === "dark")) {
+      applyDocumentTheme(message.theme)
+      return
+    }
 
     if (message.type === "snapshot_request" && typeof message.requestId === "string") {
       if (snapshotProvider === undefined) {

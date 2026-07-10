@@ -36,6 +36,87 @@ The sandbox blocks these facilities; code that depends on them will fail.
 Handle `genui.call()` failures and render a useful error state. Generated code
 must not treat a rendered confirmation or button state as authorization.
 
+## Host theming
+
+Hosts may provide any subset of the MCP Apps SEP-1865 design tokens from the
+2026-01-26 specification below, or provide none. Prefer these tokens over
+invented colors, dimensions, shadows, and fonts. Use every token through
+`var(--name, fallback)` with a sensible fallback so the surface remains usable
+when a host omits it.
+
+- Background colors: `--color-background-primary`,
+  `--color-background-secondary`, `--color-background-tertiary`,
+  `--color-background-inverse`, `--color-background-ghost`,
+  `--color-background-info`, `--color-background-danger`,
+  `--color-background-success`, `--color-background-warning`, and
+  `--color-background-disabled`.
+- Text colors: `--color-text-primary`, `--color-text-secondary`,
+  `--color-text-tertiary`, `--color-text-inverse`, `--color-text-ghost`,
+  `--color-text-info`, `--color-text-danger`, `--color-text-success`,
+  `--color-text-warning`, and `--color-text-disabled`.
+- Border colors: `--color-border-primary`, `--color-border-secondary`,
+  `--color-border-tertiary`, `--color-border-inverse`,
+  `--color-border-ghost`, `--color-border-info`, `--color-border-danger`,
+  `--color-border-success`, `--color-border-warning`, and
+  `--color-border-disabled`.
+- Ring colors: `--color-ring-primary`, `--color-ring-secondary`,
+  `--color-ring-inverse`, `--color-ring-info`, `--color-ring-danger`,
+  `--color-ring-success`, and `--color-ring-warning`.
+- Font families: `--font-sans` and `--font-mono`.
+- Font weights: `--font-weight-normal`, `--font-weight-medium`,
+  `--font-weight-semibold`, and `--font-weight-bold`.
+- Text sizes: `--font-text-xs-size`, `--font-text-sm-size`,
+  `--font-text-md-size`, and `--font-text-lg-size`.
+- Heading sizes: `--font-heading-xs-size`, `--font-heading-sm-size`,
+  `--font-heading-md-size`, `--font-heading-lg-size`,
+  `--font-heading-xl-size`, `--font-heading-2xl-size`, and
+  `--font-heading-3xl-size`.
+- Text line heights: `--font-text-xs-line-height`,
+  `--font-text-sm-line-height`, `--font-text-md-line-height`, and
+  `--font-text-lg-line-height`.
+- Heading line heights: `--font-heading-xs-line-height`,
+  `--font-heading-sm-line-height`, `--font-heading-md-line-height`,
+  `--font-heading-lg-line-height`, `--font-heading-xl-line-height`,
+  `--font-heading-2xl-line-height`, and `--font-heading-3xl-line-height`.
+- Border radii: `--border-radius-xs`, `--border-radius-sm`,
+  `--border-radius-md`, `--border-radius-lg`, `--border-radius-xl`, and
+  `--border-radius-full`.
+- Border width: `--border-width-regular`.
+- Shadows: `--shadow-hairline`, `--shadow-sm`, `--shadow-md`, and
+  `--shadow-lg`.
+
+Use `light-dark(light, dark)` for theme-aware color fallbacks. Keep token
+resolution in CSS so a live host theme change updates the surface without
+cached JavaScript values.
+
+```html
+<style>
+  body {
+    background: var(--color-background-primary, light-dark(#ffffff, #171717));
+    color: var(--color-text-primary, light-dark(#171717, #f5f5f5));
+    font-family: var(
+      --font-sans,
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      sans-serif
+    );
+  }
+
+  .card {
+    border-radius: var(--border-radius-md, 8px);
+    box-shadow: var(--shadow-sm, 0 1px 2px rgb(0 0 0 / 12%));
+  }
+</style>
+```
+
+MCP Apps also permits host font CSS through `styles.css.fonts`. `genui` does not
+accept or inject that field because `default-src 'none'` makes the effective
+`font-src` policy `'none'` and the sandbox cannot load fonts from the network.
+Use `--font-sans` and `--font-mono` with system font stacks as fallbacks.
+
 ## Isolation boundary
 
 `mount()` creates an opaque-origin iframe with these attributes:
@@ -44,9 +125,10 @@ must not treat a rendered confirmation or button state as authorization.
 <iframe sandbox="allow-scripts allow-forms" referrerpolicy="no-referrer">
 ```
 
-The iframe document contains a UTF-8 declaration, the CSP below, the trusted
-guest bootstrap, and then the generated fragment. The bootstrap always appears
-before generated content.
+The iframe document contains a UTF-8 declaration, the CSP below, an optional
+trusted host-token `<style>` block, the trusted guest bootstrap, and then the
+generated fragment. The trusted style and bootstrap appear before generated
+content.
 
 ```text
 default-src 'none';

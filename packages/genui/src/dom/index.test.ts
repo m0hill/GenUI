@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import type { ActionCall, ActionResult } from "../protocol/index.js"
-import { mount, type SurfaceEvent } from "./index.js"
+import { mount, type HostContext, type McpUiStyleVariableKey, type SurfaceEvent } from "./index.js"
 import { protocolChannel } from "./protocol.js"
 import {
   asDomElement,
@@ -42,6 +42,195 @@ void test("mount renders isolated code with bootstrap before verbatim content", 
   assert.equal(element.querySelector("iframe"), null)
 })
 
+void test("mount renders trusted host theme variables before guest content", () => {
+  const { element } = createMountTarget()
+  const content = `<p id="themed">Themed surface</p>`
+  const surface = testSurface([], content)
+  const instance = mount(asDomElement(element), surface, {
+    hostContext: {
+      theme: "dark",
+      styles: {
+        variables: {
+          "--color-background-primary": "light-dark(#ffffff, #171717)",
+          "--font-sans": '"Host; Sans", system-ui, sans-serif',
+        },
+      },
+    },
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+  })
+  const document = mountedIframe(element).srcdoc
+
+  assert.match(document, /"theme":"dark"/)
+  assert.match(
+    document,
+    /<style>:root \{\n  --color-background-primary: light-dark\(#ffffff, #171717\);\n  --font-sans: "Host; Sans", system-ui, sans-serif;\n\}<\/style>/,
+  )
+  assert.ok(document.indexOf("<style>") < document.indexOf("Object.defineProperty(window"))
+  assert.ok(document.indexOf("<style>") < document.indexOf(content))
+  instance.dispose()
+})
+
+void test("mount rejects unknown keys and unsafe host style values before rendering", () => {
+  const invalidVariables: Array<{
+    readonly expected: RegExp
+    readonly variables: Partial<Record<McpUiStyleVariableKey, string>>
+  }> = []
+
+  const unknownKey: Partial<Record<McpUiStyleVariableKey, string>> = {}
+  Reflect.set(unknownKey, "--custom-accent", "rebeccapurple")
+  invalidVariables.push({ variables: unknownKey, expected: /Unsupported MCP Apps style variable/ })
+
+  for (const [value, expected] of [
+    ["", /must be a non-empty string/],
+    ["red\t", /control character/],
+    ["red\u0085", /control character/],
+    ["rgb(0 0 0) {}", /unsafe CSS/],
+    ["red; --color-text-primary: blue", /top-level semicolon/],
+  ] as const) {
+    invalidVariables.push({
+      variables: { "--color-background-primary": value },
+      expected,
+    })
+  }
+
+  const nonString: Partial<Record<McpUiStyleVariableKey, string>> = {}
+  Reflect.set(nonString, "--color-background-primary", 42)
+  invalidVariables.push({ variables: nonString, expected: /must be a non-empty string/ })
+
+  for (const { variables, expected } of invalidVariables) {
+    const { element } = createMountTarget()
+    const hostContext: HostContext = { styles: { variables } }
+    assert.throws(
+      () =>
+        mount(asDomElement(element), testSurface([]), {
+          hostContext,
+          transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+        }),
+      expected,
+    )
+    assert.equal(element.childNodes.length, 0)
+  }
+})
+
+void test("red team: mount rejects a host style value that closes the trusted style block", () => {
+  const { element } = createMountTarget()
+  const hostileValue = `red</style><script>window.compromised = true</script>`
+
+  assert.throws(
+    () =>
+      mount(asDomElement(element), testSurface([]), {
+        hostContext: {
+          styles: { variables: { "--color-background-primary": hostileValue } },
+        },
+        transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+      }),
+    /contains unsafe CSS/,
+  )
+  assert.equal(element.childNodes.length, 0)
+})
+
+void test("updateHostContext applies theme live and defers copied variables until replace", async () => {
+  const { element } = createMountTarget()
+  const first = testSurface([], `<p>First</p>`)
+  const second = testSurface([], `<p>Second</p>`)
+  const instance = mount(asDomElement(element), first, {
+    hostContext: {
+      theme: "light",
+      styles: { variables: { "--color-text-primary": "#111111" } },
+    },
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+  })
+  const iframe = mountedIframe(element)
+  const hostMessages: unknown[] = []
+  if (iframe.contentWindow === null) throw new Error("Expected an iframe content window.")
+  iframe.contentWindow.postMessage = (message: unknown): void => {
+    hostMessages.push(message)
+  }
+  const variables: Partial<Record<McpUiStyleVariableKey, string>> = {
+    "--color-text-primary": "#222222",
+  }
+
+  instance.updateHostContext({ styles: { variables } })
+  variables["--color-text-primary"] = "#333333"
+  assert.deepEqual(hostMessages, [])
+  assert.match(iframe.srcdoc, /--color-text-primary: #111111/)
+
+  instance.updateHostContext({ theme: "dark" })
+  assert.deepEqual(hostMessages, [
+    {
+      channel: protocolChannel,
+      type: "host_context_changed",
+      surfaceId: first.id,
+      theme: "dark",
+    },
+  ])
+
+  await instance.replace(second)
+  assert.match(iframe.srcdoc, /"theme":"dark"/)
+  assert.match(iframe.srcdoc, /--color-text-primary: #222222/)
+  assert.doesNotMatch(iframe.srcdoc, /--color-text-primary: #111111|#333333/)
+  instance.dispose()
+})
+
+void test("mount replays the latest host theme after the sandbox bootstrap loads", () => {
+  const { window, element } = createMountTarget()
+  const surface = testSurface([])
+  const instance = mount(asDomElement(element), surface, {
+    hostContext: { theme: "light" },
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+  })
+  const iframe = mountedIframe(element)
+  const hostMessages: unknown[] = []
+  if (iframe.contentWindow === null) throw new Error("Expected an iframe content window.")
+  iframe.contentWindow.postMessage = (message: unknown): void => {
+    hostMessages.push(message)
+  }
+
+  instance.updateHostContext({ theme: "dark" })
+  hostMessages.length = 0
+  iframe.dispatchEvent(new window.Event("load"))
+
+  assert.deepEqual(hostMessages, [
+    {
+      channel: protocolChannel,
+      type: "host_context_changed",
+      surfaceId: surface.id,
+      theme: "dark",
+    },
+  ])
+  instance.dispose()
+})
+
+void test("updateHostContext rejects invalid updates without changing current context", async () => {
+  const { element } = createMountTarget()
+  const first = testSurface([])
+  const second = testSurface([])
+  const instance = mount(asDomElement(element), first, {
+    hostContext: {
+      theme: "light",
+      styles: { variables: { "--color-text-primary": "#111111" } },
+    },
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+  })
+  const invalidTheme: HostContext = {}
+  Reflect.set(invalidTheme, "theme", "sepia")
+  const hostileVariables: Partial<Record<McpUiStyleVariableKey, string>> = {
+    "--color-text-primary": `red</style><script>window.compromised = true</script>`,
+  }
+
+  assert.throws(() => instance.updateHostContext(invalidTheme), /theme must be/)
+  assert.throws(
+    () => instance.updateHostContext({ styles: { variables: hostileVariables } }),
+    /contains unsafe CSS/,
+  )
+
+  await instance.replace(second)
+  const document = mountedIframe(element).srcdoc
+  assert.match(document, /"theme":"light"/)
+  assert.match(document, /--color-text-primary: #111111/)
+  instance.dispose()
+})
+
 void test("mount embeds the grant and kills a self-navigating frame", () => {
   const { window, element } = createMountTarget()
   const events: SurfaceEvent[] = []
@@ -68,6 +257,35 @@ void test("mount embeds the grant and kills a self-navigating frame", () => {
   )
   assert.deepEqual(events, [{ type: "violation", reason: "navigation" }])
   instance.dispose()
+})
+
+void test("updateHostContext is idempotently inert after dispose and termination", () => {
+  for (const lifecycle of ["dispose", "terminate"] as const) {
+    const { window, element } = createMountTarget()
+    const surface = testSurface([])
+    const instance = mount(asDomElement(element), surface, {
+      transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+    })
+    const iframe = mountedIframe(element)
+    const hostMessages: unknown[] = []
+    if (iframe.contentWindow === null) throw new Error("Expected an iframe content window.")
+    iframe.contentWindow.postMessage = (message: unknown): void => {
+      hostMessages.push(message)
+    }
+
+    if (lifecycle === "dispose") {
+      instance.dispose()
+      instance.dispose()
+    } else {
+      iframe.dispatchEvent(new window.Event("load"))
+      iframe.dispatchEvent(new window.Event("load"))
+    }
+
+    instance.updateHostContext({ theme: "dark" })
+    instance.updateHostContext({ theme: "dark" })
+    assert.deepEqual(hostMessages, [])
+    instance.dispose()
+  }
 })
 
 void test("mount applies image policies and brokered resize", () => {
