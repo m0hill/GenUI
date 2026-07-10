@@ -53,6 +53,20 @@ void test("code instructions teach portable host styling", () => {
   assert.doesNotMatch(instructions, /--border-radius-small/)
 })
 
+void test("code instructions teach optional host capabilities", () => {
+  const instructions = codeInstructions([])
+
+  assert.match(instructions, /## Host capabilities/)
+  assert.match(instructions, /genui\.capabilities/)
+  assert.match(instructions, /genui\.sendMessage\(/)
+  assert.match(instructions, /genui\.openLink\(/)
+  assert.match(instructions, /genui\.updateModelContext\(/)
+  assert.match(instructions, /absolute HTTPS URLs/)
+  assert.match(instructions, /may trigger a model follow-up/)
+  assert.match(instructions, /without triggering an immediate follow-up/)
+  assert.match(instructions, /may be denied/)
+})
+
 void test("code instructions list every standardized host style variable", () => {
   const instructions = codeInstructions([])
 

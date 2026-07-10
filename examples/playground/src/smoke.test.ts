@@ -5,7 +5,11 @@ import { chromium, type Browser } from "playwright"
 import { app } from "./app.js"
 import { resetDemoOrders } from "./actions.js"
 import { ordersDashboardFixture } from "./fixtures.js"
-import { parseApprovalRequest, parseExecuteRequest } from "./playground-codecs.js"
+import {
+  parseApprovalRequest,
+  parseExecuteRequest,
+  parsePlaygroundEvent,
+} from "./playground-codecs.js"
 
 let browser: Browser | undefined
 let origin = ""
@@ -20,6 +24,58 @@ type ApprovalRoundTripRequest =
       readonly path: "/genui/approve"
       readonly body: NonNullable<ReturnType<typeof parseApprovalRequest>>
     }
+
+const capabilityMessage = "Summarize the selected rows."
+const modelContextContent = "Rows 2 and 5 are selected."
+const capabilityUrl = "https://example.com/docs"
+const capabilitiesFixture = `
+  <p id="capabilities"></p>
+  <button id="send-message" hidden>Send message</button>
+  <output id="send-message-result"></output>
+  <button id="update-context" hidden>Update model context</button>
+  <output id="update-context-result"></output>
+  <button id="open-link" hidden>Open link</button>
+  <output id="open-link-result"></output>
+  <script type="module">
+    const capabilityNames = ["sendMessage", "openLink", "updateModelContext"]
+    document.querySelector("#capabilities").textContent = capabilityNames
+      .filter((name) => genui.capabilities[name])
+      .join(",")
+
+    const run = async (output, operation) => {
+      try {
+        await operation()
+        output.textContent = "ok"
+      } catch (error) {
+        output.textContent = error instanceof Error ? error.message : "denied"
+      }
+    }
+
+    const sendMessage = document.querySelector("#send-message")
+    sendMessage.hidden = !genui.capabilities.sendMessage
+    sendMessage.onclick = () => run(
+      document.querySelector("#send-message-result"),
+      () => genui.sendMessage(${JSON.stringify(capabilityMessage)}),
+    )
+
+    const updateContext = document.querySelector("#update-context")
+    updateContext.hidden = !genui.capabilities.updateModelContext
+    updateContext.onclick = () => run(
+      document.querySelector("#update-context-result"),
+      () => genui.updateModelContext({
+        content: ${JSON.stringify(modelContextContent)},
+        structuredContent: { selectedRows: [2, 5] },
+      }),
+    )
+
+    const openLink = document.querySelector("#open-link")
+    openLink.hidden = !genui.capabilities.openLink
+    openLink.onclick = () => run(
+      document.querySelector("#open-link-result"),
+      () => genui.openLink(${JSON.stringify(capabilityUrl)}),
+    )
+  </script>
+`
 
 before(async () => {
   resetDemoOrders()
@@ -119,4 +175,101 @@ void test("playground drives paste, mount, action, approval, and guest-error flo
   await page.locator("#fixture-error").click()
   await frame.locator("#throw-error").click()
   await page.locator("#event-log").getByText("Fixture guest failure", { exact: false }).waitFor()
+})
+
+void test("playground advertises and delivers host capabilities", async (context) => {
+  if (browser === undefined) throw new Error("Browser was not initialized.")
+  const page = await browser.newPage()
+  context.after(async () => {
+    await page.close()
+  })
+  await page.addInitScript(() => {
+    const openedUrls: { url: string; target: string; features: string }[] = []
+    Reflect.set(window, "__openedUrls", openedUrls)
+    window.open = (url, target, features) => {
+      openedUrls.push({
+        url: String(url),
+        target: target ?? "",
+        features: features ?? "",
+      })
+      // Browsers may return null for a successfully opened noopener tab.
+      return null
+    }
+  })
+
+  await page.goto(origin)
+  await page.locator("#surface-source").fill(capabilitiesFixture)
+  await page.locator("#create-surface").click()
+
+  const frame = page.frameLocator("#surface iframe")
+  const capabilities = frame.locator("#capabilities")
+  await capabilities.getByText("sendMessage,openLink,updateModelContext", { exact: true }).waitFor()
+  assert.equal(await frame.locator("#send-message").isVisible(), true)
+  assert.equal(await frame.locator("#update-context").isVisible(), true)
+  assert.equal(await frame.locator("#open-link").isVisible(), true)
+
+  await frame.locator("#send-message").click()
+  await frame.locator("#send-message-result").getByText("ok", { exact: true }).waitFor()
+
+  await frame.locator("#update-context").click()
+  await frame.locator("#update-context-result").getByText("ok", { exact: true }).waitFor()
+
+  const linkDialog = new Promise<string>((resolve) => {
+    page.once("dialog", async (dialog) => {
+      resolve(dialog.message())
+      await dialog.accept()
+    })
+  })
+  await frame.locator("#open-link").click()
+  assert.equal(await linkDialog, `Generated surface requested this URL:\n\n${capabilityUrl}`)
+  await frame.locator("#open-link-result").getByText("ok", { exact: true }).waitFor()
+
+  const openedUrls: unknown = await page.evaluate(() => Reflect.get(window, "__openedUrls"))
+  assert.deepEqual(openedUrls, [
+    { url: capabilityUrl, target: "_blank", features: "noopener,noreferrer" },
+  ])
+
+  const encodedEvents = await page.locator("#event-log > li").allTextContents()
+  const events = encodedEvents.map((encoded, index) => {
+    const event = parsePlaygroundEvent(JSON.parse(encoded))
+    if (event === undefined) throw new Error(`Event ${index + 1} is malformed.`)
+    return event
+  })
+  assert.deepEqual(
+    events.flatMap((event) => (event.type === "host_capability" ? [event] : [])),
+    [
+      {
+        type: "host_capability",
+        capability: "sendMessage",
+        provenance: "generated_surface",
+        role: "user",
+        textLength: capabilityMessage.length,
+      },
+      {
+        type: "host_capability",
+        capability: "updateModelContext",
+        provenance: "generated_surface",
+        contentLength: modelContextContent.length,
+        structuredContentKeys: ["selectedRows"],
+      },
+      {
+        type: "host_capability",
+        capability: "openLink",
+        provenance: "generated_surface",
+        url: capabilityUrl,
+      },
+    ],
+  )
+  assert.deepEqual(
+    events.flatMap((event) =>
+      event.type === "capability_result"
+        ? [{ capability: event.capability, outcome: event.outcome }]
+        : [],
+    ),
+    [
+      { capability: "sendMessage", outcome: "ok" },
+      { capability: "updateModelContext", outcome: "ok" },
+      { capability: "openLink", outcome: "ok" },
+    ],
+  )
 })

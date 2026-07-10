@@ -1,4 +1,9 @@
 import { parseActionCall, type ActionCall } from "../protocol/index.js"
+import type {
+  OpenLinkParams,
+  SendMessageParams,
+  UpdateModelContextParams,
+} from "./host-capabilities.js"
 import { protocolChannel } from "./protocol.js"
 
 export const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
@@ -55,12 +60,45 @@ export type SnapshotSandboxMessage =
       readonly ok: false
     }
 
+export interface SendMessageSandboxMessage {
+  readonly channel: typeof protocolChannel
+  readonly type: "capability_call"
+  readonly surfaceId: string
+  readonly callId: string
+  readonly capability: "ui/message"
+  readonly params: SendMessageParams
+}
+
+export interface OpenLinkSandboxMessage {
+  readonly channel: typeof protocolChannel
+  readonly type: "capability_call"
+  readonly surfaceId: string
+  readonly callId: string
+  readonly capability: "ui/open-link"
+  readonly params: OpenLinkParams
+}
+
+export interface UpdateModelContextSandboxMessage {
+  readonly channel: typeof protocolChannel
+  readonly type: "capability_call"
+  readonly surfaceId: string
+  readonly callId: string
+  readonly capability: "ui/update-model-context"
+  readonly params: UpdateModelContextParams
+}
+
+export type CapabilitySandboxMessage =
+  | SendMessageSandboxMessage
+  | OpenLinkSandboxMessage
+  | UpdateModelContextSandboxMessage
+
 export type SandboxMessage =
   | ActionSandboxMessage
   | HeartbeatSandboxMessage
   | ResizeSandboxMessage
   | GuestErrorSandboxMessage
   | SnapshotSandboxMessage
+  | CapabilitySandboxMessage
 
 type ParseSandboxMessageResult =
   | { readonly ok: true; readonly value: SandboxMessage }
@@ -83,6 +121,98 @@ export const parseSnapshotValue = (value: unknown): SnapshotValue | undefined =>
 
 const boundedString = (value: unknown, maxLength: number): string | undefined =>
   typeof value === "string" && value.length <= maxLength ? value : undefined
+
+const hasOnlyKeys = (
+  value: Readonly<Record<string, unknown>>,
+  allowed: ReadonlySet<string>,
+): boolean => Object.keys(value).every((key) => allowed.has(key))
+
+const capabilityMessageKeys: ReadonlySet<string> = new Set([
+  "channel",
+  "type",
+  "surfaceId",
+  "callId",
+  "capability",
+  "params",
+])
+const sendMessageParamKeys: ReadonlySet<string> = new Set(["role", "content"])
+const textContentKeys: ReadonlySet<string> = new Set(["type", "text"])
+const openLinkParamKeys: ReadonlySet<string> = new Set(["url"])
+const updateModelContextParamKeys: ReadonlySet<string> = new Set(["content", "structuredContent"])
+
+const parseCapabilityMessage = (
+  value: Readonly<Record<string, unknown>>,
+): CapabilitySandboxMessage | undefined => {
+  if (!hasOnlyKeys(value, capabilityMessageKeys)) return undefined
+  const surfaceId = boundedString(value.surfaceId, maxIdentifierLength)
+  const callId = boundedString(value.callId, maxIdentifierLength)
+  if (surfaceId === undefined || callId === undefined || !isRecord(value.params)) return undefined
+
+  if (value.capability === "ui/message") {
+    if (!hasOnlyKeys(value.params, sendMessageParamKeys)) return undefined
+    const content = value.params.content
+    if (
+      value.params.role !== "user" ||
+      !isRecord(content) ||
+      !hasOnlyKeys(content, textContentKeys) ||
+      content.type !== "text" ||
+      typeof content.text !== "string"
+    ) {
+      return undefined
+    }
+    return {
+      channel: protocolChannel,
+      type: "capability_call",
+      surfaceId,
+      callId,
+      capability: "ui/message",
+      params: { role: "user", content: { type: "text", text: content.text } },
+    }
+  }
+
+  if (
+    value.capability === "ui/open-link" &&
+    hasOnlyKeys(value.params, openLinkParamKeys) &&
+    typeof value.params.url === "string"
+  ) {
+    return {
+      channel: protocolChannel,
+      type: "capability_call",
+      surfaceId,
+      callId,
+      capability: "ui/open-link",
+      params: { url: value.params.url },
+    }
+  }
+
+  if (
+    value.capability === "ui/update-model-context" &&
+    hasOnlyKeys(value.params, updateModelContextParamKeys) &&
+    (value.params.content === undefined || typeof value.params.content === "string")
+  ) {
+    const structuredContent =
+      value.params.structuredContent === undefined
+        ? undefined
+        : parseSnapshotValue(value.params.structuredContent)
+    if (structuredContent !== undefined && !isRecord(structuredContent)) return undefined
+    if (value.params.structuredContent !== undefined && structuredContent === undefined) {
+      return undefined
+    }
+    return {
+      channel: protocolChannel,
+      type: "capability_call",
+      surfaceId,
+      callId,
+      capability: "ui/update-model-context",
+      params: {
+        ...(value.params.content === undefined ? {} : { content: value.params.content }),
+        ...(structuredContent === undefined ? {} : { structuredContent }),
+      },
+    }
+  }
+
+  return undefined
+}
 
 const truncatedString = (value: unknown, maxLength: number): string | undefined =>
   typeof value === "string"
@@ -177,6 +307,8 @@ export const parseSandboxMessage = (value: unknown): ParseSandboxMessageResult =
             ? parseGuestErrorMessage(value)
             : value.type === "snapshot"
               ? parseSnapshotMessage(value)
-              : undefined
+              : value.type === "capability_call"
+                ? parseCapabilityMessage(value)
+                : undefined
   return message === undefined ? { ok: false, reason: "bad_message" } : { ok: true, value: message }
 }

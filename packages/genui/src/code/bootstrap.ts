@@ -4,6 +4,9 @@ interface CodeBootstrapOptions {
   readonly channel: string
   readonly surfaceId: string
   readonly actions: readonly Action[]
+  readonly sendMessage: boolean
+  readonly openLink: boolean
+  readonly updateModelContext: boolean
   readonly restore?: unknown
   readonly theme?: "light" | "dark"
 }
@@ -16,11 +19,19 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
   "use strict"
 
   const config = ${config}
-  const { actions, channel, surfaceId, theme } = config
+  const { actions, channel, openLink: canOpenLink, sendMessage: canSendMessage, surfaceId, theme,
+    updateModelContext: canUpdateModelContext } = config
+  const capabilities = Object.freeze({
+    sendMessage: canSendMessage,
+    openLink: canOpenLink,
+    updateModelContext: canUpdateModelContext,
+  })
   const pending = new Map()
   let nextCallId = 0
   let snapshotProvider
   let restorePending = Object.prototype.hasOwnProperty.call(config, "restore")
+  // Capability payloads use a tighter cap than the kernel's 64 KiB action-input precedent.
+  const maxCapabilityPayloadBytes = 16 * 1024
 
   const applyDocumentTheme = (nextTheme) => {
     document.documentElement.setAttribute("data-theme", nextTheme)
@@ -84,11 +95,15 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
     }
   }
 
-  const call = (action, input) => {
+  const createCallId = () => {
     const randomId = globalThis.crypto && typeof globalThis.crypto.randomUUID === "function"
       ? globalThis.crypto.randomUUID()
       : String(Date.now())
-    const callId = randomId + ":" + String(++nextCallId)
+    return randomId + ":" + String(++nextCallId)
+  }
+
+  const call = (action, input) => {
+    const callId = createCallId()
 
     return new Promise((resolve, reject) => {
       pending.set(callId, { resolve, reject })
@@ -100,6 +115,69 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
       }
     })
   }
+
+  const unavailableCapability = () => Promise.reject(
+    new GenuiActionError("not_available", "Host capability is not available."),
+  )
+  const invalidCapabilityInput = () => Promise.reject(
+    new GenuiActionError("invalid_input", "Capability input is invalid."),
+  )
+  const isRecord = (value) => typeof value === "object" && value !== null &&
+    !Array.isArray(value)
+  const isModelContextParams = (value) => isRecord(value) &&
+    Object.keys(value).every((key) => key === "content" || key === "structuredContent") &&
+    (value.content === undefined || typeof value.content === "string") &&
+    (value.structuredContent === undefined || isRecord(value.structuredContent))
+
+  const requestCapability = (capability, params) => {
+    const callId = createCallId()
+    return new Promise((resolve, reject) => {
+      pending.set(callId, { resolve: () => resolve(), reject })
+      try {
+        post({ type: "capability_call", callId, capability, params })
+      } catch {
+        pending.delete(callId)
+        reject(new GenuiActionError("invalid_input", "Capability request could not be sent."))
+      }
+    })
+  }
+
+  const sendMessage = canSendMessage
+    ? (text) => {
+        if (typeof text !== "string" ||
+            new TextEncoder().encode(text).byteLength > maxCapabilityPayloadBytes) {
+          return invalidCapabilityInput()
+        }
+        return requestCapability("ui/message", {
+          role: "user",
+          content: { type: "text", text },
+        })
+      }
+    : unavailableCapability
+  const openLink = canOpenLink
+    ? (url) => typeof url === "string"
+      ? requestCapability("ui/open-link", { url })
+      : invalidCapabilityInput()
+    : unavailableCapability
+  const updateModelContext = canUpdateModelContext
+    ? (params) => {
+        let encoded
+        let normalized
+        try {
+          if (!isModelContextParams(params)) return invalidCapabilityInput()
+          encoded = JSON.stringify(params)
+          normalized = JSON.parse(encoded)
+          if (!isModelContextParams(normalized)) return invalidCapabilityInput()
+        } catch {
+          return invalidCapabilityInput()
+        }
+        if (encoded === undefined ||
+            new TextEncoder().encode(encoded).byteLength > maxCapabilityPayloadBytes) {
+          return invalidCapabilityInput()
+        }
+        return requestCapability("ui/update-model-context", normalized)
+      }
+    : unavailableCapability
 
   window.addEventListener("message", (event) => {
     if (event.source !== window.parent) return
@@ -179,7 +257,16 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
     configurable: false,
     enumerable: true,
     writable: false,
-    value: Object.freeze({ surfaceId, actions, call, snapshot }),
+    value: Object.freeze({
+      surfaceId,
+      actions,
+      capabilities,
+      call,
+      sendMessage,
+      openLink,
+      updateModelContext,
+      snapshot,
+    }),
   })
 })()`
 }

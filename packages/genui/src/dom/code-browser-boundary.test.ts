@@ -12,6 +12,7 @@ type BrowserDomRuntime = Pick<typeof import("./index.js"), "mount">
 
 interface CodeHostState {
   readonly calls: ActionCall[]
+  readonly capabilityCalls?: unknown[]
   readonly events: SurfaceEvent[]
   readonly mounted: Mounted
   readonly setDocumentVisible?: (visible: boolean) => void
@@ -122,6 +123,59 @@ const heartbeatSurface: Surface = {
   grant: { surfaceId: "surface-heartbeat-browser", actions: [] },
 }
 
+const capabilitySurface: Surface = {
+  id: "surface-capability-browser",
+  dialect: "code/0",
+  content: `
+    <output id="capability-flags"></output>
+    <button id="send-message">Send message</button>
+    <output id="send-message-result"></output>
+    <button id="open-link">Open link</button>
+    <output id="open-link-result"></output>
+    <button id="update-context">Update context</button>
+    <output id="update-context-result"></output>
+    <button id="denied-link">Open denied link</button>
+    <output id="denied-link-result"></output>
+    <script type="module">
+      document.querySelector("#capability-flags").textContent = [
+        genui.capabilities.sendMessage,
+        genui.capabilities.openLink,
+        genui.capabilities.updateModelContext,
+      ].join(",")
+
+      const run = async (outputId, operation) => {
+        const output = document.querySelector(outputId)
+        try {
+          await operation()
+          output.textContent = "ok"
+        } catch (error) {
+          output.textContent = error.code
+        }
+      }
+      document.querySelector("#send-message").onclick = () => run(
+        "#send-message-result",
+        () => genui.sendMessage("Show orders 2 and 5"),
+      )
+      document.querySelector("#open-link").onclick = () => run(
+        "#open-link-result",
+        () => genui.openLink("https://example.com/orders"),
+      )
+      document.querySelector("#update-context").onclick = () => run(
+        "#update-context-result",
+        () => genui.updateModelContext({
+          content: "Two orders selected.",
+          structuredContent: { selectedOrderIds: ["order-2", "order-5"] },
+        }),
+      )
+      document.querySelector("#denied-link").onclick = () => run(
+        "#denied-link-result",
+        () => genui.openLink("https://denied.example/orders"),
+      )
+    </script>
+  `,
+  grant: { surfaceId: "surface-capability-browser", actions: [] },
+}
+
 const newPage = async (): Promise<Page> => {
   if (browser === undefined) throw new Error("Browser was not initialized.")
   const page = await browser.newPage()
@@ -166,6 +220,68 @@ void test("guest startup scripts receive the embedded grant", async (context) =>
   const output = page.frameLocator("iframe").locator("#startup-actions")
   await output.waitFor({ state: "visible" })
   assert.equal(await output.textContent(), "dice.roll")
+})
+
+void test("guest feature-detects and invokes host capabilities", async (context) => {
+  const page = await newPage()
+  context.after(async () => {
+    await page.close()
+  })
+
+  await page.evaluate((surfaceValue) => {
+    const root = document.querySelector("#root")
+    if (root === null) throw new Error("Missing mount root.")
+    const capabilityCalls: unknown[] = []
+    const events: SurfaceEvent[] = []
+    const mounted = window.GenuiDom.mount(root, surfaceValue, {
+      capabilities: {
+        sendMessage: async (params) => {
+          capabilityCalls.push({ capability: "sendMessage", params })
+        },
+        openLink: async (params) => {
+          capabilityCalls.push({ capability: "openLink", params })
+          if (params.url.includes("denied.example")) throw new Error("Denied")
+        },
+        updateModelContext: async (params) => {
+          capabilityCalls.push({ capability: "updateModelContext", params })
+        },
+      },
+      transport: async () => ({ ok: true, value: {} }),
+      onEvent: (event) => events.push(event),
+    })
+    Object.assign(window, { __codeHost: { calls: [], capabilityCalls, events, mounted } })
+  }, capabilitySurface)
+
+  const frame = page.frameLocator("iframe")
+  await frame.locator("#capability-flags").waitFor({ state: "visible" })
+  assert.equal(await frame.locator("#capability-flags").textContent(), "true,true,true")
+
+  for (const [button, output, expected] of [
+    ["#send-message", "#send-message-result", "ok"],
+    ["#open-link", "#open-link-result", "ok"],
+    ["#update-context", "#update-context-result", "ok"],
+    ["#denied-link", "#denied-link-result", "denied"],
+  ] as const) {
+    await frame.locator(button).click()
+    await frame.locator(output).waitFor({ state: "visible" })
+    assert.equal(await frame.locator(output).textContent(), expected)
+  }
+
+  assert.deepEqual(await page.evaluate(() => window.__codeHost.capabilityCalls), [
+    {
+      capability: "sendMessage",
+      params: { role: "user", content: { type: "text", text: "Show orders 2 and 5" } },
+    },
+    { capability: "openLink", params: { url: "https://example.com/orders" } },
+    {
+      capability: "updateModelContext",
+      params: {
+        content: "Two orders selected.",
+        structuredContent: { selectedOrderIds: ["order-2", "order-5"] },
+      },
+    },
+    { capability: "openLink", params: { url: "https://denied.example/orders" } },
+  ])
 })
 
 void test("red team: heartbeat monitor pauses while hidden and kills a visible silent guest", async (context) => {

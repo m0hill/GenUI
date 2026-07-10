@@ -14,8 +14,36 @@ export interface ExecuteEnvelope {
   readonly approvalToken?: string
 }
 
+type CapabilityCallEvent = Extract<SurfaceEvent, { readonly type: "capability_call" }>
+type CapabilityResultEvent = Extract<SurfaceEvent, { readonly type: "capability_result" }>
+type HostCapability = CapabilityCallEvent["call"]["capability"]
+type CapabilityOutcome = CapabilityResultEvent["outcome"]
+
+export type PlaygroundHostCapabilityEvent =
+  | {
+      readonly type: "host_capability"
+      readonly capability: "sendMessage"
+      readonly provenance: "generated_surface"
+      readonly role: "user"
+      readonly textLength: number
+    }
+  | {
+      readonly type: "host_capability"
+      readonly capability: "openLink"
+      readonly provenance: "generated_surface"
+      readonly url: string
+    }
+  | {
+      readonly type: "host_capability"
+      readonly capability: "updateModelContext"
+      readonly provenance: "generated_surface"
+      readonly contentLength: number
+      readonly structuredContentKeys: readonly string[]
+    }
+
 export type PlaygroundEvent =
   | SurfaceEvent
+  | PlaygroundHostCapabilityEvent
   | { readonly type: "audit"; readonly entry: CallAuditEntry }
 
 export interface ExecuteRequest {
@@ -44,6 +72,24 @@ const parseOutcome = (value: unknown): CallAuditEntry["outcome"] | undefined => 
   const result = parseActionResult({ ok: false, error: { code: value, message: "" } })
   return result?.ok === false ? result.error.code : undefined
 }
+
+const parseHostCapability = (value: unknown): HostCapability | undefined =>
+  value === "sendMessage" || value === "openLink" || value === "updateModelContext"
+    ? value
+    : undefined
+
+const parseCapabilityOutcome = (value: unknown): CapabilityOutcome | undefined =>
+  value === "ok" ||
+  value === "not_available" ||
+  value === "denied" ||
+  value === "invalid_input" ||
+  value === "rate_limited" ||
+  value === "superseded"
+    ? value
+    : undefined
+
+const isNonNegativeInteger = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0
 
 const parseAuditEntry = (value: unknown): CallAuditEntry | undefined => {
   const record = parseRecord(value)
@@ -167,6 +213,72 @@ export const parsePlaygroundEvent = (value: unknown): PlaygroundEvent | undefine
       return result === undefined
         ? undefined
         : { type: "result", callId: record.callId, action: record.action, result }
+    }
+    case "capability_call": {
+      const call = parseRecord(record.call)
+      const capability = parseHostCapability(call?.capability)
+      if (
+        call === undefined ||
+        typeof call.surfaceId !== "string" ||
+        typeof call.callId !== "string" ||
+        capability === undefined ||
+        !isNonNegativeInteger(record.payloadBytes)
+      ) {
+        return undefined
+      }
+      return {
+        type: "capability_call",
+        call: { surfaceId: call.surfaceId, callId: call.callId, capability },
+        payloadBytes: record.payloadBytes,
+      }
+    }
+    case "capability_result": {
+      const capability = parseHostCapability(record.capability)
+      const outcome = parseCapabilityOutcome(record.outcome)
+      return typeof record.callId === "string" && capability !== undefined && outcome !== undefined
+        ? { type: "capability_result", callId: record.callId, capability, outcome }
+        : undefined
+    }
+    case "host_capability": {
+      if (record.provenance !== "generated_surface") return undefined
+      if (record.capability === "sendMessage") {
+        return record.role === "user" && isNonNegativeInteger(record.textLength)
+          ? {
+              type: "host_capability",
+              capability: "sendMessage",
+              provenance: "generated_surface",
+              role: "user",
+              textLength: record.textLength,
+            }
+          : undefined
+      }
+      if (record.capability === "openLink") {
+        return typeof record.url === "string"
+          ? {
+              type: "host_capability",
+              capability: "openLink",
+              provenance: "generated_surface",
+              url: record.url,
+            }
+          : undefined
+      }
+      if (record.capability === "updateModelContext") {
+        if (
+          !isNonNegativeInteger(record.contentLength) ||
+          !Array.isArray(record.structuredContentKeys) ||
+          !record.structuredContentKeys.every((key) => typeof key === "string")
+        ) {
+          return undefined
+        }
+        return {
+          type: "host_capability",
+          capability: "updateModelContext",
+          provenance: "generated_surface",
+          contentLength: record.contentLength,
+          structuredContentKeys: record.structuredContentKeys,
+        }
+      }
+      return undefined
     }
     case "resize":
       return typeof record.height === "number" && Number.isFinite(record.height)

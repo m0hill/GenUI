@@ -88,6 +88,41 @@ void test("playground events parse at the serialized log boundary", () => {
       action: "profile.read",
       result: { ok: true, value: { name: "Ada" } },
     },
+    {
+      type: "capability_call",
+      call: {
+        surfaceId: "surface-1",
+        callId: "capability-1",
+        capability: "sendMessage",
+      },
+      payloadBytes: 24,
+    },
+    {
+      type: "capability_result",
+      callId: "capability-1",
+      capability: "sendMessage",
+      outcome: "ok",
+    },
+    {
+      type: "host_capability",
+      capability: "sendMessage",
+      provenance: "generated_surface",
+      role: "user",
+      textLength: 24,
+    },
+    {
+      type: "host_capability",
+      capability: "updateModelContext",
+      provenance: "generated_surface",
+      contentLength: 26,
+      structuredContentKeys: ["selectedRows"],
+    },
+    {
+      type: "host_capability",
+      capability: "openLink",
+      provenance: "generated_surface",
+      url: "https://example.com/docs",
+    },
     { type: "resize", height: 320 },
     { type: "guest_error", message: "Guest failed.", stack: "stack" },
     { type: "violation", reason: "ungranted_call", detail: "private.read" },
@@ -113,4 +148,12 @@ void test("playground events parse at the serialized log boundary", () => {
     parsePlaygroundEvent({ ...events[1], result: { ok: false, error: { code: "unknown" } } }),
     undefined,
   )
+  assert.equal(parsePlaygroundEvent({ ...events[2], payloadBytes: -1 }), undefined)
+  assert.equal(parsePlaygroundEvent({ ...events[3], outcome: "unknown" }), undefined)
+  assert.equal(parsePlaygroundEvent({ ...events[4], textLength: "24" }), undefined)
+  assert.equal(
+    parsePlaygroundEvent({ ...events[5], structuredContentKeys: ["selectedRows", false] }),
+    undefined,
+  )
+  assert.equal(parsePlaygroundEvent({ ...events[6], provenance: "user" }), undefined)
 })

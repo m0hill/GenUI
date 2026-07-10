@@ -1,7 +1,13 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import type { ActionCall, ActionResult } from "../protocol/index.js"
-import { mount, type HostContext, type McpUiStyleVariableKey, type SurfaceEvent } from "./index.js"
+import {
+  mount,
+  type HostContext,
+  type McpUiStyleVariableKey,
+  type SendMessageParams,
+  type SurfaceEvent,
+} from "./index.js"
 import { protocolChannel } from "./protocol.js"
 import {
   asDomElement,
@@ -67,6 +73,85 @@ void test("mount renders trusted host theme variables before guest content", () 
   )
   assert.ok(document.indexOf("<style>") < document.indexOf("Object.defineProperty(window"))
   assert.ok(document.indexOf("<style>") < document.indexOf(content))
+  instance.dispose()
+})
+
+void test("mount advertises and delivers configured host capabilities", async () => {
+  const { window, element } = createMountTarget()
+  const surface = testSurface([])
+  let received: SendMessageParams | undefined
+  const events: SurfaceEvent[] = []
+  const instance = mount(asDomElement(element), surface, {
+    capabilities: {
+      sendMessage: async (params) => {
+        received = params
+      },
+      openLink: async () => undefined,
+    },
+    onEvent: (event) => events.push(event),
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+  })
+  const iframe = mountedIframe(element)
+  const hostMessages: unknown[] = []
+  if (iframe.contentWindow === null) throw new Error("Expected an iframe content window.")
+  iframe.contentWindow.postMessage = (message: unknown): void => {
+    hostMessages.push(message)
+  }
+
+  assert.match(iframe.srcdoc, /"sendMessage":true/)
+  assert.match(iframe.srcdoc, /"openLink":true/)
+  assert.match(iframe.srcdoc, /"updateModelContext":false/)
+
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "capability_call",
+    surfaceId: surface.id,
+    callId: "capability-1",
+    capability: "ui/message",
+    params: {
+      role: "user",
+      content: { type: "text", text: "Show the selected orders" },
+    },
+  })
+  await flushAsync()
+
+  assert.deepEqual(received, {
+    role: "user",
+    content: { type: "text", text: "Show the selected orders" },
+  })
+  assert.deepEqual(
+    hostMessages.find((message) => isRecord(message) && message.action === "ui/message"),
+    {
+      channel: protocolChannel,
+      type: "result",
+      surfaceId: surface.id,
+      callId: "capability-1",
+      action: "ui/message",
+      result: { ok: true, value: {} },
+    },
+  )
+  assert.deepEqual(
+    events.filter(
+      (event) => event.type === "capability_call" || event.type === "capability_result",
+    ),
+    [
+      {
+        type: "capability_call",
+        call: {
+          surfaceId: surface.id,
+          callId: "capability-1",
+          capability: "sendMessage",
+        },
+        payloadBytes: 24,
+      },
+      {
+        type: "capability_result",
+        callId: "capability-1",
+        capability: "sendMessage",
+        outcome: "ok",
+      },
+    ],
+  )
   instance.dispose()
 })
 

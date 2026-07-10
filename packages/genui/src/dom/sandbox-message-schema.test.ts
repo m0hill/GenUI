@@ -116,6 +116,51 @@ void test("sandbox message schema parses code calls and runtime reports", () => 
   )
 })
 
+void test("sandbox message schema parses a send-message capability call", () => {
+  const message = {
+    channel: protocolChannel,
+    type: "capability_call",
+    surfaceId: "surface-1",
+    callId: "capability-1",
+    capability: "ui/message",
+    params: {
+      role: "user",
+      content: { type: "text", text: "Show the selected orders" },
+    },
+  }
+
+  assert.deepEqual(parseSandboxMessage(message), { ok: true, value: message })
+})
+
+void test("sandbox message schema parses an open-link capability call", () => {
+  const message = {
+    channel: protocolChannel,
+    type: "capability_call",
+    surfaceId: "surface-1",
+    callId: "capability-2",
+    capability: "ui/open-link",
+    params: { url: "https://example.com/orders" },
+  }
+
+  assert.deepEqual(parseSandboxMessage(message), { ok: true, value: message })
+})
+
+void test("sandbox message schema parses a model-context capability call", () => {
+  const message = {
+    channel: protocolChannel,
+    type: "capability_call",
+    surfaceId: "surface-1",
+    callId: "capability-3",
+    capability: "ui/update-model-context",
+    params: {
+      content: "Rows 2 and 5 are selected.",
+      structuredContent: { selectedRows: [2, 5] },
+    },
+  }
+
+  assert.deepEqual(parseSandboxMessage(message), { ok: true, value: message })
+})
+
 void test("sandbox message schema rejects malformed boundary data", () => {
   assert.deepEqual(parseSandboxMessage("bad"), { ok: false, reason: "bad_message" })
   assert.deepEqual(parseSandboxMessage({ channel: "wrong" }), {
@@ -149,7 +194,62 @@ void test("sandbox message schema rejects malformed boundary data", () => {
       surfaceId: "surface-1",
       message: 42,
     },
+    {
+      channel: protocolChannel,
+      type: "capability_call",
+      surfaceId: "surface-1",
+      callId: "capability-1",
+      capability: "ui/unknown",
+      params: {},
+    },
+    {
+      channel: protocolChannel,
+      type: "capability_call",
+      surfaceId: "surface-1",
+      callId: "capability-1",
+      capability: "ui/message",
+      params: { role: "assistant", content: { type: "text", text: "bad role" } },
+    },
+    {
+      channel: protocolChannel,
+      type: "capability_call",
+      surfaceId: "surface-1",
+      callId: "capability-1",
+      capability: "ui/open-link",
+      params: { url: 42 },
+    },
+    {
+      channel: protocolChannel,
+      type: "capability_call",
+      surfaceId: "surface-1",
+      callId: "capability-1",
+      capability: "ui/update-model-context",
+      params: { structuredContent: [] },
+    },
+    {
+      channel: protocolChannel,
+      type: "capability_call",
+      surfaceId: "surface-1",
+      callId: "capability-1",
+      capability: "ui/open-link",
+      params: { url: "https://example.com" },
+      unexpected: true,
+    },
   ]) {
     assert.deepEqual(parseSandboxMessage(message), { ok: false, reason: "bad_message" })
   }
+
+  const cyclic: Record<string, unknown> = {}
+  cyclic.self = cyclic
+  assert.deepEqual(
+    parseSandboxMessage({
+      channel: protocolChannel,
+      type: "capability_call",
+      surfaceId: "surface-1",
+      callId: "capability-1",
+      capability: "ui/update-model-context",
+      params: { structuredContent: cyclic },
+    }),
+    { ok: false, reason: "bad_message" },
+  )
 })

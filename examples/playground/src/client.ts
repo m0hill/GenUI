@@ -74,6 +74,41 @@ const createSurface = async (content: string): Promise<void> => {
   mounted = mount(surfaceRoot, surface, {
     maxHeight: 720,
     transport,
+    capabilities: {
+      sendMessage: ({ role, content }) => {
+        appendEvent({
+          type: "host_capability",
+          capability: "sendMessage",
+          provenance: "generated_surface",
+          role,
+          textLength: content.text.length,
+        })
+        return Promise.resolve()
+      },
+      updateModelContext: ({ content, structuredContent }) => {
+        appendEvent({
+          type: "host_capability",
+          capability: "updateModelContext",
+          provenance: "generated_surface",
+          contentLength: content?.length ?? 0,
+          structuredContentKeys: Object.keys(structuredContent ?? {}),
+        })
+        return Promise.resolve()
+      },
+      openLink: ({ url }) => {
+        appendEvent({
+          type: "host_capability",
+          capability: "openLink",
+          provenance: "generated_surface",
+          url,
+        })
+        if (!window.confirm(`Generated surface requested this URL:\n\n${url}`)) {
+          return Promise.reject(new Error("Link opening denied."))
+        }
+        window.open(url, "_blank", "noopener,noreferrer")
+        return Promise.resolve()
+      },
+    },
     confirm: async (_action, call, intent) => {
       const key = callKey(call.surfaceId, call.callId)
       const token = approvalTokens.get(key)

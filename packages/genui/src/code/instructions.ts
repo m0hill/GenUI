@@ -26,8 +26,9 @@ Return only an HTML fragment, without Markdown fences or a document wrapper. Use
 inline CSS, and inline \`<script type="module">\` blocks. Standard browser DOM APIs are available.
 
 The fragment runs in an opaque-origin sandbox. It has no network, storage, parent DOM access, or
-external resources. Keep all JavaScript and CSS inline. Do not use fetch, WebSocket, external URLs,
-external scripts, external stylesheets, or navigation.
+external resources. Keep all JavaScript and CSS inline. Do not use fetch, WebSocket, external
+resource URLs, external scripts, external stylesheets, or direct navigation. Only an advertised
+\`genui.openLink\` capability can ask the host to open an external HTTPS URL.
 
 The trusted bridge available as \`window.genui\` has exactly this API:
 
@@ -35,6 +36,9 @@ The trusted bridge available as \`window.genui\` has exactly this API:
 - \`genui.actions\`: the granted action descriptors listed below.
 - \`await genui.call(name, input)\`: resolves to the action output or rejects with a
   \`GenuiActionError\` containing \`code\` and \`message\`.
+- \`genui.capabilities\`: frozen booleans for optional host capabilities.
+- \`await genui.sendMessage(text)\`, \`await genui.openLink(url)\`, and
+  \`await genui.updateModelContext({ content?, structuredContent? })\`: optional host capabilities.
 - \`genui.snapshot(fn)\`: registers one state provider. The function receives restored JSON state
   when present and returns current JSON-serializable state when called without arguments.
 
@@ -48,6 +52,41 @@ Schemas. Example:
   document.querySelector("#search").onclick = async () => {
     const orders = await genui.call("orders.search", { status: "open" })
     document.querySelector("#result").textContent = JSON.stringify(orders)
+  }
+</script>
+\`\`\`
+
+## Host capabilities
+
+The methods \`sendMessage\`, \`openLink\`, and \`updateModelContext\` always exist. Render a control
+only when its matching frozen boolean in \`genui.capabilities\` is true. \`genui.sendMessage(text)\`
+asks the host to add user-role text and may trigger a model follow-up. \`genui.openLink(url)\`
+accepts only absolute HTTPS URLs. \`genui.updateModelContext({ content?, structuredContent? })\`
+replaces the latest UI state for future model turns without triggering an immediate follow-up.
+Every method returns a Promise and may be denied; show rejection in the interface.
+
+\`\`\`html
+<div id="host-controls"></div><output id="host-status"></output>
+<script type="module">
+  const controls = [
+    ["sendMessage", "Send selection", () => genui.sendMessage("Show my selection")],
+    ["openLink", "Open details", () => genui.openLink("https://example.com/details")],
+    [
+      "updateModelContext",
+      "Share state",
+      () => genui.updateModelContext({ content: "Rows 2 and 5 selected" }),
+    ],
+  ]
+  for (const [name, label, invoke] of controls) {
+    if (!genui.capabilities[name]) continue
+    const button = Object.assign(document.createElement("button"), { textContent: label })
+    button.onclick = async () => {
+      button.disabled = true
+      try { await invoke() }
+      catch (error) { document.querySelector("#host-status").textContent = String(error) }
+      finally { button.disabled = false }
+    }
+    document.querySelector("#host-controls").append(button)
   }
 </script>
 \`\`\`

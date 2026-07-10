@@ -2,6 +2,7 @@ import { codeDialect, type Action, type ActionCall, type Surface } from "../prot
 import { codeBootstrapScript } from "../code/bootstrap.js"
 import { parseHostContext, renderHostStyleVariables, type HostContext } from "../host-context.js"
 import { createHeartbeatTripwire, type HeartbeatTripwire } from "./heartbeat-tripwire.js"
+import type { HostCapabilities, HostCapabilityFlags } from "./host-capabilities.js"
 import { protocolChannel } from "./protocol.js"
 import {
   parseSandboxMessage,
@@ -19,6 +20,14 @@ import {
 
 export type { SurfaceEvent } from "./surface-broker.js"
 export type { HostContext, McpUiStyleVariableKey } from "../host-context.js"
+export type {
+  HostCapabilities,
+  HostCapabilityName,
+  HostCapabilityOutcome,
+  OpenLinkParams,
+  SendMessageParams,
+  UpdateModelContextParams,
+} from "./host-capabilities.js"
 
 interface MountOptions {
   readonly transport: (call: ActionCall, options: TransportOptions) => Promise<unknown>
@@ -32,6 +41,8 @@ interface MountOptions {
   readonly imagePolicy?: ImagePolicy
   /** MCP Apps-compatible theme and standardized CSS variables supplied by trusted host code. */
   readonly hostContext?: HostContext
+  /** Optional host functions advertised to and callable by the generated surface. */
+  readonly capabilities?: HostCapabilities
   readonly maxHeight?: number
   readonly onEvent?: (event: SurfaceEvent) => void
   readonly snapshot?: SnapshotValue
@@ -72,6 +83,7 @@ const surfaceDocument = (
   surface: Surface,
   imagePolicy: ImagePolicy,
   hostContext: HostContext,
+  capabilities: HostCapabilityFlags,
   restore?: SnapshotValue,
 ): string => `<!doctype html>
 <html>
@@ -79,7 +91,7 @@ const surfaceDocument = (
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src ${imageSourcePolicy(imagePolicy)}; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 ${renderHostStyleVariables(hostContext)}</head>
-<body><script>${codeBootstrapScript({ channel: protocolChannel, surfaceId: surface.id, actions: surface.grant.actions, ...(restore === undefined ? {} : { restore }), ...(hostContext.theme === undefined ? {} : { theme: hostContext.theme }) })}</script>${surface.content}</body>
+<body><script>${codeBootstrapScript({ channel: protocolChannel, surfaceId: surface.id, actions: surface.grant.actions, ...capabilities, ...(restore === undefined ? {} : { restore }), ...(hostContext.theme === undefined ? {} : { theme: hostContext.theme }) })}</script>${surface.content}</body>
 </html>`
 
 const assertSupportedSurface = (surface: Surface): void => {
@@ -92,6 +104,12 @@ const assertSupportedSurface = (surface: Surface): void => {
 export const mount = (element: Element, surface: Surface, options: MountOptions): Mounted => {
   assertSupportedSurface(surface)
   let hostContext = options.hostContext === undefined ? {} : parseHostContext(options.hostContext)
+  const hostCapabilities: HostCapabilities = { ...options.capabilities }
+  const capabilityFlags: HostCapabilityFlags = {
+    sendMessage: hostCapabilities.sendMessage !== undefined,
+    openLink: hostCapabilities.openLink !== undefined,
+    updateModelContext: hostCapabilities.updateModelContext !== undefined,
+  }
   const ownerDocument = element.ownerDocument
   const imagePolicy = options.imagePolicy ?? "none"
   const initialSnapshot = options.snapshot
@@ -113,6 +131,7 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
 
   const broker = createSurfaceBroker(surface, {
     transport: options.transport,
+    capabilities: hostCapabilities,
     confirm: options.confirm,
     maxHeight: options.maxHeight,
   })
@@ -261,7 +280,7 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
   const setDocument = (nextSurface: Surface, restore?: SnapshotValue): void => {
     heartbeatTripwire?.reset()
     expectedDocumentLoads += 1
-    iframe.srcdoc = surfaceDocument(nextSurface, imagePolicy, hostContext, restore)
+    iframe.srcdoc = surfaceDocument(nextSurface, imagePolicy, hostContext, capabilityFlags, restore)
   }
 
   const ownerWindow = ownerDocument.defaultView

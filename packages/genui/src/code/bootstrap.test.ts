@@ -15,12 +15,23 @@ const surfaceId = "surface-code"
 interface GuestApi {
   readonly surfaceId: string
   readonly actions: readonly unknown[]
+  readonly capabilities: {
+    readonly sendMessage: boolean
+    readonly openLink: boolean
+    readonly updateModelContext: boolean
+  }
   call(name: string, input: unknown): Promise<unknown>
+  sendMessage(text: unknown): Promise<void>
+  openLink(url: unknown): Promise<void>
+  updateModelContext(params: unknown): Promise<void>
   snapshot(provider: (restored?: unknown) => unknown): void
 }
 
 interface HarnessOptions {
   readonly actions?: readonly Action[]
+  readonly sendMessage?: boolean
+  readonly openLink?: boolean
+  readonly updateModelContext?: boolean
   readonly restore?: unknown
   readonly theme?: "light" | "dark"
 }
@@ -36,10 +47,11 @@ type SandboxWindow = ReturnType<typeof createSandboxWindow>["window"]
 const dispatchInboundMessage = (
   window: SandboxWindow,
   data: unknown,
-  source: "parent" | "forged" = "parent",
+  source: "parent" | "self" | "forged" = "parent",
 ): void => {
   const dataKey = "__genuiTestInboundMessage"
-  const sourceExpression = source === "parent" ? "window.parent" : "null"
+  const sourceExpression =
+    source === "parent" ? "window.parent" : source === "self" ? "window" : "null"
   Reflect.set(window, dataKey, data)
   try {
     window.eval(`window.dispatchEvent(new MessageEvent("message", {
@@ -58,6 +70,14 @@ const createHarness = (
   readonly interval: CapturedInterval
 } => {
   const harness = createSandboxWindow("")
+  Object.defineProperty(harness.window, "parent", {
+    configurable: true,
+    value: {
+      postMessage: (message: unknown): void => {
+        harness.messages.push(message)
+      },
+    },
+  })
   let intervalCallback: (() => void) | undefined
   let intervalDelayMs: number | undefined
   let intervalCleared = false
@@ -77,6 +97,9 @@ const createHarness = (
       channel,
       surfaceId,
       actions: options.actions ?? [],
+      sendMessage: options.sendMessage ?? false,
+      openLink: options.openLink ?? false,
+      updateModelContext: options.updateModelContext ?? false,
       ...(options.restore === undefined ? {} : { restore: options.restore }),
       ...(options.theme === undefined ? {} : { theme: options.theme }),
     }),
@@ -103,6 +126,15 @@ const createHarness = (
   }
 }
 
+const assertGenuiError = async (promise: Promise<unknown>, code: string): Promise<void> => {
+  await assert.rejects(promise, (error: unknown) => {
+    assert.ok(isRecord(error))
+    assert.equal(error.name, "GenuiActionError")
+    assert.equal(error.code, code)
+    return true
+  })
+}
+
 void test("code bootstrap installs the pinned API with its embedded grant", () => {
   const actions = [
     {
@@ -120,6 +152,289 @@ void test("code bootstrap installs the pinned API with its embedded grant", () =
 
   assert.equal(genui.surfaceId, surfaceId)
   assert.deepEqual(jsonRoundTrip(genui.actions), actions)
+})
+
+void test("code bootstrap exposes frozen host capability flags and methods", () => {
+  const { genui } = createHarness({ sendMessage: true, updateModelContext: true })
+
+  assert.deepEqual(jsonRoundTrip(genui.capabilities), {
+    sendMessage: true,
+    openLink: false,
+    updateModelContext: true,
+  })
+  assert.equal(Object.isFrozen(genui.capabilities), true)
+  assert.equal(typeof genui.sendMessage, "function")
+  assert.equal(typeof genui.openLink, "function")
+  assert.equal(typeof genui.updateModelContext, "function")
+})
+
+void test("code bootstrap rejects unavailable host capabilities locally", async () => {
+  const { genui, messages } = createHarness()
+
+  await Promise.all([
+    assertGenuiError(genui.sendMessage("Hello"), "not_available"),
+    assertGenuiError(genui.openLink("https://example.com"), "not_available"),
+    assertGenuiError(genui.updateModelContext({ content: "Hello" }), "not_available"),
+  ])
+  assert.equal(
+    messages.some((message) => isRecord(message) && message.type === "capability_call"),
+    false,
+  )
+})
+
+void test("code bootstrap rejects malformed capability input locally", async () => {
+  const cases = [
+    (genui: GuestApi) => genui.sendMessage(42),
+    (genui: GuestApi) => genui.openLink(null),
+    (genui: GuestApi) => genui.updateModelContext(null),
+    (genui: GuestApi) => genui.updateModelContext({ content: 42 }),
+    (genui: GuestApi) => genui.updateModelContext({ structuredContent: [] }),
+    (genui: GuestApi) => genui.updateModelContext({ structuredContent: new Date(0) }),
+    (genui: GuestApi) =>
+      genui.updateModelContext({ structuredContent: { toJSON: () => ["not", "a", "record"] } }),
+    (genui: GuestApi) => genui.updateModelContext({ unexpected: true }),
+  ]
+
+  for (const run of cases) {
+    const { genui, messages } = createHarness({
+      sendMessage: true,
+      openLink: true,
+      updateModelContext: true,
+    })
+    const result = run(genui)
+    assert.equal(
+      messages.some((message) => isRecord(message) && message.type === "capability_call"),
+      false,
+    )
+    await assertGenuiError(result, "invalid_input")
+  }
+})
+
+void test("code bootstrap turns hostile model-context accessors into promise rejections", async () => {
+  const { genui, messages } = createHarness({ updateModelContext: true })
+  const params = new Proxy(
+    {},
+    {
+      ownKeys: () => {
+        throw new Error("Hostile ownKeys trap")
+      },
+    },
+  )
+
+  let result: Promise<void> | undefined
+  assert.doesNotThrow(() => {
+    result = genui.updateModelContext(params)
+  })
+  assert.notEqual(result, undefined)
+  assert.equal(
+    messages.some((message) => isRecord(message) && message.type === "capability_call"),
+    false,
+  )
+  const captured = result
+  if (captured === undefined) throw new Error("Expected a capability promise.")
+  await assertGenuiError(captured, "invalid_input")
+})
+
+void test("code bootstrap enforces the 16 KiB send-message text limit in UTF-8 bytes", async () => {
+  const exactText = "é".repeat(8 * 1_024)
+  const exact = createHarness({ sendMessage: true })
+  const exactResult = exact.genui.sendMessage(exactText)
+  const request = exact.messages.find(
+    (message) => isRecord(message) && message.type === "capability_call",
+  )
+  assert.ok(isRecord(request))
+  dispatchInboundMessage(exact.window, {
+    channel,
+    type: "result",
+    surfaceId,
+    callId: request.callId,
+    result: { ok: true, value: {} },
+  })
+  await exactResult
+
+  const oversized = createHarness({ sendMessage: true })
+  const oversizedResult = oversized.genui.sendMessage(`${exactText}a`)
+  assert.equal(
+    oversized.messages.some((message) => isRecord(message) && message.type === "capability_call"),
+    false,
+  )
+  await assertGenuiError(oversizedResult, "invalid_input")
+})
+
+void test("code bootstrap enforces serialized model-context input and its 16 KiB limit", async () => {
+  const maxBytes = 16 * 1_024
+  const emptyPayloadBytes = new TextEncoder().encode(JSON.stringify({ content: "" })).byteLength
+  const exactParams = { content: "x".repeat(maxBytes - emptyPayloadBytes) }
+  const exact = createHarness({ updateModelContext: true })
+  const exactResult = exact.genui.updateModelContext(exactParams)
+  const request = exact.messages.find(
+    (message) => isRecord(message) && message.type === "capability_call",
+  )
+  assert.ok(isRecord(request))
+  dispatchInboundMessage(exact.window, {
+    channel,
+    type: "result",
+    surfaceId,
+    callId: request.callId,
+    result: { ok: true, value: {} },
+  })
+  await exactResult
+
+  const oversized = createHarness({ updateModelContext: true })
+  const oversizedResult = oversized.genui.updateModelContext({
+    content: `${exactParams.content}a`,
+  })
+  assert.equal(
+    oversized.messages.some((message) => isRecord(message) && message.type === "capability_call"),
+    false,
+  )
+  await assertGenuiError(oversizedResult, "invalid_input")
+
+  const cyclic = createHarness({ updateModelContext: true })
+  const structuredContent: Record<string, unknown> = {}
+  structuredContent.self = structuredContent
+  const cyclicResult = cyclic.genui.updateModelContext({ structuredContent })
+  assert.equal(
+    cyclic.messages.some((message) => isRecord(message) && message.type === "capability_call"),
+    false,
+  )
+  await assertGenuiError(cyclicResult, "invalid_input")
+})
+
+void test("code bootstrap sends messages through the capability bridge and resolves void", async () => {
+  const { genui, messages, window } = createHarness({ sendMessage: true })
+
+  const result = genui.sendMessage("Show the selected orders")
+  const request = messages.find(
+    (message) => isRecord(message) && message.type === "capability_call",
+  )
+  assert.ok(isRecord(request))
+  assert.deepEqual(jsonRoundTrip(request), {
+    channel,
+    surfaceId,
+    type: "capability_call",
+    callId: request.callId,
+    capability: "ui/message",
+    params: {
+      role: "user",
+      content: { type: "text", text: "Show the selected orders" },
+    },
+  })
+
+  dispatchInboundMessage(window, {
+    channel,
+    type: "result",
+    surfaceId,
+    callId: request.callId,
+    result: { ok: true, value: { ignored: "host return value" } },
+  })
+  assert.equal(await result, undefined)
+})
+
+void test("code bootstrap sends open-link requests through the capability bridge", async () => {
+  const { genui, messages, window } = createHarness({ openLink: true })
+
+  const result = genui.openLink("https://example.com/orders/42")
+  const request = messages.find(
+    (message) => isRecord(message) && message.type === "capability_call",
+  )
+  assert.ok(isRecord(request))
+  assert.deepEqual(jsonRoundTrip(request), {
+    channel,
+    surfaceId,
+    type: "capability_call",
+    callId: request.callId,
+    capability: "ui/open-link",
+    params: { url: "https://example.com/orders/42" },
+  })
+
+  dispatchInboundMessage(window, {
+    channel,
+    type: "result",
+    surfaceId,
+    callId: request.callId,
+    result: { ok: true, value: {} },
+  })
+  await result
+})
+
+void test("code bootstrap sends model-context updates through the capability bridge", async () => {
+  const { genui, messages, window } = createHarness({ updateModelContext: true })
+  const params = {
+    content: "The user selected two orders.",
+    structuredContent: { selectedOrderIds: ["order-2", "order-5"] },
+  }
+
+  const result = genui.updateModelContext(params)
+  const request = messages.find(
+    (message) => isRecord(message) && message.type === "capability_call",
+  )
+  assert.ok(isRecord(request))
+  assert.deepEqual(jsonRoundTrip(request), {
+    channel,
+    surfaceId,
+    type: "capability_call",
+    callId: request.callId,
+    capability: "ui/update-model-context",
+    params,
+  })
+
+  dispatchInboundMessage(window, {
+    channel,
+    type: "result",
+    surfaceId,
+    callId: request.callId,
+    result: { ok: true, value: {} },
+  })
+  await result
+})
+
+void test("code bootstrap preserves host capability error codes", async () => {
+  for (const code of ["denied", "invalid_input", "rate_limited"]) {
+    const { genui, messages, window } = createHarness({ openLink: true })
+    const result = genui.openLink("https://example.com")
+    const request = messages.find(
+      (message) => isRecord(message) && message.type === "capability_call",
+    )
+    assert.ok(isRecord(request))
+
+    dispatchInboundMessage(window, {
+      channel,
+      type: "result",
+      surfaceId,
+      callId: request.callId,
+      result: { ok: false, error: { code, message: "Host rejected the request." } },
+    })
+
+    await assertGenuiError(result, code)
+  }
+})
+
+void test("red team: guest-posted capability results cannot settle pending requests", async () => {
+  const { genui, messages, window } = createHarness({ sendMessage: true })
+  let settled = false
+  const result = genui.sendMessage("Hello").then(() => {
+    settled = true
+  })
+  const request = messages.find(
+    (message) => isRecord(message) && message.type === "capability_call",
+  )
+  assert.ok(isRecord(request))
+  const response = {
+    channel,
+    type: "result",
+    surfaceId,
+    callId: request.callId,
+    result: { ok: true, value: {} },
+  }
+
+  dispatchInboundMessage(window, response, "self")
+  await Promise.resolve()
+  assert.equal(settled, false)
+
+  dispatchInboundMessage(window, response)
+  await result
+  assert.equal(settled, true)
 })
 
 void test("code bootstrap applies the initial document theme", () => {

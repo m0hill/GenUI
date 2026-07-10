@@ -169,7 +169,11 @@ The bootstrap installs exactly this public API on `window.genui`:
 ```js
 genui.surfaceId
 genui.actions
+genui.capabilities
 await genui.call(name, input)
+await genui.sendMessage(text)
+await genui.openLink(url)
+await genui.updateModelContext({ content?, structuredContent? })
 genui.snapshot(fn)
 ```
 
@@ -205,6 +209,65 @@ genui.snapshot((restored) => {
 Keep the provider synchronous and side-effect-free when it is called without
 arguments. Provider failures are reported through `guest_error` and make that
 snapshot unavailable.
+
+### Host capabilities
+
+The bootstrap always defines the three host-capability methods. The frozen
+`genui.capabilities` object reports whether the current host supplied each
+handler. They mirror MCP Apps `ui/message`, `ui/open-link`, and
+`ui/update-model-context` semantics:
+
+```js
+genui.capabilities.sendMessage
+genui.capabilities.openLink
+genui.capabilities.updateModelContext
+```
+
+Feature-detect the matching flag before rendering a control. Each method
+returns a `Promise<void>` and may still be denied after it was advertised.
+Catch the rejection, restore the control's pending state, and show a useful
+message.
+
+`genui.sendMessage(text)` asks the host to add one user-role text message to
+the conversation. The host receives `{ role: "user", content: { type: "text",
+text } }`. This request may trigger a model follow-up.
+
+`genui.openLink(url)` asks the host to open an external URL. The URL must be a
+valid absolute `https:` URL. Relative URLs and every other scheme are rejected
+before the host handler runs.
+
+`genui.updateModelContext({ content?, structuredContent? })` sends a snapshot
+of UI state for future model turns without triggering an immediate follow-up.
+Later updates replace earlier state. Unlike MCP Apps, where `content` is a
+`ContentBlock[]`, code/0 accepts one plain string because its guest bridge has
+no content-block type. `structuredContent` is a record.
+
+Successful calls resolve without a value. Host handler return values are never
+sent into the sandbox. Failures reject with
+`GenuiActionError { code, message }`. The capability-specific codes are:
+
+- `not_available` when the host did not supply that handler.
+- `invalid_input` for malformed input, a non-HTTPS link, or an oversized
+  payload.
+- `denied` when the advertised host handler rejects.
+- `rate_limited` when another non-coalescing call to that capability is still
+  pending.
+
+`sendMessage` text and the JSON-serialized `updateModelContext` payload may
+each be at most 16 KiB in UTF-8. A payload exactly at the limit is accepted;
+one byte over is rejected before reaching the host.
+
+Only one host request per capability and surface is in flight. A second
+`sendMessage` or `openLink` call rejects with `rate_limited`. Model-context
+updates use a last-write-wins queue instead: while one update runs, the newest
+update replaces the one queued behind it. A superseded queued call resolves
+successfully without reaching the host, and the latest queued value runs after
+the active handler settles.
+
+Replacement and disposal forget pending capability requests. A host handler
+may still finish, but its late result is dropped when the document revision no
+longer matches. Guest-posted result messages and results carrying a stale
+surface ID are ignored.
 
 ## Host enforcement
 
