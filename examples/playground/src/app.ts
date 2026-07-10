@@ -52,7 +52,7 @@ export const resetPlaygroundState = (): void => {
   callAudits.clear()
 }
 
-export const genui = new Genui<Readonly<Record<string, never>>>({
+const genui = new Genui<Readonly<Record<string, never>>>({
   actions: demoActions,
   onCall: (entry) => {
     const key = callKey(entry.surfaceId, entry.callId)
