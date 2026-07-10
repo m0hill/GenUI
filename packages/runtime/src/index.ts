@@ -1,4 +1,3 @@
-export { codeDialect } from "@genui/protocol"
 export { action, Genui } from "./registry.js"
 export { memoryStore } from "./surface-runtime.js"
 export type { CallAuditEntry, GenuiOptions } from "./registry.js"

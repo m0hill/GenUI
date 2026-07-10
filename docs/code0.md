@@ -3,8 +3,11 @@
 Use `code/0` when a model should author an interactive HTML and JavaScript
 fragment. The fragment runs as code, not as a template language.
 
+Treat the dialect identifier as the wire version. The current contract is
+`code/0`; npm package versions do not replace it.
+
 ```ts
-import { codeDialect } from "@genui/genui"
+import { codeDialect } from "@genui/genui/protocol"
 
 const surface = await genui.surface({
   dialect: codeDialect,

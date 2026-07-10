@@ -8,7 +8,7 @@ import {
   type SurfaceInput,
   type SurfaceProjectionDiagnostics,
   type SurfaceRecord,
-} from "@genui/protocol"
+} from "./protocol/index.js"
 import { projectGrantedActions } from "./action-projections.js"
 import { codeInstructions } from "./code/instructions.js"
 import type {

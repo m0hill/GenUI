@@ -25,6 +25,16 @@ const sourceFiles = async (directory: string): Promise<string[]> => {
   return files
 }
 
+void test("protocol source stays dependency-free", async () => {
+  const files = await sourceFiles("src/protocol")
+
+  for (const file of files) {
+    const source = await readFile(file, "utf8")
+    assert.doesNotMatch(source, /\bfrom\s+["']/, file)
+    assert.doesNotMatch(source, /^\s*import\s+["']/m, file)
+  }
+})
+
 void test("runtime source stays decoupled from app, agent, and transport packages", async () => {
   const files = await sourceFiles("src")
 
@@ -35,9 +45,10 @@ void test("runtime source stays decoupled from app, agent, and transport package
   }
 })
 
-void test("package root does not re-export internal schema compatibility helpers", async () => {
+void test("package root does not re-export protocol or schema internals", async () => {
   const source = await readFile("src/index.ts", "utf8")
 
+  assert.doesNotMatch(source, /\bprotocol\b/)
   assert.doesNotMatch(source, /\bStandardSchema/)
   assert.doesNotMatch(source, /\bStandardTyped/)
 })

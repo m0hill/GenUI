@@ -1,4 +1,4 @@
-import { codeDialect, type Action, type ActionCall, type Surface } from "@genui/protocol"
+import { codeDialect, type Action, type ActionCall, type Surface } from "../protocol/index.js"
 import { codeBootstrapScript } from "../code/bootstrap.js"
 import { createHeartbeatTripwire, type HeartbeatTripwire } from "./heartbeat-tripwire.js"
 import { protocolChannel } from "./protocol.js"

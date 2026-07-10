@@ -1,4 +1,4 @@
-import { parseActionCall, type ActionCall } from "@genui/protocol"
+import { parseActionCall, type ActionCall } from "../protocol/index.js"
 import { protocolChannel } from "./protocol.js"
 
 export const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
@@ -148,7 +148,7 @@ const parseSnapshotMessage = (
   if (value.ok === false) {
     return { channel: protocolChannel, type: "snapshot", surfaceId, requestId, ok: false }
   }
-  if (value.ok !== true || !Object.prototype.hasOwnProperty.call(value, "value")) return undefined
+  if (value.ok !== true || !Object.hasOwn(value, "value")) return undefined
   const snapshot = parseSnapshotValue(value.value)
   return snapshot === undefined
     ? undefined

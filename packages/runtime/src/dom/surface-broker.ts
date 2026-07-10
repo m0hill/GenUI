@@ -5,7 +5,7 @@ import {
   type ActionCall,
   type ActionResult,
   type Surface,
-} from "@genui/protocol"
+} from "../protocol/index.js"
 import { protocolChannel } from "./protocol.js"
 import type { ActionSandboxMessage, SandboxMessage } from "./sandbox-message-schema.js"
 

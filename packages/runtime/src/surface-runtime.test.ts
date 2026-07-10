@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import type { Policy } from "@genui/protocol"
+import type { Policy } from "./protocol/index.js"
 import { createSurfaceRuntime } from "./surface-runtime.js"
 import { isRecord, testSchema } from "./test-schema.test-support.js"
 import type { AnyActionDefinition } from "./types.js"

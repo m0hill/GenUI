@@ -1,6 +1,11 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { codeDialect, type ActionErrorCode, type ActionResult, type Surface } from "@genui/protocol"
+import {
+  codeDialect,
+  type ActionErrorCode,
+  type ActionResult,
+  type Surface,
+} from "./protocol/index.js"
 import { action, Genui } from "./registry.js"
 import type { StandardSchemaV1 } from "./schema.js"
 import { memoryStore } from "./surface-runtime.js"

@@ -13,10 +13,10 @@ objects, credentials, direct fetch access, or a reference to the parent DOM.
 Read [actions.md](actions.md) before defining the authority set. Read
 [code0.md](code0.md) for the iframe and guest contract.
 
-## Build the packages
+## Build the package
 
-The packages are private while their final npm scope and names are undecided.
-Build the workspace copies before using them locally:
+The package is private while its final npm scope and name are undecided. Build
+the workspace copy before using it locally:
 
 ```sh
 pnpm install
@@ -24,9 +24,9 @@ pnpm build
 ```
 
 The build emits ESM JavaScript, declarations, and source maps to
-`packages/protocol/dist/` and `packages/runtime/dist/`. Package export maps
-point consumers at those files. The repository's `pnpm check`, `pnpm test`,
-and `pnpm dev` commands build them first.
+`packages/runtime/dist/`. Its export map exposes `.`, `./protocol`, and
+`./dom`. The repository's `pnpm check`, `pnpm test`, and `pnpm dev` commands
+build it first.
 
 Run the external-consumer smoke test before distributing a local build:
 
@@ -34,9 +34,9 @@ Run the external-consumer smoke test before distributing a local build:
 pnpm test:pack
 ```
 
-It packs both private packages, installs the tarballs into a temporary project
-without registry access, and checks runtime and TypeScript imports through the
-published export maps. The temporary tarballs are deleted after the test.
+It packs the private package, installs the tarball into a temporary project
+without registry access, and checks runtime and TypeScript imports through all
+three public entrypoints. The temporary tarball is deleted after the test.
 
 ## Create the server runtime
 
@@ -69,7 +69,7 @@ Accept generated content as a string. Choose the action names the surface may
 request. The runtime projects the actual grant and stores content verbatim.
 
 ```ts
-import { codeDialect } from "@genui/genui"
+import { codeDialect } from "@genui/genui/protocol"
 
 const surface = await genui.surface({
   dialect: codeDialect,
@@ -109,7 +109,7 @@ Parse the browser boundary with the protocol codec. Pass the call to the same
 `Genui` instance.
 
 ```ts
-import { actionError, parseActionCall } from "@genui/protocol"
+import { actionError, parseActionCall } from "@genui/genui/protocol"
 
 const body: unknown = await request.json()
 const call =
@@ -178,7 +178,7 @@ the hook when audit delivery must be guaranteed.
 
 The playground uses an app-specific `{ result, audit }` HTTP envelope to drain
 synchronous audit entries into its event panel. That envelope is not part of
-`@genui/protocol`; hosts may send audit data to any trusted sink.
+`@genui/genui/protocol`; hosts may send audit data to any trusted sink.
 
 ## Mount in the browser
 
@@ -190,7 +190,7 @@ import {
   actionError,
   parseActionResult,
   parseSurface,
-} from "@genui/protocol"
+} from "@genui/genui/protocol"
 
 const surface = parseSurface(await surfaceResponse.json())
 if (surface === undefined) throw new Error("Invalid surface response.")

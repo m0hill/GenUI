@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises"
-import { codeDialect, Genui, type CallAuditEntry } from "@genui/genui"
-import { actionError } from "@genui/protocol"
+import { Genui, type CallAuditEntry } from "@genui/genui"
+import { actionError, codeDialect } from "@genui/genui/protocol"
 import { Hono } from "hono"
 import { demoActions } from "./actions.js"
 import { createPendingApprovals } from "./pending-approvals.js"

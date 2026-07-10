@@ -15,11 +15,8 @@ philosophy, and working rules.
 
 pnpm workspace:
 
-- `packages/protocol` — `@genui/protocol`: pure wire types and codecs, zero
-  dependencies.
-- `packages/runtime` — `@genui/genui`: the capability kernel (actions, grants,
-  policy, execution) plus the DOM host (sandboxed iframe mounting and the
-  postMessage broker).
+- `packages/runtime` — `@genui/genui`: dependency-free wire contracts at
+  `./protocol`, the capability kernel, and the DOM sandbox host.
 - `examples/playground` — a credential-free Hono host with paste mode, model
   instructions, working fixtures, and a visible surface-event log.
 
@@ -27,10 +24,10 @@ pnpm workspace:
 
 ```sh
 pnpm install
-pnpm build   # JavaScript and declarations in each package's dist/
+pnpm build   # JavaScript and declarations in packages/runtime/dist/
 pnpm check   # format + lint + typecheck + tests for all packages
 pnpm test
-pnpm test:pack # pack, install, and import both packages in a temp project
+pnpm test:pack # pack, install, and import every public entrypoint
 pnpm eval    # evaluate incoming model output in the real sandbox
 pnpm dev     # playground at http://localhost:3000
 ```

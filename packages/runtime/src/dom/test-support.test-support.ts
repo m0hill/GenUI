@@ -4,7 +4,7 @@ import {
   type Element as HappyElement,
   type HTMLIFrameElement as HappyIFrameElement,
 } from "happy-dom"
-import { codeDialect, type Action, type Surface } from "@genui/protocol"
+import { codeDialect, type Action, type Surface } from "../protocol/index.js"
 import { isRecord, jsonRoundTrip } from "../test-support.test-support.js"
 import { protocolChannel } from "./protocol.js"
 import type { ActionSandboxMessage } from "./sandbox-message-schema.js"

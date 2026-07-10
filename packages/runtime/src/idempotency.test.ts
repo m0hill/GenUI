@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import type { Effect } from "@genui/protocol"
+import type { Effect } from "./protocol/index.js"
 import { action, Genui } from "./registry.js"
 import { memoryStore } from "./surface-runtime.js"
 import { isRecord, testSchema } from "./test-schema.test-support.js"

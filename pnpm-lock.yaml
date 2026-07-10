@@ -29,9 +29,6 @@ importers:
       '@genui/genui':
         specifier: workspace:*
         version: link:../../packages/runtime
-      '@genui/protocol':
-        specifier: workspace:*
-        version: link:../../packages/protocol
       '@hono/node-server':
         specifier: ^2.0.8
         version: 2.0.8(hono@4.12.28)
@@ -46,13 +43,7 @@ importers:
         specifier: ^1.61.1
         version: 1.61.1
 
-  packages/protocol: {}
-
   packages/runtime:
-    dependencies:
-      '@genui/protocol':
-        specifier: workspace:*
-        version: link:../protocol
     devDependencies:
       esbuild:
         specifier: ^0.28.1

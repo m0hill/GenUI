@@ -1,4 +1,4 @@
-import type { Action } from "@genui/protocol"
+import type { Action } from "../protocol/index.js"
 
 const actionInstructions = (action: Action): string => {
   const details = [

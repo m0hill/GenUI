@@ -7,7 +7,7 @@ import type {
   MaybePromise,
   Policy,
   SurfaceRecord,
-} from "@genui/protocol"
+} from "./protocol/index.js"
 import type { StandardSchemaV1 } from "./schema.js"
 
 /** App-owned unit of authority that generated UI may request but never execute directly. */

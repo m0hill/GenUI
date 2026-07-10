@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { codeDialect, type ActionCall, type ActionResult, type Surface } from "@genui/protocol"
+import { codeDialect, type ActionCall, type ActionResult, type Surface } from "./protocol/index.js"
 import { action, Genui } from "./registry.js"
 import { createSurfaceBroker, type SurfaceBrokerEffect } from "./dom/surface-broker.js"
 import type { SurfaceBrokerTask } from "./dom/surface-broker.js"

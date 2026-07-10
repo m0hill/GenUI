@@ -59,15 +59,16 @@ don't make the change.
 
 ## 3. State of the repo
 
-Phases 1–2 complete: code/0 renderer, playground, red-team suite,
+Phases 1–3 complete: code/0 renderer, playground, red-team suite,
 idempotency, expiry/revocation, subject binding, authoritative approval,
-audit hook, CI workflow, installable builds, eval rig. 104 tests green
-across three packages. `git log` and §11 hold the details.
+audit hook, CI workflow, installable builds, eval rig. 106 tests green
+across two packages. `git log` and §11 hold the details.
 
 Verified quality findings that motivated this phase (all confirmed against
 source on 2026-07-12):
 
-- `isRecord` is defined **six times**: `packages/protocol/src/index.ts`,
+- `isRecord` is defined **six times**: the protocol (now
+  `packages/runtime/src/protocol/index.ts`),
   `packages/runtime/src/record.ts` (a two-line file exporting only this),
   and four copies across `examples/playground/src/` (`app.ts`,
   `eval-runner.ts`, `actions.ts`, `execute-envelope.ts`).
@@ -99,15 +100,18 @@ existing conventions, then smaller diffs.
 - A structural check inside code that already holds a typed value is
   defensive noise. Delete it.
 - Prefer `parseX(input): X | undefined` (or the codec style already in
-  `@genui/protocol`) over exported `isX` predicates for untrusted input.
+  `@genui/genui/protocol`) over exported `isX` predicates for untrusted
+  input.
   Keep `isX` only as a true predicate over already-typed values (e.g.
   narrowing a union member), and prefer discriminant checks
   (`event.type === "call"`) over hand-written shape predicates when the
   input is already a typed union.
-- Exactly **one** `isRecord` definition per package, and only where that
-  package genuinely parses unknown data. The playground should consume
-  `@genui/protocol` codecs instead of hand-rolling shape checks for wire
-  types; its own boundary parsers live in one place, not per file.
+- Keep `isRecord` private to genuine serialization boundaries. The import-free
+  protocol and sandbox message codec each own one; exporting a generic
+  predicate or coupling the protocol back to runtime would be worse than the
+  two-line duplication. The playground should consume `@genui/genui/protocol`
+  codecs instead of hand-rolling wire checks; its own boundary parsers live in
+  one place, not per file.
 
 ### Helpers and abstractions must pay rent
 
@@ -130,7 +134,7 @@ existing conventions, then smaller diffs.
 - A hand-written interface that duplicates an existing exported type is a
   bug. Point at the owner.
 - One import path per type: consumers import protocol types from
-  `@genui/protocol`, runtime types from the file that owns them. Re-export
+  `@genui/genui/protocol`, runtime types from the file that owns them. Re-export
   shims (`runtime/src/types.ts` re-exporting protocol) are removed unless
   removing them breaks the public package API — in that case keep the
   package entrypoint as the single deliberate public surface and strip the
@@ -173,9 +177,9 @@ existing conventions, then smaller diffs.
 ### Organization
 
 - Precise file names over vague ones; a file owns one concept. Split
-  `protocol/src/index.ts` only if the pieces (wire types / codecs / intent
-  rendering) genuinely change for different reasons — the entrypoint must
-  still re-export the same public API. Do not create barrels elsewhere.
+  `runtime/src/protocol/index.ts` only if the pieces (wire types / codecs /
+  intent rendering) genuinely change for different reasons — the entrypoint
+  must still re-export the same public API. Do not create barrels elsewhere.
 - Consistent ordering within files: public API first or last, but the same
   choice everywhere in a package.
 - No behavior may move between packages.
@@ -188,9 +192,9 @@ refactored to the same bar, never weakened), same wire shapes, same guest
 bridge, same playground behavior, `pnpm check` and `pnpm eval` green at
 every commit.
 
-### M12 — Protocol pass (`packages/protocol`)
+### M12 — Protocol pass (`packages/runtime/src/protocol`)
 
-Apply §4 to the protocol package: codec-style parsing as the single
+Apply §4 to the protocol directory: codec-style parsing as the single
 pattern, predicate/export audit, JSDoc pruned to informative content,
 decide the index-split question. The dependency-free test stays green.
 
@@ -220,7 +224,7 @@ where they duplicated shape-checking helpers).
 ### M14 — Playground pass (`examples/playground`)
 
 1. Replace the four local `isRecord` copies and hand-rolled wire-shape
-   checks with `@genui/protocol` codecs; the playground's own boundaries
+   checks with `@genui/genui/protocol` codecs; the playground's own boundaries
    (fixture files, eval events crossing the Playwright serialization
    boundary) parse in one module, not per file.
 2. Replace the five `is*Event` predicates with discriminant narrowing over
@@ -400,3 +404,8 @@ delete earlier entries.
   generated-code bridge where runtime tampering is hostile — shallow host-side
   freezes added ceremony without isolating nested values or strengthening
   authority.
+- 2026-07-10 Folded the protocol into `@genui/genui` behind its `./protocol`
+  entrypoint while retaining the no-import boundary test — the separate package
+  had no independent consumer or release lifecycle, so npm packaging did not
+  pay rent; `code/0` and its documentation remain the wire-version authority,
+  and record predicates stay boundary-local rather than becoming public API.

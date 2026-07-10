@@ -9,6 +9,6 @@
     "rootDir": "src",
     "sourceMap": true
   },
-  "include": ["src/index.ts", "src/dom/index.ts"],
+  "include": ["src/index.ts", "src/dom/index.ts", "src/protocol/index.ts"],
   "exclude": ["node_modules"]
 }

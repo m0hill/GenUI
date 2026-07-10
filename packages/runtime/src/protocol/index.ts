@@ -43,7 +43,7 @@ const readIntentPath = (input: unknown, path: string): unknown => {
 
   for (const segment of path.split(".")) {
     if (segment.length === 0 || typeof value !== "object" || value === null) return undefined
-    if (!Object.prototype.hasOwnProperty.call(value, segment)) return undefined
+    if (!Object.hasOwn(value, segment)) return undefined
     value = Reflect.get(value, segment)
   }
 
@@ -158,9 +158,6 @@ export interface SurfaceRecord {
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
 
-const hasOwn = (value: Readonly<Record<string, unknown>>, key: string): boolean =>
-  Object.prototype.hasOwnProperty.call(value, key)
-
 const isAction = (value: unknown): value is Action =>
   isRecord(value) &&
   typeof value.name === "string" &&
@@ -207,7 +204,7 @@ export const parseActionCall = (value: unknown): ActionCall | undefined => {
   if (typeof value.surfaceId !== "string") return undefined
   if (typeof value.callId !== "string") return undefined
   if (typeof value.action !== "string" || !isValidActionName(value.action)) return undefined
-  if (!hasOwn(value, "input")) return undefined
+  if (!Object.hasOwn(value, "input")) return undefined
   return {
     surfaceId: value.surfaceId,
     callId: value.callId,
@@ -222,7 +219,7 @@ const isActionErrorCode = (value: unknown): value is ActionErrorCode =>
 /** Return undefined unless value is a valid action execution result envelope. */
 export const parseActionResult = (value: unknown): ActionResult | undefined => {
   if (!isRecord(value) || typeof value.ok !== "boolean") return undefined
-  if (value.ok) return hasOwn(value, "value") ? { ok: true, value: value.value } : undefined
+  if (value.ok) return Object.hasOwn(value, "value") ? { ok: true, value: value.value } : undefined
   if (!isRecord(value.error)) return undefined
   if (!isActionErrorCode(value.error.code)) return undefined
   if (typeof value.error.message !== "string") return undefined

@@ -1,4 +1,4 @@
-import type { Action, DroppedAction, Policy } from "@genui/protocol"
+import type { Action, DroppedAction, Policy } from "./protocol/index.js"
 import type { AnyActionDefinition } from "./types.js"
 
 interface ProjectGrantedActionsInput<Ctx> {

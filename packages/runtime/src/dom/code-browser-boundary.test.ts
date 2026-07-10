@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { after, before, test } from "node:test"
 import { build } from "esbuild"
 import { chromium, type Browser, type Page } from "playwright"
-import type { ActionCall, Surface } from "@genui/protocol"
+import type { ActionCall, Surface } from "../protocol/index.js"
 import type { Mounted, SurfaceEvent } from "./index.js"
 
 let browser: Browser | undefined

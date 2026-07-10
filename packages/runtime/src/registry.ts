@@ -11,7 +11,7 @@ import {
   type Surface,
   type SurfaceInput,
   type SurfaceRecord,
-} from "@genui/protocol"
+} from "./protocol/index.js"
 import { actionPolicy, projectGrantedActions, publicActions } from "./action-projections.js"
 import { parseWithSchema } from "./schema.js"
 import { createSurfaceRuntime, type SurfaceRuntime } from "./surface-runtime.js"

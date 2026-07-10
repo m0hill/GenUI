@@ -6,7 +6,7 @@ import {
   isRecord,
   jsonRoundTrip,
 } from "../dom/test-support.test-support.js"
-import type { Action } from "@genui/protocol"
+import type { Action } from "../protocol/index.js"
 import { codeBootstrapScript } from "./bootstrap.js"
 
 const channel = "genui/dom/0"

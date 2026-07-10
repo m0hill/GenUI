@@ -6,7 +6,7 @@ import {
   type ActionCall,
   type ActionResult,
   type SurfaceInput,
-} from "@genui/protocol"
+} from "@genui/genui/protocol"
 
 export interface ExecuteEnvelope {
   readonly result: ActionResult

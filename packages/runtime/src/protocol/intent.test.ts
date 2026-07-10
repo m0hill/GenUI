@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 import { renderActionIntent } from "./index.js"
 
-void test("renderActionIntent substitutes primitive input values", () => {
+void test("renderActionIntent substitutes primitive values", () => {
   assert.equal(
     renderActionIntent("Refund order {input.id}", { id: "order-1" }),
     "Refund order order-1",
