@@ -26,6 +26,65 @@ void test("sandbox message schema parses code calls and runtime reports", () => 
   assert.deepEqual(
     parseSandboxMessage({
       channel: protocolChannel,
+      type: "teardown",
+      surfaceId: "surface-1",
+      requestId: "teardown-1",
+      ok: true,
+      value: { count: 4 },
+    }),
+    {
+      ok: true,
+      value: {
+        channel: protocolChannel,
+        type: "teardown",
+        surfaceId: "surface-1",
+        requestId: "teardown-1",
+        ok: true,
+        value: { count: 4 },
+      },
+    },
+  )
+  assert.deepEqual(
+    parseSandboxMessage({
+      channel: protocolChannel,
+      type: "teardown",
+      surfaceId: "surface-1",
+      requestId: "teardown-2",
+      ok: true,
+    }),
+    {
+      ok: true,
+      value: {
+        channel: protocolChannel,
+        type: "teardown",
+        surfaceId: "surface-1",
+        requestId: "teardown-2",
+        ok: true,
+      },
+    },
+  )
+  assert.deepEqual(
+    parseSandboxMessage({
+      channel: protocolChannel,
+      type: "teardown",
+      surfaceId: "surface-1",
+      requestId: "teardown-3",
+      ok: false,
+    }),
+    {
+      ok: true,
+      value: {
+        channel: protocolChannel,
+        type: "teardown",
+        surfaceId: "surface-1",
+        requestId: "teardown-3",
+        ok: false,
+      },
+    },
+  )
+  assert.deepEqual(
+    parseSandboxMessage({
+      channel: protocolChannel,
       type: "heartbeat",
       surfaceId: "surface-1",
     }),
@@ -235,6 +294,30 @@ void test("sandbox message schema rejects malformed boundary data", () => {
       params: { url: "https://example.com" },
       unexpected: true,
     },
+    {
+      channel: protocolChannel,
+      type: "teardown",
+      surfaceId: "surface-1",
+      requestId: longIdentifier,
+      ok: false,
+    },
+    {
+      channel: protocolChannel,
+      type: "teardown",
+      surfaceId: "surface-1",
+      requestId: "teardown-1",
+      ok: false,
+      value: { unexpected: true },
+    },
+    {
+      channel: protocolChannel,
+      type: "teardown",
+      surfaceId: "surface-1",
+      requestId: "teardown-1",
+      ok: true,
+      value: null,
+      unexpected: true,
+    },
   ]) {
     assert.deepEqual(parseSandboxMessage(message), { ok: false, reason: "bad_message" })
   }
@@ -249,6 +332,17 @@ void test("sandbox message schema rejects malformed boundary data", () => {
       callId: "capability-1",
       capability: "ui/update-model-context",
       params: { structuredContent: cyclic },
+    }),
+    { ok: false, reason: "bad_message" },
+  )
+  assert.deepEqual(
+    parseSandboxMessage({
+      channel: protocolChannel,
+      type: "teardown",
+      surfaceId: "surface-1",
+      requestId: "teardown-cyclic",
+      ok: true,
+      value: cyclic,
     }),
     { ok: false, reason: "bad_message" },
   )

@@ -175,6 +175,7 @@ await genui.sendMessage(text)
 await genui.openLink(url)
 await genui.updateModelContext({ content?, structuredContent? })
 genui.snapshot(fn)
+genui.teardown(handler)
 ```
 
 `genui.surfaceId` is the current surface ID. `genui.actions` is the grant
@@ -188,9 +189,10 @@ the action name, and input. It resolves to the successful action output. It
 rejects with `GenuiActionError { code, message }` for an action error.
 
 Results correlate by `callId`. Unknown and duplicate result messages are
-ignored. Result and snapshot-request messages are accepted only from the
-iframe's parent window with the matching channel and surface ID. The guest
-action list is descriptive; mutating it cannot change the host or kernel grant.
+ignored. Result, snapshot-request, and teardown-request messages are accepted
+only from the iframe's parent window with the matching channel and surface ID.
+The guest action list is descriptive; mutating it cannot change the host or
+kernel grant.
 
 `genui.snapshot(fn)` registers one state provider. The host calls the provider
 without arguments to capture JSON-serializable state. When a replacement
@@ -209,6 +211,28 @@ genui.snapshot((restored) => {
 Keep the provider synchronous and side-effect-free when it is called without
 arguments. Provider failures are reported through `guest_error` and make that
 snapshot unavailable.
+
+### Graceful teardown
+
+`genui.teardown(handler)` registers one cleanup handler. A later registration
+replaces the previous one, like `genui.snapshot(fn)`. The handler receives
+`{ reason }`; the reason may be `undefined`. It may return a Promise.
+
+When the host requests teardown, the bootstrap awaits the handler and then
+calls the current snapshot provider to capture final state. Keep cleanup fast
+and synchronous where possible. The host proceeds after its deadline even if
+the handler never settles.
+
+Handler or provider failures emit `guest_error`. The guest still acknowledges
+teardown, but no final snapshot is returned. A guest with no handler or state
+provider also acknowledges immediately.
+
+Use `pagehide` only as an abrupt-removal fallback. Work started there cannot
+extend the host's teardown deadline.
+
+Genui deliberately combines the teardown acknowledgment and final snapshot in
+one round-trip. MCP Apps `ui/resource-teardown` returns an empty result and has
+no equivalent state-capture contract.
 
 ### Host capabilities
 
@@ -268,6 +292,10 @@ Replacement and disposal forget pending capability requests. A host handler
 may still finish, but its late result is dropped when the document revision no
 longer matches. Guest-posted result messages and results carrying a stale
 surface ID are ignored.
+
+During graceful teardown, action and host-capability traffic remains live
+until the final acknowledgment or deadline disposes the mount. Results that
+arrive after disposal are dropped.
 
 ## Host enforcement
 

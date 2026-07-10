@@ -123,9 +123,19 @@ void test("playground events parse at the serialized log boundary", () => {
       provenance: "generated_surface",
       url: "https://example.com/docs",
     },
+    {
+      type: "host_teardown",
+      reason: "surface_replaced",
+      snapshotCaptured: false,
+    },
     { type: "resize", height: 320 },
     { type: "guest_error", message: "Guest failed.", stack: "stack" },
     { type: "violation", reason: "ungranted_call", detail: "private.read" },
+    {
+      type: "violation",
+      reason: "teardown_timeout",
+      detail: "Surface teardown timed out after 1000ms.",
+    },
     {
       type: "audit",
       entry: {
@@ -156,4 +166,5 @@ void test("playground events parse at the serialized log boundary", () => {
     undefined,
   )
   assert.equal(parsePlaygroundEvent({ ...events[6], provenance: "user" }), undefined)
+  assert.equal(parsePlaygroundEvent({ ...events[7], snapshotCaptured: "no" }), undefined)
 })

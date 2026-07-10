@@ -28,6 +28,16 @@ type ApprovalRoundTripRequest =
 const capabilityMessage = "Summarize the selected rows."
 const modelContextContent = "Rows 2 and 5 are selected."
 const capabilityUrl = "https://example.com/docs"
+const delayedTeardownFixture = `
+  <p id="delayed-teardown">Delayed teardown fixture</p>
+  <script type="module">
+    genui.teardown(() => new Promise((resolve) => setTimeout(resolve, 100)))
+  </script>
+`
+const stoppedLoadFixture = `
+  <p id="stopped-load">Stopped load fixture</p>
+  <script>window.stop()</script>
+`
 const capabilitiesFixture = `
   <p id="capabilities"></p>
   <button id="send-message" hidden>Send message</button>
@@ -173,6 +183,22 @@ void test("playground drives paste, mount, action, approval, and guest-error flo
   assert.equal(eventText?.includes('"outcome": "ok"'), true)
 
   await page.locator("#fixture-error").click()
+  await eventLog.getByText('"type": "host_teardown"', { exact: false }).waitFor({ timeout: 1_000 })
+  const replacementEvents = (await page.locator("#event-log > li").allTextContents()).map(
+    (encoded, index) => {
+      const event = parsePlaygroundEvent(JSON.parse(encoded))
+      if (event === undefined) throw new Error(`Replacement event ${index + 1} is malformed.`)
+      return event
+    },
+  )
+  assert.deepEqual(
+    replacementEvents.find((event) => event.type === "host_teardown"),
+    {
+      type: "host_teardown",
+      reason: "surface_replaced",
+      snapshotCaptured: false,
+    },
+  )
   await frame.locator("#throw-error").click()
   await page.locator("#event-log").getByText("Fixture guest failure", { exact: false }).waitFor()
 })
@@ -272,4 +298,63 @@ void test("playground advertises and delivers host capabilities", async (context
       { capability: "openLink", outcome: "ok" },
     ],
   )
+})
+
+void test("playground serializes overlapping surface replacements", async (context) => {
+  if (browser === undefined) throw new Error("Browser was not initialized.")
+  const page = await browser.newPage()
+  context.after(async () => {
+    await page.close()
+  })
+
+  await page.goto(origin)
+  await page.locator("#surface-source").fill(delayedTeardownFixture)
+  await page.locator("#create-surface").click()
+  await page.frameLocator("#surface iframe").locator("#delayed-teardown").waitFor()
+
+  await page.evaluate(() => {
+    document.querySelector<HTMLButtonElement>("#fixture-orders")?.click()
+    document.querySelector<HTMLButtonElement>("#fixture-error")?.click()
+  })
+  await page.frameLocator("#surface iframe").locator("#throw-error").waitFor({ timeout: 2_000 })
+
+  const events = (await page.locator("#event-log > li").allTextContents()).map((encoded, index) => {
+    const event = parsePlaygroundEvent(JSON.parse(encoded))
+    if (event === undefined) throw new Error(`Concurrent event ${index + 1} is malformed.`)
+    return event
+  })
+  assert.equal(events.filter((event) => event.type === "host_teardown").length, 1)
+  assert.equal(
+    events.some((event) => event.type === "violation" && event.reason === "teardown_timeout"),
+    false,
+  )
+  assert.equal(await page.locator("#surface iframe").count(), 1)
+})
+
+void test("guest code cannot stall the playground replacement queue", async (context) => {
+  if (browser === undefined) throw new Error("Browser was not initialized.")
+  const page = await browser.newPage()
+  context.after(async () => {
+    await page.close()
+  })
+
+  await page.goto(origin)
+  await page.locator("#surface-source").fill(stoppedLoadFixture)
+  await page.locator("#create-surface").click()
+  await page.frameLocator("#surface iframe").locator("#stopped-load").waitFor()
+
+  await page.locator("#fixture-error").click()
+  await page.frameLocator("#surface iframe").locator("#throw-error").waitFor({ timeout: 2_000 })
+
+  const events = (await page.locator("#event-log > li").allTextContents()).map((encoded, index) => {
+    const event = parsePlaygroundEvent(JSON.parse(encoded))
+    if (event === undefined) throw new Error(`Stopped-load event ${index + 1} is malformed.`)
+    return event
+  })
+  assert.equal(events.filter((event) => event.type === "host_teardown").length, 1)
+  assert.equal(
+    events.some((event) => event.type === "violation" && event.reason === "teardown_timeout"),
+    false,
+  )
+  assert.equal(await page.locator("#surface iframe").count(), 1)
 })

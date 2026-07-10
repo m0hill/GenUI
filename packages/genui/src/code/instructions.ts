@@ -41,6 +41,8 @@ The trusted bridge available as \`window.genui\` has exactly this API:
   \`await genui.updateModelContext({ content?, structuredContent? })\`: optional host capabilities.
 - \`genui.snapshot(fn)\`: registers one state provider. The function receives restored JSON state
   when present and returns current JSON-serializable state when called without arguments.
+- \`genui.teardown(handler)\`: registers one cleanup handler that receives \`{ reason }\`. Keep it
+  fast because the host proceeds with teardown after its deadline.
 
 Handle action failures in the interface. Call only granted actions and shape inputs from their JSON
 Schemas. Example:

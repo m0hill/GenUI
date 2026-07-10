@@ -176,6 +176,39 @@ const capabilitySurface: Surface = {
   grant: { surfaceId: "surface-capability-browser", actions: [] },
 }
 
+const teardownSurface: Surface = {
+  id: "surface-teardown-browser",
+  dialect: "code/0",
+  content: `
+    <output id="teardown-state"></output>
+    <script type="module">
+      let state = { count: 1 }
+      const render = () => {
+        document.querySelector("#teardown-state").textContent =
+          String(state.count) + ":" + String(state.reason ?? "")
+      }
+      genui.snapshot((restored) => {
+        if (restored && typeof restored.count === "number") state = restored
+        render()
+        return state
+      })
+      genui.teardown(async ({ reason }) => {
+        await Promise.resolve()
+        state = { count: state.count + 1, reason }
+        render()
+      })
+      render()
+    </script>
+  `,
+  grant: { surfaceId: "surface-teardown-browser", actions: [] },
+}
+
+const restoredTeardownSurface: Surface = {
+  ...teardownSurface,
+  id: "surface-teardown-restored-browser",
+  grant: { surfaceId: "surface-teardown-restored-browser", actions: [] },
+}
+
 const newPage = async (): Promise<Page> => {
   if (browser === undefined) throw new Error("Browser was not initialized.")
   const page = await browser.newPage()
@@ -282,6 +315,52 @@ void test("guest feature-detects and invokes host capabilities", async (context)
     },
     { capability: "openLink", params: { url: "https://denied.example/orders" } },
   ])
+})
+
+void test("graceful teardown flushes state for a later remount", async (context) => {
+  const page = await newPage()
+  context.after(async () => {
+    await page.close()
+  })
+
+  await page.evaluate((surfaceValue) => {
+    const root = document.querySelector("#root")
+    if (root === null) throw new Error("Missing mount root.")
+    const events: SurfaceEvent[] = []
+    const mounted = window.GenuiDom.mount(root, surfaceValue, {
+      transport: async () => ({ ok: true, value: {} }),
+      onEvent: (event) => events.push(event),
+    })
+    Object.assign(window, { __codeHost: { calls: [], events, mounted } })
+  }, teardownSurface)
+
+  const frame = page.frameLocator("iframe")
+  await frame.locator("#teardown-state").waitFor({ state: "visible" })
+  assert.equal(await frame.locator("#teardown-state").textContent(), "1:")
+
+  const finalSnapshot = await page.evaluate(() =>
+    window.__codeHost.mounted.teardown({ reason: "surface_replaced" }),
+  )
+  assert.deepEqual(finalSnapshot, { count: 2, reason: "surface_replaced" })
+  assert.equal(await page.locator("iframe").count(), 0)
+
+  await page.evaluate(
+    ({ snapshot, surfaceValue }) => {
+      const root = document.querySelector("#root")
+      if (root === null) throw new Error("Missing mount root.")
+      const events: SurfaceEvent[] = []
+      const mounted = window.GenuiDom.mount(root, surfaceValue, {
+        snapshot,
+        transport: async () => ({ ok: true, value: {} }),
+        onEvent: (event) => events.push(event),
+      })
+      Object.assign(window, { __codeHost: { calls: [], events, mounted } })
+    },
+    { snapshot: finalSnapshot, surfaceValue: restoredTeardownSurface },
+  )
+
+  await frame.locator("#teardown-state").waitFor({ state: "visible" })
+  assert.equal(await frame.locator("#teardown-state").textContent(), "2:surface_replaced")
 })
 
 void test("red team: heartbeat monitor pauses while hidden and kills a visible silent guest", async (context) => {

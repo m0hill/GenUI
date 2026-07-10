@@ -29,9 +29,11 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
   const pending = new Map()
   let nextCallId = 0
   let snapshotProvider
+  let teardownHandler
   let restorePending = Object.prototype.hasOwnProperty.call(config, "restore")
   // Capability payloads use a tighter cap than the kernel's 64 KiB action-input precedent.
   const maxCapabilityPayloadBytes = 16 * 1024
+  const maxHostMessageStringLength = 256
 
   const applyDocumentTheme = (nextTheme) => {
     document.documentElement.setAttribute("data-theme", nextTheme)
@@ -94,6 +96,19 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
       reportGuestError(errorMessage(error), error)
     }
   }
+
+  const teardown = (handler) => {
+    if (typeof handler !== "function") throw new TypeError("Teardown handler must be a function.")
+    teardownHandler = handler
+  }
+
+  const captureSnapshot = () => Promise.resolve()
+    .then(() => snapshotProvider())
+    .then((value) => {
+      const encoded = JSON.stringify(value)
+      if (encoded === undefined) throw new TypeError("Snapshot must be JSON-serializable.")
+      return JSON.parse(encoded)
+    })
 
   const createCallId = () => {
     const randomId = globalThis.crypto && typeof globalThis.crypto.randomUUID === "function"
@@ -191,22 +206,45 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
       return
     }
 
+    if (message.type === "teardown_request" && typeof message.requestId === "string" &&
+        message.requestId.length <= maxHostMessageStringLength &&
+        (message.reason === undefined ||
+          (typeof message.reason === "string" &&
+            message.reason.length <= maxHostMessageStringLength))) {
+      const teardownRequestId = message.requestId
+      const teardownReason = message.reason
+      const cleanup = teardownHandler
+      Promise.resolve()
+        .then(() => cleanup?.({ reason: teardownReason }))
+        .then(() => {
+          if (snapshotProvider === undefined) {
+            post({ type: "teardown", requestId: teardownRequestId, ok: true })
+            return
+          }
+          return captureSnapshot().then((value) => {
+            post({ type: "teardown", requestId: teardownRequestId, ok: true, value })
+          })
+        })
+        .catch((error) => {
+          reportGuestError(errorMessage(error), error)
+          post({ type: "teardown", requestId: teardownRequestId, ok: false })
+        })
+      return
+    }
+
     if (message.type === "snapshot_request" && typeof message.requestId === "string") {
       if (snapshotProvider === undefined) {
         post({ type: "snapshot", requestId: message.requestId, ok: false })
         return
       }
 
-      Promise.resolve()
-        .then(() => snapshotProvider())
+      captureSnapshot()
         .then((value) => {
-          const encoded = JSON.stringify(value)
-          if (encoded === undefined) throw new TypeError("Snapshot must be JSON-serializable.")
           post({
             type: "snapshot",
             requestId: message.requestId,
             ok: true,
-            value: JSON.parse(encoded),
+            value,
           })
         })
         .catch((error) => {
@@ -266,6 +304,7 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
       openLink,
       updateModelContext,
       snapshot,
+      teardown,
     }),
   })
 })()`

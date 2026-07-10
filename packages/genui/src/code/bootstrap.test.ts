@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 import {
   createSandboxWindow,
+  deferred,
   flushAsync,
   isRecord,
   jsonRoundTrip,
@@ -25,6 +26,7 @@ interface GuestApi {
   openLink(url: unknown): Promise<void>
   updateModelContext(params: unknown): Promise<void>
   snapshot(provider: (restored?: unknown) => unknown): void
+  teardown(handler: (context: { readonly reason?: string }) => unknown): void
 }
 
 interface HarnessOptions {
@@ -166,6 +168,167 @@ void test("code bootstrap exposes frozen host capability flags and methods", () 
   assert.equal(typeof genui.sendMessage, "function")
   assert.equal(typeof genui.openLink, "function")
   assert.equal(typeof genui.updateModelContext, "function")
+})
+
+void test("code bootstrap awaits teardown cleanup before capturing final state", async () => {
+  const { genui, messages, window } = createHarness()
+  const gate = deferred<void>()
+  let state = { count: 1 }
+  let receivedReason: string | undefined
+  genui.snapshot(() => state)
+  genui.teardown(async ({ reason }) => {
+    receivedReason = reason
+    await gate.promise
+    state = { count: 2 }
+  })
+
+  dispatchInboundMessage(window, {
+    channel,
+    type: "teardown_request",
+    surfaceId,
+    requestId: "teardown-1",
+    reason: "surface_replaced",
+  })
+  await Promise.resolve()
+  assert.equal(
+    messages.some((message) => isRecord(message) && message.type === "teardown"),
+    false,
+  )
+
+  gate.resolve(undefined)
+  await flushAsync()
+  assert.equal(receivedReason, "surface_replaced")
+  assert.deepEqual(
+    jsonRoundTrip(messages.find((message) => isRecord(message) && message.type === "teardown")),
+    {
+      channel,
+      surfaceId,
+      type: "teardown",
+      requestId: "teardown-1",
+      ok: true,
+      value: { count: 2 },
+    },
+  )
+})
+
+void test("code bootstrap acknowledges teardown without a handler or snapshot provider", async () => {
+  const { messages, window } = createHarness()
+
+  dispatchInboundMessage(window, {
+    channel,
+    type: "teardown_request",
+    surfaceId,
+    requestId: "teardown-empty",
+  })
+  await flushAsync()
+
+  assert.deepEqual(
+    jsonRoundTrip(messages.find((message) => isRecord(message) && message.type === "teardown")),
+    {
+      channel,
+      surfaceId,
+      type: "teardown",
+      requestId: "teardown-empty",
+      ok: true,
+    },
+  )
+})
+
+void test("code bootstrap reports teardown failures and still acknowledges", async () => {
+  const { genui, messages, window } = createHarness()
+  genui.snapshot(() => ({ saved: true }))
+  genui.teardown(() => {
+    throw new Error("Cleanup failed")
+  })
+
+  dispatchInboundMessage(window, {
+    channel,
+    type: "teardown_request",
+    surfaceId,
+    requestId: "teardown-failed",
+  })
+  await flushAsync()
+
+  const guestError = messages.find((message) => isRecord(message) && message.type === "guest_error")
+  assert.ok(isRecord(guestError))
+  assert.equal(guestError.message, "Cleanup failed")
+  assert.deepEqual(
+    jsonRoundTrip(messages.find((message) => isRecord(message) && message.type === "teardown")),
+    {
+      channel,
+      surfaceId,
+      type: "teardown",
+      requestId: "teardown-failed",
+      ok: false,
+    },
+  )
+})
+
+void test("code bootstrap validates teardown registration and host requests", async () => {
+  const { genui, messages, window } = createHarness()
+  const teardown = Reflect.get(genui, "teardown")
+  if (typeof teardown !== "function") throw new Error("Expected a teardown method.")
+  assert.throws(
+    () => Reflect.apply(teardown, genui, [undefined]),
+    /Teardown handler must be a function/,
+  )
+  let handlerCalls = 0
+  genui.teardown(() => {
+    handlerCalls += 1
+  })
+  const request = {
+    channel,
+    type: "teardown_request",
+    surfaceId,
+    requestId: "teardown-valid",
+  }
+
+  dispatchInboundMessage(window, request, "self")
+  dispatchInboundMessage(window, { ...request, channel: "forged/channel" })
+  dispatchInboundMessage(window, { ...request, surfaceId: "forged-surface" })
+  dispatchInboundMessage(window, { ...request, requestId: "x".repeat(257) })
+  dispatchInboundMessage(window, { ...request, reason: "x".repeat(257) })
+  await flushAsync()
+
+  assert.equal(handlerCalls, 0)
+  assert.equal(
+    messages.some((message) => isRecord(message) && message.type === "teardown"),
+    false,
+  )
+})
+
+void test("code bootstrap captures teardown request identity and handler at receipt", async () => {
+  const { genui, messages, window } = createHarness()
+  let handler = "none"
+  let receivedReason: string | undefined
+  genui.snapshot(() => ({ saved: true }))
+  genui.teardown(({ reason }) => {
+    handler = "original"
+    receivedReason = reason
+  })
+  const request = {
+    channel,
+    type: "teardown_request",
+    surfaceId,
+    requestId: "teardown-original",
+    reason: "host_closed",
+  }
+
+  dispatchInboundMessage(window, request)
+  request.requestId = "teardown-mutated"
+  request.reason = "mutated"
+  genui.teardown(() => {
+    handler = "replacement"
+  })
+  await flushAsync()
+
+  assert.equal(handler, "original")
+  assert.equal(receivedReason, "host_closed")
+  const acknowledgment = messages.find(
+    (message) => isRecord(message) && message.type === "teardown",
+  )
+  assert.ok(isRecord(acknowledgment))
+  assert.equal(acknowledgment.requestId, "teardown-original")
 })
 
 void test("code bootstrap rejects unavailable host capabilities locally", async () => {

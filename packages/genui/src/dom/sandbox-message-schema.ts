@@ -60,6 +60,23 @@ export type SnapshotSandboxMessage =
       readonly ok: false
     }
 
+export type TeardownSandboxMessage =
+  | {
+      readonly channel: typeof protocolChannel
+      readonly type: "teardown"
+      readonly surfaceId: string
+      readonly requestId: string
+      readonly ok: true
+      readonly value?: SnapshotValue
+    }
+  | {
+      readonly channel: typeof protocolChannel
+      readonly type: "teardown"
+      readonly surfaceId: string
+      readonly requestId: string
+      readonly ok: false
+    }
+
 export interface SendMessageSandboxMessage {
   readonly channel: typeof protocolChannel
   readonly type: "capability_call"
@@ -98,6 +115,7 @@ export type SandboxMessage =
   | ResizeSandboxMessage
   | GuestErrorSandboxMessage
   | SnapshotSandboxMessage
+  | TeardownSandboxMessage
   | CapabilitySandboxMessage
 
 type ParseSandboxMessageResult =
@@ -139,6 +157,21 @@ const sendMessageParamKeys: ReadonlySet<string> = new Set(["role", "content"])
 const textContentKeys: ReadonlySet<string> = new Set(["type", "text"])
 const openLinkParamKeys: ReadonlySet<string> = new Set(["url"])
 const updateModelContextParamKeys: ReadonlySet<string> = new Set(["content", "structuredContent"])
+const teardownSuccessKeys: ReadonlySet<string> = new Set([
+  "channel",
+  "type",
+  "surfaceId",
+  "requestId",
+  "ok",
+  "value",
+])
+const teardownFailureKeys: ReadonlySet<string> = new Set([
+  "channel",
+  "type",
+  "surfaceId",
+  "requestId",
+  "ok",
+])
 
 const parseCapabilityMessage = (
   value: Readonly<Record<string, unknown>>,
@@ -292,6 +325,34 @@ const parseSnapshotMessage = (
       }
 }
 
+const parseTeardownMessage = (
+  value: Readonly<Record<string, unknown>>,
+): TeardownSandboxMessage | undefined => {
+  const surfaceId = boundedString(value.surfaceId, maxIdentifierLength)
+  const requestId = boundedString(value.requestId, maxIdentifierLength)
+  if (surfaceId === undefined || requestId === undefined) return undefined
+  if (value.ok === false) {
+    return hasOnlyKeys(value, teardownFailureKeys)
+      ? { channel: protocolChannel, type: "teardown", surfaceId, requestId, ok: false }
+      : undefined
+  }
+  if (value.ok !== true || !hasOnlyKeys(value, teardownSuccessKeys)) return undefined
+  if (!Object.hasOwn(value, "value")) {
+    return { channel: protocolChannel, type: "teardown", surfaceId, requestId, ok: true }
+  }
+  const snapshot = parseSnapshotValue(value.value)
+  return snapshot === undefined
+    ? undefined
+    : {
+        channel: protocolChannel,
+        type: "teardown",
+        surfaceId,
+        requestId,
+        ok: true,
+        value: snapshot,
+      }
+}
+
 export const parseSandboxMessage = (value: unknown): ParseSandboxMessageResult => {
   if (!isRecord(value)) return { ok: false, reason: "bad_message" }
   if (value.channel !== protocolChannel) return { ok: false, reason: "unknown_channel" }
@@ -307,8 +368,10 @@ export const parseSandboxMessage = (value: unknown): ParseSandboxMessageResult =
             ? parseGuestErrorMessage(value)
             : value.type === "snapshot"
               ? parseSnapshotMessage(value)
-              : value.type === "capability_call"
-                ? parseCapabilityMessage(value)
-                : undefined
+              : value.type === "teardown"
+                ? parseTeardownMessage(value)
+                : value.type === "capability_call"
+                  ? parseCapabilityMessage(value)
+                  : undefined
   return message === undefined ? { ok: false, reason: "bad_message" } : { ok: true, value: message }
 }

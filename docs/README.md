@@ -5,11 +5,11 @@
 - [actions.md](actions.md) — define validation, model schemas, effects, policy,
   approval intent, and confidentiality once per action.
 - [code0.md](code0.md) — author, theme, and isolate buildless HTML and
-  JavaScript surfaces, use actions and optional host capabilities, and handle
-  errors and navigation.
+  JavaScript surfaces, use actions and optional host capabilities, preserve
+  state, and handle graceful teardown.
 - [hosting.md](hosting.md) — create and execute surfaces on a server, mount and
-  theme them in a browser, provide host capabilities, connect approval, and
-  expose repair events.
+  theme them in a browser, provide host capabilities, connect approval, tear
+  down safely, and expose repair events.
 - [stores.md](stores.md) — implement and verify shared surface persistence,
   idempotency, revocation, and distributed coordination.
 - [playground README](../examples/playground/README.md) — run the reference host

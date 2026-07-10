@@ -74,6 +74,7 @@ void test("playground instructions expose granted schemas but not confidential a
   assert.equal(instructions.includes("genui.sendMessage"), true)
   assert.equal(instructions.includes("genui.openLink"), true)
   assert.equal(instructions.includes("genui.updateModelContext"), true)
+  assert.equal(instructions.includes("genui.teardown"), true)
 })
 
 void test("playground action schemas canonicalize input and reject unknown keys", async () => {

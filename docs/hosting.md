@@ -327,9 +327,11 @@ kernel-rendered canonical intent to `confirm`. A successful callback registers
 consent on the server; the broker retries the identical call once. A declined
 callback returns `approval_denied` without a retry.
 
-`mount()` returns a `Mounted` handle. Call `mounted.dispose()` before removing
-the host view. Use `replace()` to load a new supported surface into a live
-mount. Pending calls are aborted on replace or dispose.
+`mount()` returns a `Mounted` handle. Use `teardown()` before discarding a mount
+for ordinary host-initiated removal or reallocation. Use `replace()` when
+retaining the live mount and loading a new supported surface. Reserve
+`dispose()` for abrupt removal; navigation and liveness violations also
+terminate abruptly. Pending calls are aborted on replace or final disposal.
 
 Guests opt into state preservation with `genui.snapshot(fn)`. Call
 `await mounted.snapshot()` to capture the registered JSON value. Replacing a
@@ -350,6 +352,52 @@ Use `snapshot` in the initial `mount()` options to seed a new document. Set
 `snapshotTimeoutMs` when the default one-second response deadline is not
 appropriate. A missed deadline resolves to `undefined` and emits a
 `snapshot_timeout` violation.
+
+## Tear down gracefully
+
+Ask the guest to clean up and capture its final state before removing a normal
+host view:
+
+```ts
+const finalState = await mounted.teardown({
+  reason: "surface_replaced",
+  timeoutMs: 1_000,
+})
+
+const savedState = parseWidgetState(finalState)
+if (savedState !== undefined) await persistWidgetState(savedState)
+
+const mountOptions =
+  savedState === undefined ? { transport } : { snapshot: savedState, transport }
+const nextMounted = mount(root, nextSurface, mountOptions)
+```
+
+The default deadline is one second and is independent of
+`snapshotTimeoutMs`. A timeout emits `teardown_timeout`, disposes the mount,
+and resolves to `undefined`. Guest cleanup failures and missing state also
+resolve to `undefined`; they do not reject the host Promise.
+
+`teardown()` is one-shot. Repeated or concurrent calls return the same Promise.
+Calls after abrupt disposal or violation termination resolve to `undefined`
+without posting a request. `reason` must be a string of at most 256 characters;
+`timeoutMs` must be finite and non-negative. Invalid host options throw
+`TypeError` before a message is sent.
+
+Once teardown starts, `replace()` and `updateHostContext()` are inert. Existing
+action, host-capability, and snapshot work remains live during the grace
+window. Final disposal resolves pending snapshot requests to `undefined` and
+drops later action or capability results. A navigation or unresponsive
+termination remains abrupt and resolves a pending teardown to `undefined`.
+
+**Warning:** Hosts MUST NOT trust the returned state. It is guest-produced and
+untrusted, exactly like any other snapshot. Validate it before persistence,
+rendering, or later use. Do not infer trust from the scoped host-to-iframe
+message channel.
+
+Genui extends MCP Apps `ui/resource-teardown` by carrying the final snapshot in
+the acknowledgment. MCP Apps returns an empty result and has no state-capture
+equivalent. The bounded wait is not a teardown veto; the host always proceeds
+after its deadline.
 
 ## Provide host capabilities
 
@@ -441,12 +489,13 @@ without invoking the handler. The latest value runs after the active handler
 settles. The coalesced call emits a `capability_result` event with outcome
 `superseded` even though its guest Promise resolves successfully.
 
-`replace()` and `dispose()` abandon pending guest responses. Handlers may still
-finish, but results from an old document revision are not delivered into the
-new document. A same-surface replacement keeps an active handler's concurrency
-slot until it settles. While the mount remains active, `onEvent` reports each
-request and outcome with the capability name; request events report payload
-byte length rather than the full `sendMessage` text.
+`replace()` and final disposal abandon pending guest responses. Handlers may
+still finish, but results from an old document revision are not delivered into
+the new document. A same-surface replacement keeps an active handler's
+concurrency slot until it settles. Graceful teardown keeps capability traffic
+live only until final disposal. While the mount remains active, `onEvent`
+reports each request and outcome with the capability name; request events
+report payload byte length rather than the full `sendMessage` text.
 
 ## Theme generated surfaces
 

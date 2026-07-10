@@ -41,9 +41,16 @@ export type PlaygroundHostCapabilityEvent =
       readonly structuredContentKeys: readonly string[]
     }
 
+export interface PlaygroundHostTeardownEvent {
+  readonly type: "host_teardown"
+  readonly reason: "surface_replaced"
+  readonly snapshotCaptured: boolean
+}
+
 export type PlaygroundEvent =
   | SurfaceEvent
   | PlaygroundHostCapabilityEvent
+  | PlaygroundHostTeardownEvent
   | { readonly type: "audit"; readonly entry: CallAuditEntry }
 
 export interface ExecuteRequest {
@@ -280,6 +287,14 @@ export const parsePlaygroundEvent = (value: unknown): PlaygroundEvent | undefine
       }
       return undefined
     }
+    case "host_teardown":
+      return record.reason === "surface_replaced" && typeof record.snapshotCaptured === "boolean"
+        ? {
+            type: "host_teardown",
+            reason: "surface_replaced",
+            snapshotCaptured: record.snapshotCaptured,
+          }
+        : undefined
     case "resize":
       return typeof record.height === "number" && Number.isFinite(record.height)
         ? { type: "resize", height: record.height }
@@ -302,7 +317,8 @@ export const parsePlaygroundEvent = (value: unknown): PlaygroundEvent | undefine
         record.reason === "ungranted_call" ||
         record.reason === "navigation" ||
         record.reason === "unresponsive" ||
-        record.reason === "snapshot_timeout"
+        record.reason === "snapshot_timeout" ||
+        record.reason === "teardown_timeout"
           ? record.reason
           : undefined
       if (

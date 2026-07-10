@@ -67,6 +67,14 @@ void test("code instructions teach optional host capabilities", () => {
   assert.match(instructions, /may be denied/)
 })
 
+void test("code instructions teach graceful teardown", () => {
+  const instructions = codeInstructions([])
+
+  assert.match(instructions, /genui\.teardown\(/)
+  assert.match(instructions, /cleanup handler/)
+  assert.match(instructions, /deadline/)
+})
+
 void test("code instructions list every standardized host style variable", () => {
   const instructions = codeInstructions([])
 

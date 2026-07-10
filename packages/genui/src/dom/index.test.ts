@@ -565,6 +565,416 @@ void test("mount resolves unavailable snapshots after the configured timeout", a
   instance.dispose()
 })
 
+void test("mount tears down gracefully and returns the final snapshot", async () => {
+  const { window, element } = createMountTarget()
+  const surface = testSurface([])
+  const instance = mount(asDomElement(element), surface, {
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+  })
+  const iframe = mountedIframe(element)
+  const hostMessages: Array<Readonly<Record<string, unknown>>> = []
+  if (iframe.contentWindow === null) throw new Error("Expected an iframe content window.")
+  iframe.contentWindow.postMessage = (message: unknown): void => {
+    if (isRecord(message)) hostMessages.push(message)
+  }
+
+  const result = instance.teardown({ reason: "surface_replaced", timeoutMs: 100 })
+  const request = hostMessages.find((message) => message.type === "teardown_request")
+  assert.deepEqual(request, {
+    channel: protocolChannel,
+    type: "teardown_request",
+    surfaceId: surface.id,
+    requestId: "teardown-1",
+    reason: "surface_replaced",
+  })
+
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "teardown",
+    surfaceId: surface.id,
+    requestId: request?.requestId,
+    ok: true,
+    value: { count: 4 },
+  })
+
+  assert.deepEqual(await result, { count: 4 })
+  assert.equal(element.querySelector("iframe"), null)
+})
+
+void test("graceful teardown is one-shot and accepts an empty acknowledgment", async () => {
+  const { window, element } = createMountTarget()
+  const surface = testSurface([])
+  const instance = mount(asDomElement(element), surface, {
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+  })
+  const iframe = mountedIframe(element)
+  const hostMessages: Array<Readonly<Record<string, unknown>>> = []
+  if (iframe.contentWindow === null) throw new Error("Expected an iframe content window.")
+  iframe.contentWindow.postMessage = (message: unknown): void => {
+    if (isRecord(message)) hostMessages.push(message)
+  }
+
+  const first = instance.teardown({ timeoutMs: 100 })
+  const second = instance.teardown({ timeoutMs: 100 })
+  assert.equal(first, second)
+  const requests = hostMessages.filter((message) => message.type === "teardown_request")
+  assert.equal(requests.length, 1)
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "teardown",
+    surfaceId: surface.id,
+    requestId: requests[0]?.requestId,
+    ok: true,
+  })
+
+  assert.equal(await first, undefined)
+  assert.equal(element.querySelector("iframe"), null)
+})
+
+void test("graceful teardown times out, reports a violation, and disposes", async () => {
+  const { element } = createMountTarget()
+  const events: SurfaceEvent[] = []
+  const instance = mount(asDomElement(element), testSurface([]), {
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+    onEvent: (event) => events.push(event),
+  })
+
+  assert.equal(await instance.teardown({ timeoutMs: 0 }), undefined)
+  assert.deepEqual(events, [
+    {
+      type: "violation",
+      reason: "teardown_timeout",
+      detail: "Surface teardown timed out after 0ms.",
+    },
+  ])
+  assert.equal(element.querySelector("iframe"), null)
+})
+
+void test("graceful teardown rejects invalid options before posting a request", () => {
+  const { element } = createMountTarget()
+  const instance = mount(asDomElement(element), testSurface([]), {
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+  })
+  const iframe = mountedIframe(element)
+  const hostMessages: unknown[] = []
+  if (iframe.contentWindow === null) throw new Error("Expected an iframe content window.")
+  iframe.contentWindow.postMessage = (message: unknown): void => {
+    hostMessages.push(message)
+  }
+
+  for (const options of [
+    { reason: 42 },
+    { reason: "x".repeat(257) },
+    { timeoutMs: null },
+    { timeoutMs: "soon" },
+    { timeoutMs: -1 },
+    { timeoutMs: Number.NaN },
+    { timeoutMs: Number.POSITIVE_INFINITY },
+  ]) {
+    const teardown = Reflect.get(instance, "teardown")
+    if (typeof teardown !== "function") throw new Error("Expected a teardown method.")
+    assert.throws(() => Reflect.apply(teardown, instance, [options]), TypeError)
+  }
+
+  assert.deepEqual(hostMessages, [])
+  instance.dispose()
+})
+
+void test("teardown makes replacement and host-context updates inert", async () => {
+  const { window, element } = createMountTarget()
+  const first = testSurface([], "<p>First</p>")
+  const second = { ...first, content: "<p>Second</p>" }
+  const third = testSurface([], "<p>Third</p>")
+  const instance = mount(asDomElement(element), first, {
+    hostContext: { theme: "light" },
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+  })
+  const iframe = mountedIframe(element)
+  const hostMessages: Array<Readonly<Record<string, unknown>>> = []
+  if (iframe.contentWindow === null) throw new Error("Expected an iframe content window.")
+  iframe.contentWindow.postMessage = (message: unknown): void => {
+    if (isRecord(message)) hostMessages.push(message)
+  }
+
+  const replacement = instance.replace(second)
+  await flushAsync()
+  const snapshotRequest = hostMessages.find((message) => message.type === "snapshot_request")
+  assert.notEqual(snapshotRequest, undefined)
+
+  const teardown = instance.teardown({ timeoutMs: 100 })
+  instance.updateHostContext({ theme: "dark" })
+  const laterReplacement = instance.replace(third)
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "snapshot",
+    surfaceId: first.id,
+    requestId: snapshotRequest?.requestId,
+    ok: true,
+    value: { count: 2 },
+  })
+  await Promise.all([replacement, laterReplacement])
+
+  assert.equal(instance.surface, first)
+  assert.match(iframe.srcdoc, /<p>First<\/p>/)
+  assert.equal(
+    hostMessages.some(
+      (message) => message.type === "host_context_changed" && message.theme === "dark",
+    ),
+    false,
+  )
+
+  const teardownRequest = hostMessages.find((message) => message.type === "teardown_request")
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "teardown",
+    surfaceId: first.id,
+    requestId: teardownRequest?.requestId,
+    ok: false,
+  })
+  assert.equal(await teardown, undefined)
+})
+
+void test("teardown is inert after abrupt disposal or termination", async () => {
+  for (const lifecycle of ["dispose", "terminate"] as const) {
+    const { window, element } = createMountTarget()
+    const instance = mount(asDomElement(element), testSurface([]), {
+      transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+    })
+    const iframe = mountedIframe(element)
+    const hostMessages: unknown[] = []
+    if (iframe.contentWindow === null) throw new Error("Expected an iframe content window.")
+    iframe.contentWindow.postMessage = (message: unknown): void => {
+      hostMessages.push(message)
+    }
+
+    if (lifecycle === "dispose") {
+      instance.dispose()
+    } else {
+      iframe.dispatchEvent(new window.Event("load"))
+      iframe.dispatchEvent(new window.Event("load"))
+    }
+
+    const first = instance.teardown()
+    const second = instance.teardown()
+    assert.equal(first, second)
+    assert.equal(await first, undefined)
+    assert.equal(
+      hostMessages.some((message) => isRecord(message) && message.type === "teardown_request"),
+      false,
+    )
+    if (lifecycle === "terminate") {
+      assert.equal(
+        element.querySelector('[role="alert"]')?.textContent,
+        "Generated UI navigation blocked.",
+      )
+    }
+  }
+})
+
+void test("termination resolves a pending teardown without removing the violation", async () => {
+  const { window, element } = createMountTarget()
+  const events: SurfaceEvent[] = []
+  const instance = mount(asDomElement(element), testSurface([]), {
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+    onEvent: (event) => events.push(event),
+  })
+  const iframe = mountedIframe(element)
+
+  const teardown = instance.teardown({ timeoutMs: 100 })
+  iframe.dispatchEvent(new window.Event("load"))
+  iframe.dispatchEvent(new window.Event("load"))
+
+  assert.equal(await teardown, undefined)
+  assert.equal(
+    element.querySelector('[role="alert"]')?.textContent,
+    "Generated UI navigation blocked.",
+  )
+  assert.deepEqual(events, [{ type: "violation", reason: "navigation" }])
+})
+
+void test("abrupt disposal resolves a pending teardown immediately", async () => {
+  const { element } = createMountTarget()
+  const events: SurfaceEvent[] = []
+  const instance = mount(asDomElement(element), testSurface([]), {
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+    onEvent: (event) => events.push(event),
+  })
+
+  const teardown = instance.teardown({ timeoutMs: 100 })
+  instance.dispose()
+
+  assert.equal(await teardown, undefined)
+  assert.deepEqual(events, [])
+  assert.equal(element.querySelector("iframe"), null)
+})
+
+void test("re-entrant disposal cannot erase an acknowledged final snapshot", async () => {
+  const { window, element } = createMountTarget()
+  const surface = testSurface([diceDescriptor])
+  const actionResult = deferred<ActionResult>()
+  let mounted: ReturnType<typeof mount> | undefined
+  mounted = mount(asDomElement(element), surface, {
+    transport: async (_call, { signal }) => {
+      signal.addEventListener(
+        "abort",
+        () => {
+          mounted?.dispose()
+        },
+        { once: true },
+      )
+      return actionResult.promise
+    },
+  })
+  const instance = mounted
+  const iframe = mountedIframe(element)
+  const hostMessages: Array<Readonly<Record<string, unknown>>> = []
+  if (iframe.contentWindow === null) throw new Error("Expected an iframe content window.")
+  iframe.contentWindow.postMessage = (message: unknown): void => {
+    if (isRecord(message)) hostMessages.push(message)
+  }
+
+  dispatchSandboxMessage(window, iframe, sandboxActionMessage(surface))
+  await flushAsync()
+  const teardown = instance.teardown({ timeoutMs: 100 })
+  const request = hostMessages.find((message) => message.type === "teardown_request")
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "teardown",
+    surfaceId: surface.id,
+    requestId: request?.requestId,
+    ok: true,
+    value: { saved: true },
+  })
+
+  assert.deepEqual(await teardown, { saved: true })
+  actionResult.resolve({ ok: true, value: {} })
+})
+
+void test("red team: teardown acknowledgments require the trusted request identity", async () => {
+  const { window, element } = createMountTarget()
+  const surface = testSurface([])
+  const instance = mount(asDomElement(element), surface, {
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+  })
+  const iframe = mountedIframe(element)
+  const hostMessages: Array<Readonly<Record<string, unknown>>> = []
+  if (iframe.contentWindow === null) throw new Error("Expected an iframe content window.")
+  iframe.contentWindow.postMessage = (message: unknown): void => {
+    if (isRecord(message)) hostMessages.push(message)
+  }
+  let settled = false
+  const teardown = instance.teardown({ timeoutMs: 100 }).then((value) => {
+    settled = true
+    return value
+  })
+  const request = hostMessages.find((message) => message.type === "teardown_request")
+  const acknowledgment = {
+    channel: protocolChannel,
+    type: "teardown",
+    surfaceId: surface.id,
+    requestId: request?.requestId,
+    ok: true,
+    value: { saved: true },
+  }
+
+  window.dispatchEvent(new window.MessageEvent("message", { data: acknowledgment, source: window }))
+  dispatchSandboxMessage(window, iframe, { ...acknowledgment, requestId: "wrong-request" })
+  dispatchSandboxMessage(window, iframe, { ...acknowledgment, surfaceId: "wrong-surface" })
+  await flushAsync()
+  assert.equal(settled, false)
+
+  dispatchSandboxMessage(window, iframe, acknowledgment)
+  assert.deepEqual(await teardown, { saved: true })
+})
+
+void test("red team: malformed and replayed teardown acknowledgments are ignored", async () => {
+  const { window, element } = createMountTarget()
+  const events: SurfaceEvent[] = []
+  const surface = testSurface([])
+  const instance = mount(asDomElement(element), surface, {
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+    onEvent: (event) => events.push(event),
+  })
+  const iframe = mountedIframe(element)
+  const hostMessages: Array<Readonly<Record<string, unknown>>> = []
+  if (iframe.contentWindow === null) throw new Error("Expected an iframe content window.")
+  iframe.contentWindow.postMessage = (message: unknown): void => {
+    if (isRecord(message)) hostMessages.push(message)
+  }
+  const teardown = instance.teardown({ timeoutMs: 10 })
+  const request = hostMessages.find((message) => message.type === "teardown_request")
+  const cyclic: Record<string, unknown> = {}
+  cyclic.self = cyclic
+
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "teardown",
+    surfaceId: surface.id,
+    requestId: request?.requestId,
+    ok: true,
+    value: cyclic,
+  })
+  assert.equal(await teardown, undefined)
+  assert.deepEqual(events, [
+    { type: "violation", reason: "bad_message" },
+    {
+      type: "violation",
+      reason: "teardown_timeout",
+      detail: "Surface teardown timed out after 10ms.",
+    },
+  ])
+
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "teardown",
+    surfaceId: surface.id,
+    requestId: request?.requestId,
+    ok: false,
+  })
+  assert.equal(await instance.teardown(), undefined)
+  assert.equal(events.length, 2)
+})
+
+void test("teardown keeps guest work live until disposal and finishes pending snapshots", async () => {
+  const { window, element } = createMountTarget()
+  const calls: ActionCall[] = []
+  const surface = testSurface([diceDescriptor])
+  const instance = mount(asDomElement(element), surface, {
+    transport: async (call): Promise<ActionResult> => {
+      calls.push(call)
+      return { ok: true, value: { total: 6 } }
+    },
+  })
+  const iframe = mountedIframe(element)
+  const hostMessages: Array<Readonly<Record<string, unknown>>> = []
+  if (iframe.contentWindow === null) throw new Error("Expected an iframe content window.")
+  iframe.contentWindow.postMessage = (message: unknown): void => {
+    if (isRecord(message)) hostMessages.push(message)
+  }
+
+  const snapshot = instance.snapshot()
+  const teardown = instance.teardown({ timeoutMs: 100 })
+  dispatchSandboxMessage(window, iframe, sandboxActionMessage(surface))
+  await flushAsync()
+
+  assert.equal(calls.length, 1)
+  assert.equal(
+    hostMessages.some((message) => message.type === "result" && message.action === "dice.roll"),
+    true,
+  )
+  const teardownRequest = hostMessages.find((message) => message.type === "teardown_request")
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "teardown",
+    surfaceId: surface.id,
+    requestId: teardownRequest?.requestId,
+    ok: false,
+  })
+
+  assert.equal(await teardown, undefined)
+  assert.equal(await snapshot, undefined)
+})
+
 void test("mount refuses unsupported surface dialects", () => {
   const { element } = createMountTarget()
   const unsupported = { ...testSurface([]), dialect: "code/1" }

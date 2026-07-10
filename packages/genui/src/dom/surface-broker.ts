@@ -28,6 +28,7 @@ type SurfaceViolationReason =
   | "navigation"
   | "unresponsive"
   | "snapshot_timeout"
+  | "teardown_timeout"
 
 export type SurfaceEvent =
   | { readonly type: "call"; readonly call: ActionCall }
@@ -581,7 +582,7 @@ export const createSurfaceBroker = (
         }),
       ])
     }
-    if (message.type === "snapshot") return task([])
+    if (message.type === "snapshot" || message.type === "teardown") return task([])
     if (message.type === "capability_call") return handleCapability(message)
     return handleAction(message)
   }

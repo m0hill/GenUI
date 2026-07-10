@@ -9,6 +9,7 @@ import {
   parseSnapshotValue,
   type SnapshotSandboxMessage,
   type SnapshotValue,
+  type TeardownSandboxMessage,
 } from "./sandbox-message-schema.js"
 import {
   createSurfaceBroker,
@@ -55,12 +56,19 @@ interface ReplaceOptions {
   readonly snapshot?: SnapshotValue
 }
 
+interface TeardownOptions {
+  readonly reason?: string
+  readonly timeoutMs?: number
+}
+
 export interface Mounted {
   readonly surface: Surface
   snapshot(): Promise<SnapshotValue | undefined>
   replace(surface: Surface, options?: ReplaceOptions): Promise<void>
   /** Apply theme changes live; style-variable changes render on the next replacement. */
   updateHostContext(partial: HostContext): void
+  /** Ask the guest to clean up and return its final snapshot before disposal. */
+  teardown(options?: TeardownOptions): Promise<SnapshotValue | undefined>
   dispose(): void
 }
 
@@ -70,7 +78,16 @@ interface PendingSnapshotRequest {
   resolve(snapshot: SnapshotValue | undefined): void
 }
 
+interface PendingTeardownRequest {
+  readonly surfaceId: string
+  readonly requestId: string
+  readonly timeout: ReturnType<typeof setTimeout>
+  resolve(snapshot: SnapshotValue | undefined): void
+}
+
 const defaultSnapshotTimeoutMs = 1_000
+const defaultTeardownTimeoutMs = 1_000
+const maxTeardownReasonLength = 256
 
 const imageSourcePolicy = (policy: ImagePolicy): string => {
   if (policy === "data") return "data:"
@@ -123,7 +140,10 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
   let terminated = false
   let expectedDocumentLoads = 0
   let nextSnapshotRequestId = 1
+  let nextTeardownRequestId = 1
   let replacementQueue = Promise.resolve()
+  let teardownPromise: Promise<SnapshotValue | undefined> | undefined
+  let pendingTeardown: PendingTeardownRequest | undefined
   let errorElement: Element | undefined
   let heartbeatTripwire: HeartbeatTripwire | undefined
   let intersectionObserver: IntersectionObserver | undefined
@@ -200,21 +220,49 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
     heartbeatTripwire?.dispose()
   }
 
+  const finishPendingTeardown = (snapshot: SnapshotValue | undefined): void => {
+    const pending = pendingTeardown
+    if (pending === undefined) return
+    clearTimeout(pending.timeout)
+    pendingTeardown = undefined
+    pending.resolve(snapshot)
+  }
+
+  const disposeMount = (snapshot: SnapshotValue | undefined): void => {
+    if (disposed) return
+    disposed = true
+    try {
+      broker.dispose()
+      finishPendingSnapshots()
+      stopMonitoring()
+      ownerDocument.defaultView?.removeEventListener("message", handleMessage)
+      iframe.removeEventListener("load", handleLoad)
+      iframe.remove()
+      errorElement?.remove()
+    } finally {
+      finishPendingTeardown(snapshot)
+    }
+  }
+
   const terminate = (reason: "navigation" | "unresponsive", message: string): void => {
     if (disposed || terminated) return
     terminated = true
-    emit({ type: "violation", reason })
-    broker.dispose()
-    finishPendingSnapshots()
-    stopMonitoring()
-    ownerDocument.defaultView?.removeEventListener("message", handleMessage)
-    iframe.removeEventListener("load", handleLoad)
+    try {
+      emit({ type: "violation", reason })
+      broker.dispose()
+      finishPendingSnapshots()
+      stopMonitoring()
+      ownerDocument.defaultView?.removeEventListener("message", handleMessage)
+      iframe.removeEventListener("load", handleLoad)
 
-    const error = ownerDocument.createElement("div")
-    error.setAttribute("role", "alert")
-    error.textContent = message
-    errorElement = error
-    element.replaceChildren(error)
+      const error = ownerDocument.createElement("div")
+      error.setAttribute("role", "alert")
+      error.textContent = message
+      errorElement = error
+      element.replaceChildren(error)
+    } finally {
+      finishPendingTeardown(undefined)
+    }
   }
 
   const requestSnapshot = (surfaceId: string): Promise<SnapshotValue | undefined> => {
@@ -248,6 +296,13 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
     finishSnapshotRequest(message.requestId, message.ok ? message.value : undefined)
   }
 
+  const handleTeardownMessage = (message: TeardownSandboxMessage): void => {
+    const pending = pendingTeardown
+    if (pending === undefined || message.requestId !== pending.requestId) return
+    if (message.surfaceId !== pending.surfaceId || message.surfaceId !== broker.surface.id) return
+    disposeMount(message.ok ? message.value : undefined)
+  }
+
   const handleMessage = (event: MessageEvent<unknown>): void => {
     if (disposed || terminated || event.source !== iframe.contentWindow) return
     const parsed = parseSandboxMessage(event.data)
@@ -261,6 +316,10 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
     }
     if (parsed.value.type === "snapshot") {
       handleSnapshotMessage(parsed.value)
+      return
+    }
+    if (parsed.value.type === "teardown") {
+      handleTeardownMessage(parsed.value)
       return
     }
     applyTask(broker.handleSandboxMessage(parsed.value))
@@ -326,7 +385,7 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
       }
       // Copy before queuing so later caller mutation cannot change the replacement.
       const replacement = replacementQueue.then(async () => {
-        if (disposed || terminated) return
+        if (disposed || terminated || teardownPromise !== undefined) return
         const current = broker.surface
         const restore =
           explicitSnapshot !== undefined
@@ -334,7 +393,7 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
             : nextSurface.id === current.id
               ? await requestSnapshot(current.id)
               : undefined
-        if (disposed || terminated) return
+        if (disposed || terminated || teardownPromise !== undefined) return
         broker.replace(nextSurface)
         setDocument(nextSurface, restore)
       })
@@ -343,21 +402,75 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
     },
     updateHostContext(partial) {
       const update = parseHostContext(partial)
-      if (disposed || terminated) return
+      if (disposed || terminated || teardownPromise !== undefined) return
       hostContext = { ...hostContext, ...update }
       if (update.theme === undefined) return
       postHostTheme(update.theme)
     },
+    teardown(teardownOptions = {}) {
+      const reason = teardownOptions.reason
+      if (
+        reason !== undefined &&
+        (typeof reason !== "string" || reason.length > maxTeardownReasonLength)
+      ) {
+        throw new TypeError(
+          `Teardown reason must be a string of at most ${maxTeardownReasonLength} characters.`,
+        )
+      }
+      const timeoutMs =
+        teardownOptions.timeoutMs === undefined
+          ? defaultTeardownTimeoutMs
+          : teardownOptions.timeoutMs
+      if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs < 0) {
+        throw new TypeError("Teardown timeoutMs must be a finite non-negative number.")
+      }
+      if (teardownPromise !== undefined) return teardownPromise
+      if (disposed || terminated) {
+        teardownPromise = Promise.resolve(undefined)
+        return teardownPromise
+      }
+
+      const surfaceId = broker.surface.id
+      const requestId = `teardown-${nextTeardownRequestId++}`
+      const target = iframe.contentWindow
+      teardownPromise = new Promise<SnapshotValue | undefined>((resolve) => {
+        const timeout = setTimeout(() => {
+          try {
+            if (!disposed && !terminated) {
+              emit({
+                type: "violation",
+                reason: "teardown_timeout",
+                detail: `Surface teardown timed out after ${timeoutMs}ms.`,
+              })
+            }
+          } finally {
+            disposeMount(undefined)
+          }
+        }, timeoutMs)
+        pendingTeardown = { surfaceId, requestId, timeout, resolve }
+        if (target === null) {
+          disposeMount(undefined)
+          return
+        }
+        try {
+          target.postMessage(
+            {
+              channel: protocolChannel,
+              type: "teardown_request",
+              surfaceId,
+              requestId,
+              ...(reason === undefined ? {} : { reason }),
+            },
+            "*",
+          )
+        } catch {
+          disposeMount(undefined)
+        }
+      })
+      return teardownPromise
+    },
     dispose() {
-      if (disposed) return
-      disposed = true
-      broker.dispose()
-      finishPendingSnapshots()
-      stopMonitoring()
-      ownerDocument.defaultView?.removeEventListener("message", handleMessage)
-      iframe.removeEventListener("load", handleLoad)
-      iframe.remove()
-      errorElement?.remove()
+      disposeMount(undefined)
     },
   }
 }
