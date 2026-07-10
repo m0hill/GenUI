@@ -1,7 +1,8 @@
 import { action } from "@genui/genui"
 import { parseRecord } from "./playground-codecs.js"
 
-type OrderStatus = "pending" | "processing" | "shipped"
+const orderStatuses = ["pending", "processing", "shipped"] as const
+type OrderStatus = (typeof orderStatuses)[number]
 
 interface Order {
   readonly id: string
@@ -55,8 +56,8 @@ const standardSchema = <Output>(validate: (value: unknown) => Output | undefined
   },
 })
 
-const orderStatus = (value: unknown): OrderStatus | undefined =>
-  value === "pending" || value === "processing" || value === "shipped" ? value : undefined
+const parseOrderStatus = (value: unknown): OrderStatus | undefined =>
+  orderStatuses.find((status) => status === value)
 
 const searchInput = standardSchema<SearchInput>((value) => {
   const record = parseRecord(value)
@@ -64,7 +65,7 @@ const searchInput = standardSchema<SearchInput>((value) => {
   const query = record.query === undefined ? "" : record.query
   if (typeof query !== "string") return undefined
   if (record.status === undefined) return { query: query.trim() }
-  const status = orderStatus(record.status)
+  const status = parseOrderStatus(record.status)
   return status === undefined ? undefined : { query: query.trim(), status }
 })
 
@@ -88,7 +89,7 @@ const updateStatusInput = standardSchema<UpdateStatusInput>((value) => {
   ) {
     return undefined
   }
-  const status = orderStatus(record.status)
+  const status = parseOrderStatus(record.status)
   return status === undefined ? undefined : { id: record.id, status }
 })
 
@@ -107,7 +108,7 @@ const parseOrderOutput = (value: unknown): Order | undefined => {
   ) {
     return undefined
   }
-  const status = orderStatus(record.status)
+  const status = parseOrderStatus(record.status)
   return status === undefined
     ? undefined
     : { id: record.id, customer: record.customer, status, total: record.total }
@@ -133,7 +134,7 @@ const orderSchema = {
   properties: {
     id: { type: "string" },
     customer: { type: "string" },
-    status: { enum: ["pending", "processing", "shipped"] },
+    status: { enum: [...orderStatuses] },
     total: { type: "number" },
   },
   additionalProperties: false,
@@ -155,7 +156,7 @@ export const demoActions = [
       type: "object",
       properties: {
         query: { type: "string" },
-        status: { enum: ["pending", "processing", "shipped"] },
+        status: { enum: [...orderStatuses] },
       },
       additionalProperties: false,
     },
@@ -205,7 +206,7 @@ export const demoActions = [
       required: ["id", "status"],
       properties: {
         id: { type: "string" },
-        status: { enum: ["pending", "processing", "shipped"] },
+        status: { enum: [...orderStatuses] },
       },
       additionalProperties: false,
     },
