@@ -1,9 +1,9 @@
 import { action } from "@genui/genui"
 import { parseRecord } from "./playground-codecs.js"
 
-export type OrderStatus = "pending" | "processing" | "shipped"
+type OrderStatus = "pending" | "processing" | "shipped"
 
-export interface Order {
+interface Order {
   readonly id: string
   readonly customer: string
   readonly status: OrderStatus
@@ -42,8 +42,6 @@ const hasOnlyKeys = (
   allowed: readonly string[],
 ): boolean => Object.keys(value).every((key) => allowed.includes(key))
 
-const issue = (message: string) => ({ issues: [{ message }] })
-
 const standardSchema = <Output>(validate: (value: unknown) => Output | undefined) => ({
   "~standard": {
     version: 1 as const,
@@ -51,7 +49,7 @@ const standardSchema = <Output>(validate: (value: unknown) => Output | undefined
     validate(value: unknown) {
       const output = validate(value)
       return output === undefined
-        ? issue("Input does not match the action schema.")
+        ? { issues: [{ message: "Input does not match the action schema." }] }
         : { value: output }
     },
   },
@@ -230,5 +228,3 @@ export const demoActions = [
     execute: () => ({ contacts: ["private@example.test"] }),
   }),
 ] as const
-
-export const demoActionNames = demoActions.map((definition) => definition.name)

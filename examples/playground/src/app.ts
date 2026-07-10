@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises"
 import { codeDialect, Genui, type CallAuditEntry } from "@genui/genui"
 import { actionError } from "@genui/protocol"
 import { Hono } from "hono"
-import { demoActionNames, demoActions } from "./actions.js"
+import { demoActions } from "./actions.js"
 import { createPendingApprovals } from "./pending-approvals.js"
 import {
   parseApprovalRequest,
@@ -97,7 +97,7 @@ app.post("/genui/surface", async (context) => {
   const surface = await genui.surface({
     dialect: codeDialect,
     content: request.content,
-    actions: demoActionNames,
+    actions: demoActions.map((definition) => definition.name),
     subject,
   })
   return context.json(surface)
