@@ -10,21 +10,21 @@
     "dev": "nub run build && nub run --filter @genui/playground dev",
     "eval": "nub run build && nub run --filter @genui/playground eval",
     "build": "nub run --filter genui build",
-    "test": "nub run build && nub run --filter genui test && nub run --filter @genui/playground test",
-    "check": "nub run build && nub run format:check && nub run --filter genui check && nub run --filter @genui/playground check && nub run test:pack",
+    "test": "nub run build && nub run --recursive test",
+    "check": "nub run build && nub run format:check && nub run --recursive check && nub run test:pack",
     "test:pack": "node scripts/pack-smoke.mjs",
-    "typecheck": "nub run build && nub run --filter genui typecheck && nub run --filter @genui/playground typecheck",
-    "lint": "nub run --filter genui lint && nub run --filter @genui/playground lint",
-    "lint:fix": "nub run --filter genui lint:fix && nub run --filter @genui/playground lint:fix",
-    "format": "oxfmt package.json tsconfig.json .oxlintrc.json .oxfmtrc.json scripts packages/runtime/package.json packages/runtime/tsconfig.json packages/runtime/tsconfig.build.json packages/runtime/src examples/playground/package.json examples/playground/tsconfig.json examples/playground/src examples/playground/scripts",
-    "format:check": "oxfmt --check package.json tsconfig.json .oxlintrc.json .oxfmtrc.json scripts packages/runtime/package.json packages/runtime/tsconfig.json packages/runtime/tsconfig.build.json packages/runtime/src examples/playground/package.json examples/playground/tsconfig.json examples/playground/src examples/playground/scripts"
+    "typecheck": "nub run build && nub run --recursive typecheck",
+    "lint": "nub run --recursive lint",
+    "lint:fix": "nub run --recursive lint:fix",
+    "format": "oxfmt *.json .*.json scripts packages/runtime/*.json packages/runtime/src examples/playground/*.json examples/playground/src examples/playground/scripts",
+    "format:check": "oxfmt --check *.json .*.json scripts packages/runtime/*.json packages/runtime/src examples/playground/*.json examples/playground/src examples/playground/scripts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "oxfmt": "^0.55.0",
     "oxlint": "^1.70.0",
     "oxlint-tsgolint": "^0.23.0",
-    "typescript": "7.0.1-rc"
+    "typescript": "7.0.2"
   },
   "devEngines": {
     "packageManager": {

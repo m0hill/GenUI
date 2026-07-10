@@ -25,12 +25,12 @@
     "build": "rm -rf dist && tsc --project tsconfig.build.json",
     "browser:install": "playwright install chromium",
     "test": "nub --test $(find src -name '*.test.ts' -print)",
-    "check": "nub run lint && nub run format:check && tsc --noEmit && nub --test $(find src -name '*.test.ts' -print)",
+    "check": "nub run lint && nub run format:check && nub run typecheck && nub run test",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint src --type-aware",
     "lint:fix": "oxlint src --type-aware --fix",
-    "format": "oxfmt src package.json tsconfig.json",
-    "format:check": "oxfmt --check src package.json tsconfig.json"
+    "format": "oxfmt src *.json",
+    "format:check": "oxfmt --check src *.json"
   },
   "devDependencies": {
     "esbuild": "^0.28.1",
