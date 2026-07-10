@@ -16,8 +16,9 @@ nub workspace:
 
 - `packages/runtime` — `genui`: dependency-free wire contracts at
   `./protocol`, the capability kernel, and the DOM sandbox host.
-- `examples/playground` — a credential-free Hono host with paste mode, model
-  instructions, working fixtures, and a visible surface-event log.
+- [`examples/playground`](examples/playground/README.md) — a credential-free
+  Hono host with paste mode, model instructions, working fixtures, and a visible
+  surface-event log.
 
 ## Develop
 

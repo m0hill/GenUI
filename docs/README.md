@@ -7,5 +7,6 @@
 - [code0.md](code0.md) — author and isolate buildless HTML and JavaScript
   surfaces, use the guest bridge, and handle errors and navigation.
 - [hosting.md](hosting.md) — create and execute surfaces on a server, mount
-  them in a browser, connect approval, expose repair events, and evaluate
-  model output.
+  them in a browser, connect approval, and expose repair events.
+- [playground README](../examples/playground/README.md) — run the reference host
+  and evaluate model output through the real sandbox and action pipeline.
