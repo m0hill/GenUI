@@ -9,6 +9,7 @@ export const ordersDashboardFixture = `
     .orders-app table { border-collapse: collapse; width: 100%; }
     .orders-app th, .orders-app td { border-bottom: 1px solid #d0d5dd; padding: 9px; text-align: left; }
     .orders-app output { color: #b42318; display: block; min-height: 1.5em; }
+    .orders-app #orders-live { color: #344054; }
   </style>
   <h2 id="orders-title">Orders dashboard</h2>
   <form id="orders-search">
@@ -22,6 +23,7 @@ export const ordersDashboardFixture = `
     <button>Search</button>
   </form>
   <output id="orders-error" role="alert"></output>
+  <output id="orders-live" aria-live="polite"></output>
   <table>
     <thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Status</th><th></th></tr></thead>
     <tbody id="orders-rows"></tbody>
@@ -30,6 +32,7 @@ export const ordersDashboardFixture = `
     const form = document.querySelector("#orders-search")
     const rows = document.querySelector("#orders-rows")
     const error = document.querySelector("#orders-error")
+    const live = document.querySelector("#orders-live")
     const statuses = ["pending", "processing", "shipped"]
 
     const cell = (text) => {
@@ -92,6 +95,21 @@ export const ordersDashboardFixture = `
       void refresh()
     })
     void refresh()
+
+    if (genui.subscriptions.some(({ name }) => name === "orders.changes")) {
+      void genui.subscribe("orders.changes", {}, async (event) => {
+        await Promise.resolve()
+        const count = Number(live.dataset.count ?? "0") + 1
+        live.dataset.count = String(count)
+        live.textContent = "Live event " + count + ": " + event.type
+      }).then((stream) => {
+        stream.done.then((result) => {
+          live.dataset.done = result.ok ? result.reason : result.error.code
+        })
+      }).catch((cause) => {
+        error.textContent = cause.message
+      })
+    }
   </script>
 </section>
 `.trim()

@@ -1,9 +1,17 @@
 import { readFile } from "node:fs/promises"
 import { Genui, type CallAuditEntry } from "genui"
-import { actionError, codeDialect } from "genui/protocol"
+import {
+  actionError,
+  codeDialect,
+  parseSubscriptionRequest,
+  type SubscriptionErrorCode,
+  type SubscriptionOpenResult,
+} from "genui/protocol"
 import { Hono } from "hono"
 import { demoActions } from "./actions.js"
 import { createPendingApprovals } from "./pending-approvals.js"
+import { demoSubscriptions } from "./subscriptions.js"
+import { maxSubscriptionFrameBytes } from "./subscription-stream.js"
 import {
   parseApprovalRequest,
   parseExecuteRequest,
@@ -54,6 +62,7 @@ export const resetPlaygroundState = (): void => {
 
 const genui = new Genui<Readonly<Record<string, never>>>({
   actions: demoActions,
+  subscriptions: demoSubscriptions,
   onCall: (entry) => {
     const key = callKey(entry.surfaceId, entry.callId)
     const entries = callAudits.get(key) ?? []
@@ -98,9 +107,93 @@ app.post("/genui/surface", async (context) => {
     dialect: codeDialect,
     content: request.content,
     actions: demoActions.map((definition) => definition.name),
+    subscriptions: demoSubscriptions.map((definition) => definition.name),
     subject,
   })
   return context.json(surface)
+})
+
+type SubscriptionOpenFailure = Extract<SubscriptionOpenResult, { readonly ok: false }>
+
+const subscriptionFailure = (
+  code: SubscriptionErrorCode,
+  message: string,
+): SubscriptionOpenFailure => ({ ok: false, error: { code, message } })
+
+app.post("/genui/subscribe", async (context) => {
+  const subject = sessionSubject(context.req.raw)
+  if (subject === undefined) {
+    return context.json(subscriptionFailure("not_granted", "Playground session is required."), 401)
+  }
+  const request = parseSubscriptionRequest(await requestJson(context.req.raw))
+  if (request === undefined) {
+    return context.json(
+      subscriptionFailure("invalid_input", "Malformed subscription request."),
+      400,
+    )
+  }
+
+  const requestSignal = context.req.raw.signal
+  const sourceController = new AbortController()
+  const abortSource = (): void => sourceController.abort()
+  if (requestSignal.aborted) abortSource()
+  else requestSignal.addEventListener("abort", abortSource, { once: true })
+  const detachRequestSignal = (): void => {
+    requestSignal.removeEventListener("abort", abortSource)
+  }
+  const stopSource = (): void => {
+    detachRequestSignal()
+    sourceController.abort()
+  }
+
+  const opened = await genui.subscribe(request, {}, { subject, signal: sourceController.signal })
+  if (!opened.ok) {
+    stopSource()
+    return context.json(opened, 400)
+  }
+
+  const iterator = opened.events[Symbol.asyncIterator]()
+  const encoder = new TextEncoder()
+  let finished = false
+  const finish = async (): Promise<void> => {
+    if (finished) return
+    finished = true
+    stopSource()
+    await iterator.return?.()
+  }
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (finished) return
+      try {
+        const next = await iterator.next()
+        if (next.done) {
+          finished = true
+          detachRequestSignal()
+          controller.close()
+          return
+        }
+        const frame = encoder.encode(`${JSON.stringify(next.value)}\n`)
+        if (frame.byteLength > maxSubscriptionFrameBytes) {
+          await finish()
+          controller.error(new Error("Subscription delivery frame exceeded its transport limit."))
+          return
+        }
+        controller.enqueue(frame)
+      } catch (cause) {
+        finished = true
+        stopSource()
+        controller.error(cause)
+      }
+    },
+    cancel: finish,
+  })
+  return new Response(body, {
+    headers: {
+      "cache-control": "no-store",
+      "content-type": "application/x-ndjson; charset=utf-8",
+      "x-content-type-options": "nosniff",
+    },
+  })
 })
 
 app.post("/genui/execute", async (context) => {

@@ -2,16 +2,17 @@
 
 A host has two trusted halves:
 
-- The server owns action definitions, surface records, policy, validation,
-  approval, and execution.
-- The browser owns the sandbox iframe, consent UI, transport, and visible
-  surface events.
+- The server owns action and subscription definitions, surface records,
+  policy, validation, approval, execution, and app-owned event sources.
+- The browser owns the sandbox iframe, consent UI, one-shot and streaming
+  transports, bounded event delivery, cancellation, and visible surface events.
 
 Generated code runs only inside the iframe. It never receives application
 objects, credentials, direct fetch access, or a reference to the parent DOM.
 
-Read [actions.md](actions.md) before defining the authority set. Read
-[code0.md](code0.md) for the iframe and guest contract.
+Read [actions.md](actions.md) and [subscriptions.md](subscriptions.md) before
+defining the authority set. Read [code0.md](code0.md) for the iframe and guest
+contract.
 
 ## Build the package
 
@@ -40,14 +41,15 @@ all four public entrypoints. The temporary tarball is deleted after the test.
 
 ## Create the server runtime
 
-Create one `Genui` instance from app-owned actions and a store. The in-memory
-store is suitable for a single-process example.
+Create one `Genui` instance from app-owned actions, subscriptions, and a store.
+The in-memory store is suitable for a single-process example.
 
 ```ts
 import { Genui } from "genui"
 
 const genui = new Genui({
   actions: [searchOrders, updateOrderStatus],
+  subscriptions: [orderChanges],
 })
 ```
 
@@ -56,7 +58,8 @@ record is the server-side source of truth for grants.
 
 A custom `SurfaceStore` implements `get`, `set`, `revoke`, and `runIdempotent`.
 `revoke` must delete the surface record and its idempotency entries.
-`get` and `set` must preserve an optional `SurfaceRecord.subject` unchanged.
+`get` and `set` must preserve the subject and complete action and subscription
+authority unchanged.
 `runIdempotent` must atomically join concurrent calls with the same surface ID,
 call ID, and fingerprint, retain the completed result for the requested window,
 and report conflicting fingerprints. It must return `approval_required` to
@@ -70,8 +73,9 @@ idempotency requirements.
 
 ## Create code surfaces
 
-Accept generated content as a string. Choose the action names the surface may
-request. The runtime projects the actual grant and stores content verbatim.
+Accept generated content as a string. Choose the action and subscription names
+the surface may request. The runtime projects the actual grant and stores
+content verbatim.
 
 ```ts
 import { codeDialect } from "genui/protocol"
@@ -80,6 +84,7 @@ const surface = await genui.surface({
   dialect: codeDialect,
   content,
   actions: ["orders.search", "orders.update_status"],
+  subscriptions: ["orders.changes"],
   subject: currentSession.id,
 })
 ```
@@ -87,11 +92,17 @@ const surface = await genui.surface({
 Return the serializable `Surface` to the browser. Do not let the browser supply
 or mutate the authoritative grant.
 
+`GenuiOptions.subscriptions` and `SurfaceInput.subscriptions` are optional and
+default to empty. Every serialized grant still carries separate `actions` and
+`subscriptions` arrays. Action and subscription names must be globally unique
+inside one `Genui` instance.
+
 Set `ttlMs` when authority should expire automatically. The runtime projects
 one absolute `grant.expiresAt` value. Call `await genui.reproject(surface.id)`
 to apply current policy again without extending that expiry. An expired grant
 returns `unknown_surface` before validation, approval, or execution and removes
-its stored surface and idempotency state.
+its stored surface and idempotency state. Active subscriptions also stop at the
+exact expiry time, including while their app source is quiet.
 
 ```ts
 const temporarySurface = await genui.surface({
@@ -103,10 +114,12 @@ const temporarySurface = await genui.surface({
 
 Call `await genui.revoke(surface.id)` to remove authority before its expiry.
 Calls that entered `execute()` before expiry or revocation may complete; later
-calls return `unknown_surface`.
+calls return `unknown_surface`. The same `Genui` instance immediately aborts
+its active subscriptions for that surface. Another replica observes revocation
+before delivering its next event.
 
 Use `genui.instructions()` for a copyable model prompt. It includes the code/0
-contract and the grantable, non-confidential action schemas.
+contract and the grantable, non-confidential action and subscription schemas.
 
 ## Execute through a server endpoint
 
@@ -198,10 +211,81 @@ Do not accept preapproval, an `approved: true` request field, or a token chosen
 by generated code. The reference playground implements this flow in
 `examples/playground/src/pending-approvals.ts`, `app.ts`, and `client.ts`.
 
-Authenticate the request before calling `surface()` or `execute()`. Use the
-same opaque `subject` value for both operations. A subject-bound grant echoes
-that value for inspection, but the server-side surface record remains
-authoritative.
+Authenticate the request before calling `surface()`, `execute()`, or
+`subscribe()`. Use the same opaque `subject` value for every operation. A
+subject-bound grant echoes that value for inspection, but the server-side
+surface record remains authoritative.
+
+## Open subscriptions through a server endpoint
+
+Parse the transport-independent request, pass the authenticated subject, and
+connect request cancellation to the kernel:
+
+```ts
+import { parseSubscriptionRequest } from "genui/protocol"
+
+const body: unknown = await httpRequest.json()
+const subscriptionRequest = parseSubscriptionRequest(body)
+if (subscriptionRequest === undefined) {
+  return Response.json(
+    {
+      ok: false,
+      error: {
+        code: "invalid_input",
+        message: "Malformed subscription request.",
+      },
+    },
+    { status: 400 },
+  )
+}
+
+const sourceController = new AbortController()
+const abortSource = () => sourceController.abort()
+if (httpRequest.signal.aborted) abortSource()
+else httpRequest.signal.addEventListener("abort", abortSource, { once: true })
+
+const opened = await genui.subscribe(subscriptionRequest, appContext, {
+  subject: currentSession.id,
+  signal: sourceController.signal,
+})
+if (!opened.ok) {
+  httpRequest.signal.removeEventListener("abort", abortSource)
+  abortSource()
+  return Response.json(opened, {
+    status: subscriptionErrorStatus(opened.error.code),
+  })
+}
+
+return streamSubscriptionDeliveries(opened.events, {
+  signal: httpRequest.signal,
+  cancelSource: abortSource,
+  onClose: () => httpRequest.signal.removeEventListener("abort", abortSource),
+})
+```
+
+`streamSubscriptionDeliveries()` is application code. It may use a streaming
+fetch response, SSE adaptation, WebSocket multiplexing, or an in-process
+channel. Frame and bound it for that transport, preserve event order, and
+cancel iteration when the connection closes. On connection or response-body
+cancellation, call `cancelSource()` before the iterator's `return()`. Otherwise
+`return()` can wait behind a quiet pending `next()`. Run `onClose()` after
+normal completion, cancellation, or failure. The framing is not part of
+`genui/protocol`.
+
+The `genui.subscribe()` Promise resolves only after the kernel accepts the
+request and starts the app source. Expected start failures are
+`{ ok: false, error }` values. Accepted streams yield only strictly validated
+`SubscriptionDelivery` envelopes. Keep the iterable, abort signal, source, and
+connection in trusted code; never serialize them into a surface record or send
+them into the iframe.
+
+The kernel reloads the authoritative record and validates every event before
+yielding it. It aborts at exact grant expiry and immediately on same-instance
+`Genui.revoke()`. Cross-replica revocation is observed before the next event.
+There is no quiet-stream revalidation poll in v0, so a quiet remotely revoked
+connection may remain open until another event or expiry without being able to
+deliver data. Follow [subscriptions.md](subscriptions.md) for the complete
+authority and source-cleanup contract.
 
 ## Record call outcomes
 
@@ -231,6 +315,11 @@ An HTTP envelope that combines results with audit entries is application
 specific. It is not part of `genui/protocol`; hosts may send audit data to any
 trusted sink.
 
+Do not reuse `onCall` for subscription event auditing. Record stream start and
+open outcomes, sequence and payload byte count, and close reason, counts,
+bytes, and duration through the subscription lifecycle channel. Do not include
+event payloads in generic telemetry.
+
 ## Observe trusted failures
 
 Set `GenuiOptions.onError` to receive internal failures that the kernel hides
@@ -239,8 +328,27 @@ from generated code:
 ```ts
 const genui = new Genui({
   actions,
-  onError: ({ surfaceId, callId, action, phase, cause }) => {
-    logger.error({ surfaceId, callId, action, phase, cause })
+  subscriptions,
+  onError: (event) => {
+    if (event.type === "call") {
+      logger.error({
+        type: event.type,
+        surfaceId: event.surfaceId,
+        callId: event.callId,
+        action: event.action,
+        phase: event.phase,
+        cause: event.cause,
+      })
+      return
+    }
+    logger.error({
+      type: event.type,
+      surfaceId: event.surfaceId,
+      subscriptionId: event.subscriptionId,
+      subscription: event.subscription,
+      phase: event.phase,
+      cause: event.cause,
+    })
   },
 })
 ```
@@ -249,6 +357,12 @@ const genui = new Genui({
 approval integration, action execution, output validation, idempotency storage,
 and audit delivery. The guest still receives only the stable `ActionResult`
 code and safe message.
+
+Subscription diagnostics distinguish surface-store authorization, input
+validation, source startup, event validation, serialization and size
+enforcement, source iteration, and cleanup. A subscription failure terminates
+only that stream and crosses into the browser as a stable error code and safe
+message.
 
 The hook is trusted-side only. Its original `cause` may contain secrets or
 application data from a thrown error. Redact it before exporting telemetry and
@@ -263,9 +377,14 @@ an app-owned `parseExecuteEnvelope()` that requires an approval token exactly
 when its nested result is `approval_required`.
 
 ```ts
-import { mount } from "genui/dom"
+import { mount, SubscriptionTransportError } from "genui/dom"
 import { actionError, parseSurface, type ActionCall } from "genui/protocol"
-import { parseApprovalResponse, parseExecuteEnvelope } from "./execute-envelope.js"
+import {
+  decodeSubscriptionStream,
+  parseApprovalResponse,
+  parseExecuteEnvelope,
+  parseSubscriptionOpenError,
+} from "./host-codecs.js"
 
 const surface = parseSurface(await surfaceResponse.json())
 if (surface === undefined) throw new Error("Invalid surface response.")
@@ -275,7 +394,29 @@ const retryTokens = new Map<string, string>()
 const callKey = (call: Pick<ActionCall, "surfaceId" | "callId">): string =>
   JSON.stringify([call.surfaceId, call.callId])
 
+const subscriptionTransport: Parameters<typeof mount>[2]["subscriptionTransport"] =
+  async (request, { signal }) => {
+    const response = await fetch("/genui/subscribe", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(request),
+      signal,
+    })
+    if (!response.ok) {
+      const error = parseSubscriptionOpenError(await response.json())
+      if (error === undefined) {
+        throw new SubscriptionTransportError(
+          "transport_failed",
+          "Host returned an invalid subscription error.",
+        )
+      }
+      throw new SubscriptionTransportError(error.code, error.message)
+    }
+    return { events: decodeSubscriptionStream(response, { signal }) }
+  }
+
 const mounted = mount(container, surface, {
+  subscriptionTransport,
   confirm: async (_action, call, intent) => {
     const key = callKey(call)
     const token = approvalTokens.get(key)
@@ -322,6 +463,21 @@ const mounted = mount(container, surface, {
 })
 ```
 
+`subscriptionTransport` is optional. A granted subscription start rejects with
+`not_available` when it is absent. Its Promise resolves only after trusted
+server acceptance and returns an `AsyncIterable` of decoded delivery
+envelopes. `decodeSubscriptionStream()` is app-owned framing code; it must call
+the strict `parseSubscriptionDelivery()` codec for every frame and stop on a
+malformed value. Adapt expected server failures with
+`SubscriptionTransportError`. Other transport rejection becomes
+`transport_failed`.
+
+The broker never exposes this transport, its abort signal, `fetch`, or the
+response body to generated code. It starts at most four subscriptions per
+surface, delivers one unacknowledged event per subscription, waits up to five
+seconds for the guest handler, and enforces ten delivered events per second in
+aggregate. A forged early acknowledgment cannot bypass the aggregate limit.
+
 The broker calls transport first. On `approval_required`, it passes the
 kernel-rendered canonical intent to `confirm`. A successful callback registers
 consent on the server; the broker retries the identical call once. A declined
@@ -331,7 +487,9 @@ callback returns `approval_denied` without a retry.
 for ordinary host-initiated removal or reallocation. Use `replace()` when
 retaining the live mount and loading a new supported surface. Reserve
 `dispose()` for abrupt removal; navigation and liveness violations also
-terminate abruptly. Pending calls are aborted on replace or final disposal.
+terminate abruptly. Pending calls and subscriptions are aborted on replace or
+final disposal. The replacement guest must subscribe again; snapshots do not
+restore live handles.
 
 Guests opt into state preservation with `genui.snapshot(fn)`. Call
 `await mounted.snapshot()` to capture the registered JSON value. Replacing a
@@ -352,6 +510,29 @@ Use `snapshot` in the initial `mount()` options to seed a new document. Set
 `snapshotTimeoutMs` when the default one-second response deadline is not
 appropriate. A missed deadline resolves to `undefined` and emits a
 `snapshot_timeout` violation.
+
+Subscription `SurfaceEvent` values expose lifecycle metadata without event
+payloads:
+
+```ts
+{ type: "subscription_start", surfaceId, subscriptionId, subscription, inputBytes }
+{ type: "subscription_opened", surfaceId, subscriptionId, subscription }
+{ type: "subscription_event", surfaceId, subscriptionId, subscription, sequence, payloadBytes }
+{
+  type: "subscription_closed",
+  surfaceId,
+  subscriptionId,
+  subscription,
+  reason,
+  eventCount,
+  payloadBytes,
+  durationMs,
+}
+```
+
+Close reasons include normal completion, guest unsubscribe, replacement,
+disposal, termination, and stable subscription error codes. Treat IDs as
+correlation values rather than credentials.
 
 ## Tear down gracefully
 
@@ -384,10 +565,11 @@ without posting a request. `reason` must be a string of at most 256 characters;
 `TypeError` before a message is sent.
 
 Once teardown starts, `replace()` and `updateHostContext()` are inert. Existing
-action, host-capability, and snapshot work remains live during the grace
-window. Final disposal resolves pending snapshot requests to `undefined` and
-drops later action or capability results. A navigation or unresponsive
-termination remains abrupt and resolves a pending teardown to `undefined`.
+action, subscription, host-capability, and snapshot work remains live during
+the grace window. Final disposal aborts subscriptions, resolves pending
+snapshot requests to `undefined`, and drops later action, capability, or event
+delivery. A navigation or unresponsive termination remains abrupt and resolves
+a pending teardown to `undefined`.
 
 **Warning:** Hosts MUST NOT trust the returned state. It is guest-produced and
 untrusted, exactly like any other snapshot. Validate it before persistence,
@@ -605,6 +787,8 @@ inspect and copy. At minimum, show:
 - `guest_error` with its message and available stack.
 - `violation` with its reason and detail.
 - failed `result` events, including denied calls.
+- subscription start, event, and close metadata, especially handler timeout,
+  overflow, revocation, expiry, and source failure.
 
 Do not silently discard these events. They are the repair channel back to the
 model that generated the fragment.
@@ -624,6 +808,12 @@ other recoverable action failure.
 Action input must be JSON-serializable and no larger than 64 KiB after UTF-8
 JSON encoding. The kernel rejects larger or non-JSON input as `invalid_input`
 before schema validation, approval, or execution.
+
+Subscription input and each validated event have the same 64 KiB limit. One
+surface may have at most four active subscriptions. The browser broker permits
+one unacknowledged event per subscription, a five-second handler deadline, and
+ten delivered events per second in aggregate for the surface. Acknowledgments
+are untrusted flow control and cannot bypass that aggregate rate limit.
 
 ## Run the reference host
 

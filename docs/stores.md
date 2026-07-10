@@ -7,6 +7,11 @@ Use a shared `SurfaceStore` before running more than one server instance. The
 store must preserve complete `SurfaceRecord` values and implement
 `runIdempotent()` as one atomic coordination protocol.
 
+Complete records include source and projected subscription authority. Preserve
+the separate subscription request, grant, and diagnostics fields unchanged.
+Store only authority. Active iterators, callbacks, abort controllers, browser
+subscription IDs, and transport connections remain connection-local.
+
 ## Verify an adapter
 
 Run the package contract against two adapter instances connected to the same
@@ -54,6 +59,22 @@ Apply these rules atomically:
    failure.
 9. `revoke(surfaceId)` removes the surface and every idempotency record for that
    surface atomically.
+
+## Subscription reauthorization
+
+The kernel reads the authoritative surface record before delivering every
+subscription event. Store unavailability terminates the stream instead of
+continuing from cached authority.
+
+`Genui.revoke()` also aborts matching active subscriptions owned by that same
+instance. A different replica observes revocation on the required read before
+the next event. A quiet stream may remain connected after remote revocation,
+but it cannot deliver another event. Genui does not add a quiet-stream polling
+contract to `SurfaceStore` in v0.
+
+Grant expiry uses an exact connection-local timer, including while a source is
+quiet. Store notifications may optimize cleanup in a future adapter, but they
+must remain hints followed by an authoritative read.
 
 ## Postgres reference layout
 

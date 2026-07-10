@@ -4,13 +4,18 @@
   guides. Read before creating or editing any Markdown.
 - [actions.md](actions.md) — define validation, model schemas, effects, policy,
   approval intent, and confidentiality once per action.
+- [subscriptions.md](subscriptions.md) — define read-only event sources,
+  validate every event, bound delivery, and coordinate cancellation and
+  revocation.
 - [code0.md](code0.md) — author and isolate buildless HTML and JavaScript
-  surfaces, consume host context and styling, use actions and optional host
-  capabilities, preserve state, and handle graceful teardown.
+  surfaces, consume host context and styling, use granted actions and
+  subscriptions plus optional host capabilities, preserve state, and handle
+  graceful teardown.
 - [hosting.md](hosting.md) — create and execute surfaces on a server, mount them
-  with host sizing and context, provide host capabilities, connect approval,
-  tear down safely, and expose repair events.
+  with host sizing and context, transport actions and subscriptions, provide
+  host capabilities, tear down safely, and expose repair events.
 - [stores.md](stores.md) — implement and verify shared surface persistence,
-  idempotency, revocation, and distributed coordination.
+  subscription reauthorization, idempotency, revocation, and distributed
+  coordination.
 - [playground README](../examples/playground/README.md) — run the reference host
   and evaluate model output through the real sandbox and action pipeline.

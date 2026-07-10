@@ -13,25 +13,28 @@ const surface = await genui.surface({
   dialect: codeDialect,
   content: generatedFragment,
   actions: ["orders.search", "orders.update_status"],
+  subscriptions: ["orders.changes"],
 })
 ```
 
 The runtime stores `content` verbatim. It does not sanitize, rewrite, compile,
 or resolve dependencies in the fragment. Grant projection still removes
-unknown, blocked, duplicate, and confidential actions. Use
-`genui.diagnostics(surface.id)` to inspect projection decisions.
+unknown, blocked, duplicate, and confidential actions and subscriptions. Use
+`genui.diagnostics(surface.id)` to inspect both projection decisions.
 
 Use `genui.instructions()` to give a model the code/0 contract and the current
-action descriptors. The output includes each action's input JSON Schema.
+action and subscription descriptors. The output includes action input schemas
+and subscription input and event schemas.
 
 ## Guest content
 
 Return fragment HTML without a document wrapper or Markdown fence. Use standard
 HTML, inline CSS, DOM APIs, and inline `<script type="module">` blocks.
 
-Keep scripts and styles inline. Do not use network APIs, external scripts,
-external stylesheets, parent-page access, persistent storage, or navigation.
-The sandbox blocks these facilities; code that depends on them will fail.
+Keep scripts and styles inline. Do not use network APIs such as `fetch`,
+`WebSocket`, or `EventSource`, external scripts, external stylesheets,
+parent-page access, persistent storage, or navigation. The sandbox blocks these
+facilities; code that depends on them will fail.
 
 Handle `genui.call()` failures and render a useful error state. Generated code
 must not treat a rendered confirmation or button state as authorization.
@@ -169,10 +172,12 @@ The bootstrap installs exactly this public API on `window.genui`:
 ```js
 genui.surfaceId
 genui.actions
+genui.subscriptions
 genui.capabilities
 genui.hostContext
 genui.onHostContextChange(handler)
 await genui.call(name, input)
+await genui.subscribe(name, input, handler)
 await genui.sendMessage(text)
 await genui.openLink(url)
 await genui.updateModelContext({ content?, structuredContent? })
@@ -186,16 +191,100 @@ available to top-level guest scripts without waiting for an event. Each
 descriptor contains `name`, `description`, `effect`, `confidentiality`, and
 `requiresApproval`, plus optional `intent` and `inputSchema` fields.
 
+`genui.subscriptions` is the frozen read-only subscription grant available at
+the same time. Each descriptor contains `name`, `description`,
+`confidentiality`, and the fixed `maxEventBytes`, plus optional `inputSchema`
+and `eventSchema` fields. A missing descriptor means the surface has no
+authority to request that subscription. Subscriptions are not host
+capabilities and do not add a boolean to `genui.capabilities`.
+
 `genui.call(name, input)` posts a call carrying `surfaceId`, a unique `callId`,
 the action name, and input. It resolves to the successful action output. It
 rejects with `GenuiActionError { code, message }` for an action error.
 
 Results correlate by `callId`. Unknown and duplicate result messages are
-ignored. Result, host-context, snapshot-request, and teardown-request messages
-are accepted only through native browser delivery from the iframe's parent
-window with the matching channel and surface ID. Synthetic guest-dispatched
-message events are ignored. The guest action list is descriptive; mutating it
-cannot change the host or kernel grant.
+ignored. Result, subscription-delivery, host-context, snapshot-request, and
+teardown-request messages are accepted only through native browser delivery
+from the iframe's parent window with the matching channel, surface ID, and
+current-document scope. Synthetic guest-dispatched message events are ignored.
+The guest action and subscription lists are descriptive; mutating them cannot
+change the host or kernel grant.
+
+### Subscriptions
+
+Feature-detect a subscription through `genui.subscriptions`, then pass input
+matching its JSON Schema and one event handler:
+
+```js
+const available = genui.subscriptions.some(
+  ({ name }) => name === "orders.changes",
+)
+
+if (available) {
+  try {
+    const stream = await genui.subscribe(
+      "orders.changes",
+      { status: "processing" },
+      async (event) => {
+        await renderOrderChange(event)
+      },
+    )
+
+    stopButton.onclick = () => stream.unsubscribe()
+    stream.done.then((result) => {
+      if (!result.ok) showStreamError(result.error)
+    })
+  } catch (error) {
+    showStreamError(error)
+  }
+}
+```
+
+The initial `genui.subscribe()` Promise rejects with
+`GenuiActionError { code, message }` when the request cannot open. A successful
+open returns a frozen handle:
+
+```ts
+interface GuestSubscription {
+  unsubscribe(): Promise<void>
+  readonly done: Promise<
+    | { readonly ok: true; readonly reason: "completed" | "unsubscribed" }
+    | {
+        readonly ok: false
+        readonly error: { readonly code: string; readonly message: string }
+      }
+  >
+}
+```
+
+`done` always resolves and never rejects. `unsubscribe()` is one-shot and
+idempotent. It aborts only that handle. Source completion resolves with
+`completed`; guest cancellation resolves with `unsubscribed`.
+
+Events arrive in sequence order and at most once within one mounted
+subscription. A handler may return a Promise. The bootstrap waits for it before
+acknowledging the event, and the broker permits only one unacknowledged event
+per subscription. The handler has five seconds to settle. If it throws or
+rejects, the bootstrap emits `guest_error`, cancels that subscription, and
+resolves `done` with `handler_failed`; the surface and other subscriptions stay
+live.
+
+At most four subscriptions may be active per surface. Input and each validated
+event may be at most 64 KiB after UTF-8 JSON serialization. The browser broker
+also limits aggregate delivery to ten events per second per surface. It does
+not silently drop or coalesce events when delivery falls behind.
+
+Stable subscription failure codes are `unknown_surface`, `not_granted`,
+`blocked`, `invalid_input`, `rate_limited`, `storage_unavailable`,
+`source_failed`, `invalid_event`, `event_too_large`, `revoked`, `expired`,
+`not_available`, `handler_failed`, `ack_timeout`, `overflow`, and
+`transport_failed`.
+
+Replacement cancels every subscription from the old document, including
+same-surface replacement. Snapshot restoration never restores a live handle.
+There is no automatic reconnect, replay, or durable cursor in v0. Generated
+code must not create a direct `WebSocket`, `EventSource`, or other network
+connection; trusted host and server adapters own the source and transport.
 
 `genui.snapshot(fn)` registers one state provider. The host calls the provider
 without arguments to capture JSON-serializable state. When a replacement
@@ -349,16 +438,17 @@ may still finish, but its late result is dropped when the document revision no
 longer matches. Guest-posted result messages and results carrying a stale
 surface ID are ignored.
 
-During graceful teardown, action and host-capability traffic remains live
-until the final acknowledgment or deadline disposes the mount. Results that
-arrive after disposal are dropped.
+During graceful teardown, action, subscription, and host-capability traffic
+remains live until the final acknowledgment or deadline disposes the mount.
+Final disposal aborts subscriptions and drops later results or events.
 
 ## Host enforcement
 
-The host broker rejects calls missing from the surface grant before transport.
-The kernel independently reloads the surface record, checks current policy and
-grant, validates input, obtains authoritative approval, executes, and validates
-output.
+The host broker rejects action calls and subscription starts missing from the
+surface grant before transport. The kernel independently reloads the surface
+record, checks current policy and grant, validates input, and starts app-owned
+code. It rechecks subscription authority and validates every event before
+delivery; the initial grant does not authorize an indefinite stream.
 
 Render consent UI in trusted host code. Display the supplied intent instead of
 reconstructing approval text from raw guest input. Render it as plain text.

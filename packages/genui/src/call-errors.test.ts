@@ -14,7 +14,7 @@ void test("onError receives action failures hidden from the caller", async () =>
   const errors: CallErrorEvent[] = []
   const runtime = new Genui({
     onError: (event) => {
-      errors.push(event)
+      if (event.type === "call") errors.push(event)
     },
     actions: [
       action({
@@ -46,6 +46,7 @@ void test("onError receives action failures hidden from the caller", async () =>
   })
   assert.deepEqual(errors, [
     {
+      type: "call",
       surfaceId: surface.id,
       callId: "call-1",
       subject: "session-1",
@@ -74,7 +75,7 @@ void test("onError identifies validation, approval, and storage failure phases",
   const runtime = new Genui({
     store,
     onError: (event) => {
-      errors.push(event)
+      if (event.type === "call") errors.push(event)
     },
     actions: [
       action({

@@ -30,7 +30,7 @@ export const testSurface = (actions: Surface["grant"]["actions"], html = ""): Su
   return {
     id,
     content: html,
-    grant: { surfaceId: id, actions },
+    grant: { surfaceId: id, actions, subscriptions: [] },
     dialect: codeDialect,
   }
 }

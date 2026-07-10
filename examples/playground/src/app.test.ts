@@ -2,14 +2,21 @@ import assert from "node:assert/strict"
 import { beforeEach, test } from "node:test"
 import {
   codeDialect,
+  parseSubscriptionDelivery,
   parseSurface,
   type ActionCall,
   type ActionResult,
+  type SubscriptionRequest,
   type Surface,
 } from "genui/protocol"
 import { app, resetPlaygroundState } from "./app.js"
 import { resetDemoOrders } from "./actions.js"
-import { parseApprovalResponse, parseExecuteEnvelope, parseRecord } from "./playground-codecs.js"
+import {
+  parseApprovalResponse,
+  parseExecuteEnvelope,
+  parseRecord,
+  parseSubscriptionOpenFailure,
+} from "./playground-codecs.js"
 
 const sessionCookie = (subject: string): string => `genui_session=${subject}`
 const defaultCookie = sessionCookie("session-test")
@@ -44,6 +51,21 @@ const execute = async (
   return envelope.result
 }
 
+const readFirstSubscriptionDelivery = async (response: Response) => {
+  const reader = response.body?.getReader()
+  if (reader === undefined) throw new Error("Expected a subscription response body.")
+  const decoder = new TextDecoder()
+  let encoded = ""
+  while (!encoded.includes("\n")) {
+    const chunk = await reader.read()
+    if (chunk.done) break
+    encoded += decoder.decode(chunk.value, { stream: true })
+  }
+  const delivery = parseSubscriptionDelivery(JSON.parse(encoded.split("\n")[0] ?? "null"))
+  await reader.cancel()
+  return delivery
+}
+
 beforeEach(() => {
   resetDemoOrders()
   resetPlaygroundState()
@@ -59,6 +81,10 @@ void test("playground creates verbatim code surfaces with projected demo grants"
   assert.deepEqual(
     surface.grant.actions.map((action) => action.name),
     ["orders.search", "orders.get", "orders.update_status"],
+  )
+  assert.deepEqual(
+    surface.grant.subscriptions.map((subscription) => subscription.name),
+    ["orders.changes"],
   )
 })
 
@@ -77,6 +103,63 @@ void test("playground instructions expose granted schemas but not confidential a
   assert.equal(instructions.includes("genui.teardown"), true)
   assert.equal(instructions.includes("genui.hostContext"), true)
   assert.equal(instructions.includes("genui.onHostContextChange"), true)
+  assert.equal(instructions.includes("genui.subscriptions"), true)
+  assert.equal(instructions.includes("genui.subscribe"), true)
+  assert.equal(instructions.includes("orders.changes"), true)
+})
+
+void test("playground streams validated subscription deliveries with app-specific framing", async () => {
+  const surface = await createSurface()
+  const request = {
+    surfaceId: surface.id,
+    subscriptionId: "subscription-test",
+    subscription: "orders.changes",
+    input: { status: "processing" },
+  } satisfies SubscriptionRequest
+  const response = await postJson("/genui/subscribe", request)
+
+  assert.equal(response.status, 200)
+  assert.match(response.headers.get("content-type") ?? "", /application\/x-ndjson/)
+  const delivery = await readFirstSubscriptionDelivery(response)
+  assert.deepEqual(delivery, {
+    type: "event",
+    surfaceId: surface.id,
+    subscriptionId: "subscription-test",
+    sequence: 1,
+    event: {
+      type: "orders.snapshot",
+      orders: [
+        {
+          id: "ord-1001",
+          customer: "Aster Labs",
+          status: "processing",
+          total: 148,
+        },
+      ],
+    },
+  })
+
+  // Repeated response cancellation must release the kernel's four-stream active cap.
+  for (let index = 0; index < 5; index += 1) {
+    const reopened = await postJson("/genui/subscribe", {
+      ...request,
+      subscriptionId: `subscription-reopened-${index}`,
+    })
+    assert.equal(reopened.status, 200)
+    assert.equal((await readFirstSubscriptionDelivery(reopened))?.type, "event")
+  }
+
+  const denied = await postJson(
+    "/genui/subscribe",
+    { ...request, subscriptionId: "subscription-wrong-subject" },
+    sessionCookie("session-other"),
+  )
+  assert.equal(denied.status, 400)
+  assert.equal(parseSubscriptionOpenFailure(await denied.json())?.error.code, "not_granted")
+
+  const malformed = await postJson("/genui/subscribe", { subscription: "orders.changes" })
+  assert.equal(malformed.status, 400)
+  assert.equal(parseSubscriptionOpenFailure(await malformed.json())?.error.code, "invalid_input")
 })
 
 void test("playground action schemas canonicalize input and reject unknown keys", async () => {

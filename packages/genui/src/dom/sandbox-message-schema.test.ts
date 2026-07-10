@@ -222,6 +222,96 @@ void test("sandbox message schema parses a model-context capability call", () =>
   assert.deepEqual(parseSandboxMessage(message), { ok: true, value: message })
 })
 
+void test("sandbox message schema parses exact subscription lifecycle messages", () => {
+  for (const message of [
+    {
+      channel: protocolChannel,
+      type: "subscription_start",
+      surfaceId: "surface-1",
+      documentId: "document-1",
+      subscriptionId: "document-1:subscription-1",
+      subscription: "orders.changes",
+      input: { status: "processing" },
+    },
+    {
+      channel: protocolChannel,
+      type: "subscription_ack",
+      surfaceId: "surface-1",
+      documentId: "document-1",
+      subscriptionId: "document-1:subscription-1",
+      sequence: 1,
+    },
+    {
+      channel: protocolChannel,
+      type: "subscription_unsubscribe",
+      surfaceId: "surface-1",
+      documentId: "document-1",
+      subscriptionId: "document-1:subscription-1",
+    },
+    {
+      channel: protocolChannel,
+      type: "subscription_cancel",
+      surfaceId: "surface-1",
+      documentId: "document-1",
+      subscriptionId: "document-1:subscription-1",
+      reason: "handler_failed",
+    },
+  ] as const) {
+    assert.deepEqual(parseSandboxMessage(message), { ok: true, value: message })
+  }
+})
+
+void test("sandbox message schema rejects malformed subscription messages", () => {
+  const base = {
+    channel: protocolChannel,
+    surfaceId: "surface-1",
+    documentId: "document-1",
+    subscriptionId: "document-1:subscription-1",
+  }
+  for (const message of [
+    { ...base, type: "subscription_start", subscription: "orders.changes" },
+    {
+      ...base,
+      type: "subscription_start",
+      subscription: "orders.changes",
+      input: undefined,
+    },
+    { ...base, type: "subscription_start", subscription: "invalid", input: {} },
+    { ...base, type: "subscription_ack", sequence: 0 },
+    { ...base, type: "subscription_ack", sequence: Number.POSITIVE_INFINITY },
+    { ...base, type: "subscription_unsubscribe", unexpected: true },
+    { ...base, type: "subscription_cancel", reason: "unsubscribed" },
+    { ...base, type: "subscription_cancel", reason: "handler_failed", unexpected: true },
+    { ...base, documentId: "", type: "subscription_unsubscribe" },
+    { ...base, subscriptionId: "other-document:subscription-1", type: "subscription_unsubscribe" },
+  ]) {
+    assert.deepEqual(parseSandboxMessage(message), { ok: false, reason: "bad_message" })
+  }
+
+  const inherited = Object.assign(Object.create({ sequence: 1 }), {
+    ...base,
+    type: "subscription_ack",
+  })
+  assert.deepEqual(parseSandboxMessage(inherited), { ok: false, reason: "bad_message" })
+
+  const hostileInput = {}
+  Object.defineProperty(hostileInput, "status", {
+    enumerable: true,
+    get() {
+      throw new Error("hostile getter")
+    },
+  })
+  assert.deepEqual(
+    parseSandboxMessage({
+      ...base,
+      type: "subscription_start",
+      subscription: "orders.changes",
+      input: hostileInput,
+    }),
+    { ok: false, reason: "bad_message" },
+  )
+})
+
 void test("sandbox message schema rejects malformed boundary data", () => {
   assert.deepEqual(parseSandboxMessage("bad"), { ok: false, reason: "bad_message" })
   assert.deepEqual(parseSandboxMessage({ channel: "wrong" }), {

@@ -4,6 +4,7 @@ import type { Policy } from "./protocol/index.js"
 import { createSurfaceRuntime } from "./surface-runtime.js"
 import { isRecord, testSchema } from "./test-schema.test-support.js"
 import type { AnyActionDefinition } from "./types.js"
+import type { AnySubscriptionDefinition } from "./types.js"
 
 const emptyInput = testSchema<Readonly<Record<string, never>>>((value) =>
   isRecord(value) ? { ok: true, value: {} } : { ok: false, message: "input must be an object." },
@@ -16,6 +17,20 @@ const actionDefinition = (name: string, policy?: Policy): AnyActionDefinition<un
   policy,
   input: emptyInput,
   execute: () => ({}),
+})
+
+const subscriptionDefinition = (
+  name: string,
+  policy?: "allow" | "block",
+): AnySubscriptionDefinition<unknown> => ({
+  name,
+  description: `${name} test subscription.`,
+  policy,
+  input: emptyInput,
+  inputJsonSchema: { type: "object", properties: { filter: { type: "string" } } },
+  event: emptyInput,
+  eventJsonSchema: { type: "object", properties: { value: { type: "string" } } },
+  subscribe: async function* () {},
 })
 
 void test("surface runtime preserves code and owns grant records and diagnostics", async () => {
@@ -47,6 +62,9 @@ void test("surface runtime preserves code and owns grant records and diagnostics
       { name: "dice.roll", reason: "duplicate" },
       { name: "demo.blocked", reason: "blocked" },
     ],
+    subscriptions: [],
+    grantedSubscriptions: [],
+    droppedSubscriptions: [],
   })
 })
 
@@ -74,7 +92,58 @@ void test("surface runtime reprojects authority without rewriting source", async
     actions: ["dice.roll"],
     granted: [],
     dropped: [{ name: "dice.roll", reason: "blocked" }],
+    subscriptions: [],
+    grantedSubscriptions: [],
+    droppedSubscriptions: [],
   })
+})
+
+void test("surface runtime persists and reprojects separate subscription authority", async () => {
+  const allowed = subscriptionDefinition("orders.changes")
+  const blocked = subscriptionDefinition("orders.blocked", "block")
+  const byName = new Map<string, AnySubscriptionDefinition<unknown>>([
+    [allowed.name, allowed],
+    [blocked.name, blocked],
+  ])
+  const runtime = createSurfaceRuntime({
+    byName: new Map(),
+    subscriptionsByName: byName,
+  })
+  const created = await runtime.surface({
+    content: "<p>Orders</p>",
+    actions: [],
+    subscriptions: [allowed.name, "orders.missing", allowed.name, blocked.name],
+  })
+
+  assert.deepEqual(
+    created.grant.subscriptions.map((item) => item.name),
+    [allowed.name],
+  )
+  assert.deepEqual(await runtime.diagnostics(created.id), {
+    actions: [],
+    granted: [],
+    dropped: [],
+    subscriptions: [allowed.name, "orders.missing", allowed.name, blocked.name],
+    grantedSubscriptions: [allowed.name],
+    droppedSubscriptions: [
+      { name: "orders.missing", reason: "unknown" },
+      { name: allowed.name, reason: "duplicate" },
+      { name: blocked.name, reason: "blocked" },
+    ],
+  })
+
+  const returned = created.grant.subscriptions[0]
+  assert.notEqual(returned, undefined)
+  if (returned === undefined) return
+  Reflect.set(returned.inputSchema ?? {}, "forged", true)
+  Reflect.set(returned.eventSchema ?? {}, "forged", true)
+  const stored = await runtime.getRecord(created.id)
+  assert.equal(stored?.surface.grant.subscriptions[0]?.inputSchema?.forged, undefined)
+  assert.equal(stored?.surface.grant.subscriptions[0]?.eventSchema?.forged, undefined)
+
+  byName.set(allowed.name, subscriptionDefinition(allowed.name, "block"))
+  const reprojected = await runtime.reprojectSurface(created.id)
+  assert.deepEqual(reprojected?.grant.subscriptions, [])
 })
 
 void test("surface runtime accepts only the shipped dialect", async () => {

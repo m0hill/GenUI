@@ -2,11 +2,12 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 import {
   codeDialect,
+  subscriptionEventByteLimit,
   type ActionErrorCode,
   type ActionResult,
   type Surface,
 } from "./protocol/index.js"
-import { action, Genui } from "./registry.js"
+import { action, Genui, subscription } from "./registry.js"
 import type { StandardSchemaV1 } from "./schema.js"
 import { memoryStore } from "./surface-runtime.js"
 import { isRecord, testSchema } from "./test-schema.test-support.js"
@@ -120,6 +121,9 @@ void test("registry projects a grant without rewriting generated code", async ()
       { name: "dice.roll", reason: "duplicate" },
       { name: "demo.blocked", reason: "blocked" },
     ],
+    subscriptions: [],
+    grantedSubscriptions: [],
+    droppedSubscriptions: [],
   })
 })
 
@@ -163,7 +167,7 @@ void test("surface dialect type permits future dialect identifiers", () => {
   const surface: Surface = {
     id: "surface-test",
     content: "",
-    grant: { surfaceId: "surface-test", actions: [] },
+    grant: { surfaceId: "surface-test", actions: [], subscriptions: [] },
     dialect: "code/future",
   }
 
@@ -314,6 +318,9 @@ void test("registry reprojects stored surface source under current policy", asyn
     actions: ["dice.roll"],
     granted: [],
     dropped: [{ name: "dice.roll", reason: "blocked" }],
+    subscriptions: [],
+    grantedSubscriptions: [],
+    droppedSubscriptions: [],
   })
 
   const reprojected = await hardened.reproject(created.id)
@@ -440,6 +447,86 @@ void test("action descriptors carry declared input JSON Schema", async () => {
     actions: ["dice.roll"],
   })
   assert.deepEqual(surface.grant.actions[0]?.inputSchema, inputJsonSchema)
+})
+
+void test("registry projects separate read-only subscriptions", async () => {
+  const inputJsonSchema = { type: "object", properties: { status: { type: "string" } } }
+  const eventJsonSchema = { type: "object", properties: { id: { type: "string" } } }
+  const changes = subscription({
+    name: "orders.changes",
+    description: "Receive order changes.",
+    input: emptyInput,
+    inputJsonSchema,
+    event: emptyInput,
+    eventJsonSchema,
+    subscribe: async function* () {},
+  })
+  const blocked = subscription({
+    name: "orders.blocked",
+    description: "Blocked changes.",
+    policy: "block",
+    input: emptyInput,
+    event: emptyInput,
+    subscribe: async function* () {},
+  })
+  const registry = new Genui({ actions: [], subscriptions: [changes, blocked] })
+  const surface = await registry.surface({
+    content: "<p>Orders</p>",
+    actions: [],
+    subscriptions: [changes.name, "orders.missing", changes.name, blocked.name],
+  })
+
+  assert.deepEqual(registry.subscriptions(), [
+    {
+      name: changes.name,
+      description: changes.description,
+      confidentiality: "normal",
+      maxEventBytes: subscriptionEventByteLimit,
+      inputSchema: inputJsonSchema,
+      eventSchema: eventJsonSchema,
+    },
+  ])
+  assert.deepEqual(
+    surface.grant.subscriptions.map((item) => item.name),
+    [changes.name],
+  )
+  assert.deepEqual(await registry.diagnostics(surface.id), {
+    actions: [],
+    granted: [],
+    dropped: [],
+    subscriptions: [changes.name, "orders.missing", changes.name, blocked.name],
+    grantedSubscriptions: [changes.name],
+    droppedSubscriptions: [
+      { name: "orders.missing", reason: "unknown" },
+      { name: changes.name, reason: "duplicate" },
+      { name: blocked.name, reason: "blocked" },
+    ],
+  })
+})
+
+void test("registry requires globally unique action and subscription names", () => {
+  const definition = subscription({
+    name: "orders.search",
+    description: "Receive search changes.",
+    input: emptyInput,
+    event: emptyInput,
+    subscribe: async function* () {},
+  })
+  const search = action({
+    name: "orders.search",
+    description: "Search orders.",
+    effect: "read",
+    input: emptyInput,
+    execute: () => ({}),
+  })
+  assert.throws(
+    () => new Genui({ actions: [search], subscriptions: [definition] }),
+    /Duplicate authority name: orders\.search/,
+  )
+  assert.throws(
+    () => new Genui({ actions: [], subscriptions: [definition, definition] }),
+    /Duplicate authority name: orders\.search/,
+  )
 })
 
 void test("surface grants carry action intent only when defined", async () => {
@@ -719,6 +806,9 @@ void test("sensitive actions never enter a surface grant", async () => {
     actions: ["profile.read", "secrets.read"],
     granted: ["profile.read"],
     dropped: [{ name: "secrets.read", reason: "confidential" }],
+    subscriptions: [],
+    grantedSubscriptions: [],
+    droppedSubscriptions: [],
   })
 })
 

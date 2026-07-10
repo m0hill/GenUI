@@ -7,8 +7,16 @@ import {
   isRecord,
   jsonRoundTrip,
 } from "../dom/test-support.test-support.js"
+import { createSubscriptionBroker, SubscriptionTransportError } from "../dom/subscription-broker.js"
+import { parseSandboxMessage } from "../dom/sandbox-message-schema.js"
 import type { GuestHostContext } from "../host-context.js"
-import type { Action } from "../protocol/index.js"
+import {
+  codeDialect,
+  subscriptionEventByteLimit,
+  type Action,
+  type Subscription,
+  type Surface,
+} from "../protocol/index.js"
 import { codeBootstrapScript } from "./bootstrap.js"
 
 const channel = "genui/dom/0"
@@ -17,6 +25,7 @@ const surfaceId = "surface-code"
 interface GuestApi {
   readonly surfaceId: string
   readonly actions: readonly unknown[]
+  readonly subscriptions: readonly Subscription[]
   readonly capabilities: {
     readonly sendMessage: boolean
     readonly openLink: boolean
@@ -30,10 +39,26 @@ interface GuestApi {
   snapshot(provider: (restored?: unknown) => unknown): void
   teardown(handler: (context: { readonly reason?: string }) => unknown): void
   onHostContextChange(handler: (partial: GuestApi["hostContext"]) => unknown): void
+  subscribe(
+    subscription: string,
+    input: unknown,
+    handler: (event: unknown) => unknown,
+  ): Promise<{
+    readonly unsubscribe: () => Promise<void>
+    readonly done: Promise<
+      | { readonly ok: true; readonly reason: "completed" | "unsubscribed" }
+      | {
+          readonly ok: false
+          readonly error: { readonly code: string; readonly message: string }
+        }
+    >
+  }>
 }
 
 interface HarnessOptions {
+  readonly documentId?: string
   readonly actions?: readonly Action[]
+  readonly subscriptions?: readonly Subscription[]
   readonly sendMessage?: boolean
   readonly openLink?: boolean
   readonly updateModelContext?: boolean
@@ -163,7 +188,9 @@ const createHarness = (
     codeBootstrapScript({
       channel,
       surfaceId,
+      documentId: options.documentId ?? "document-code",
       actions: options.actions ?? [],
+      subscriptions: options.subscriptions ?? [],
       sendMessage: options.sendMessage ?? false,
       openLink: options.openLink ?? false,
       updateModelContext: options.updateModelContext ?? false,
@@ -234,6 +261,603 @@ void test("code bootstrap installs the pinned API with its embedded grant", () =
 
   assert.equal(genui.surfaceId, surfaceId)
   assert.deepEqual(jsonRoundTrip(genui.actions), actions)
+})
+
+void test("code bootstrap exposes frozen subscriptions and acknowledges events after handlers", async () => {
+  const subscriptions = [
+    {
+      name: "orders.changes",
+      description: "Receive order changes.",
+      confidentiality: "normal",
+      maxEventBytes: subscriptionEventByteLimit,
+      inputSchema: {
+        type: "object",
+        properties: { status: { type: "string" } },
+      },
+      eventSchema: {
+        type: "object",
+        properties: { orderId: { type: "string" } },
+      },
+    },
+  ] satisfies readonly Subscription[]
+  const { genui, messages, window } = createHarness({ subscriptions })
+  const handlerGate = deferred<void>()
+  let received: unknown
+
+  const opening = genui.subscribe("orders.changes", { status: "processing" }, async (event) => {
+    received = event
+    await handlerGate.promise
+  })
+  assert.deepEqual(jsonRoundTrip(messages.at(-1)), {
+    channel,
+    type: "subscription_start",
+    surfaceId,
+    documentId: "document-code",
+    subscriptionId: "document-code:subscription-1",
+    subscription: "orders.changes",
+    input: { status: "processing" },
+  })
+
+  dispatchInboundMessage(window, {
+    channel,
+    type: "subscription_opened",
+    surfaceId,
+    documentId: "document-code",
+    subscriptionId: "document-code:subscription-1",
+  })
+  const stream = await opening
+  assert.equal(Object.isFrozen(stream), true)
+  assert.equal(Object.isFrozen(genui.subscriptions), true)
+  assert.equal(Object.isFrozen(genui.subscriptions[0]), true)
+  assert.equal(Object.isFrozen(genui.subscriptions[0]?.eventSchema), true)
+
+  dispatchInboundMessage(window, {
+    channel,
+    type: "subscription_event",
+    surfaceId,
+    documentId: "document-code",
+    subscriptionId: "document-code:subscription-1",
+    sequence: 1,
+    event: { order: { id: "ord-1" } },
+  })
+  await flushAsync()
+  assert.deepEqual(jsonRoundTrip(received), { order: { id: "ord-1" } })
+  assert.equal(Object.isFrozen(received), true)
+  assert.equal(Object.isFrozen(isRecord(received) ? received.order : undefined), true)
+  assert.equal(
+    messages.some((message) => isRecord(message) && message.type === "subscription_ack"),
+    false,
+  )
+
+  handlerGate.resolve(undefined)
+  await flushAsync()
+  assert.deepEqual(jsonRoundTrip(messages.at(-1)), {
+    channel,
+    type: "subscription_ack",
+    surfaceId,
+    documentId: "document-code",
+    subscriptionId: "document-code:subscription-1",
+    sequence: 1,
+  })
+
+  dispatchInboundMessage(window, {
+    channel,
+    type: "subscription_closed",
+    surfaceId,
+    documentId: "document-code",
+    subscriptionId: "document-code:subscription-1",
+    result: { ok: true, reason: "completed" },
+  })
+  const result = await stream.done
+  assert.deepEqual(jsonRoundTrip(result), { ok: true, reason: "completed" })
+  assert.equal(Object.isFrozen(result), true)
+})
+
+void test("subscription IDs are unique across documents for the same surface", async () => {
+  const subscriptions = [
+    {
+      name: "orders.changes",
+      description: "Receive order changes.",
+      confidentiality: "normal",
+      maxEventBytes: subscriptionEventByteLimit,
+    },
+  ] satisfies readonly Subscription[]
+  const first = createHarness({ documentId: "document-a", subscriptions })
+  const second = createHarness({ documentId: "document-b", subscriptions })
+  const firstOpening = first.genui.subscribe("orders.changes", {}, () => undefined)
+  const secondOpening = second.genui.subscribe("orders.changes", {}, () => undefined)
+  const firstStart = first.messages.at(-1)
+  const secondStart = second.messages.at(-1)
+  assert.equal(
+    isRecord(firstStart) ? firstStart.subscriptionId : undefined,
+    "document-a:subscription-1",
+  )
+  assert.equal(
+    isRecord(secondStart) ? secondStart.subscriptionId : undefined,
+    "document-b:subscription-1",
+  )
+  assert.notEqual(
+    isRecord(firstStart) ? firstStart.subscriptionId : undefined,
+    isRecord(secondStart) ? secondStart.subscriptionId : undefined,
+  )
+
+  dispatchInboundMessage(first.window, {
+    channel,
+    type: "subscription_opened",
+    surfaceId,
+    documentId: "document-a",
+    subscriptionId: "document-a:subscription-1",
+  })
+  dispatchInboundMessage(second.window, {
+    channel,
+    type: "subscription_opened",
+    surfaceId,
+    documentId: "document-b",
+    subscriptionId: "document-b:subscription-1",
+  })
+  const [firstStream, secondStream] = await Promise.all([firstOpening, secondOpening])
+  assert.equal(Object.isFrozen(firstStream), true)
+  assert.equal(Object.isFrozen(secondStream), true)
+})
+
+void test("code bootstrap rejects subscription starts and handles cancellation idempotently", async () => {
+  const subscriptions = [
+    {
+      name: "orders.changes",
+      description: "Receive order changes.",
+      confidentiality: "normal",
+      maxEventBytes: subscriptionEventByteLimit,
+    },
+  ] satisfies readonly Subscription[]
+  const { genui, messages, window } = createHarness({ subscriptions })
+
+  const denied = genui.subscribe("orders.changes", {}, () => undefined)
+  dispatchInboundMessage(window, {
+    channel,
+    type: "subscription_closed",
+    surfaceId,
+    documentId: "document-code",
+    subscriptionId: "document-code:subscription-1",
+    result: { ok: false, error: { code: "blocked", message: "Blocked by policy." } },
+  })
+  await assertGenuiError(denied, "blocked")
+  await assertGenuiError(
+    genui.subscribe("orders.unknown", {}, () => undefined),
+    "not_granted",
+  )
+
+  const opening = genui.subscribe("orders.changes", {}, () => undefined)
+  dispatchInboundMessage(window, {
+    channel,
+    type: "subscription_opened",
+    surfaceId,
+    documentId: "document-code",
+    subscriptionId: "document-code:subscription-2",
+  })
+  const stream = await opening
+  const first = stream.unsubscribe()
+  const second = stream.unsubscribe()
+  assert.equal(first, second)
+  assert.equal(
+    messages.filter((message) => isRecord(message) && message.type === "subscription_unsubscribe")
+      .length,
+    1,
+  )
+  dispatchInboundMessage(window, {
+    channel,
+    type: "subscription_closed",
+    surfaceId,
+    documentId: "document-code",
+    subscriptionId: "document-code:subscription-2",
+    result: { ok: true, reason: "unsubscribed" },
+  })
+  await Promise.all([first, second])
+  assert.deepEqual(jsonRoundTrip(await stream.done), { ok: true, reason: "unsubscribed" })
+})
+
+void test("code bootstrap cancels only a failing subscription handler", async () => {
+  const subscriptions = [
+    {
+      name: "orders.changes",
+      description: "Receive order changes.",
+      confidentiality: "normal",
+      maxEventBytes: subscriptionEventByteLimit,
+    },
+  ] satisfies readonly Subscription[]
+  const { genui, messages, window } = createHarness({ subscriptions })
+  const opening = genui.subscribe("orders.changes", {}, async () => {
+    throw new Error("handler exploded")
+  })
+  dispatchInboundMessage(window, {
+    channel,
+    type: "subscription_opened",
+    surfaceId,
+    documentId: "document-code",
+    subscriptionId: "document-code:subscription-1",
+  })
+  const stream = await opening
+  dispatchInboundMessage(window, {
+    channel,
+    type: "subscription_event",
+    surfaceId,
+    documentId: "document-code",
+    subscriptionId: "document-code:subscription-1",
+    sequence: 1,
+    event: { orderId: "ord-1" },
+  })
+  await flushAsync()
+
+  assert.deepEqual(jsonRoundTrip(await stream.done), {
+    ok: false,
+    error: { code: "handler_failed", message: "Subscription event handler failed." },
+  })
+  assert.equal(
+    messages.some(
+      (message) =>
+        isRecord(message) &&
+        message.type === "guest_error" &&
+        message.message === "handler exploded",
+    ),
+    true,
+  )
+  assert.equal(
+    messages.some(
+      (message) =>
+        isRecord(message) &&
+        message.type === "subscription_cancel" &&
+        message.reason === "handler_failed",
+    ),
+    true,
+  )
+})
+
+void test("code bootstrap cancels handlers that throw values with hostile error getters", async () => {
+  const subscriptions = [
+    {
+      name: "orders.changes",
+      description: "Receive order changes.",
+      confidentiality: "normal",
+      maxEventBytes: subscriptionEventByteLimit,
+    },
+  ] satisfies readonly Subscription[]
+  const hostile = {}
+  Object.defineProperties(hostile, {
+    message: {
+      get() {
+        throw new Error("hostile message getter")
+      },
+    },
+    stack: {
+      get() {
+        throw new Error("hostile stack getter")
+      },
+    },
+  })
+  const { genui, messages, window } = createHarness({ subscriptions })
+  const opening = genui.subscribe("orders.changes", {}, () => {
+    throw hostile
+  })
+  dispatchInboundMessage(window, {
+    channel,
+    type: "subscription_opened",
+    surfaceId,
+    documentId: "document-code",
+    subscriptionId: "document-code:subscription-1",
+  })
+  const stream = await opening
+  dispatchInboundMessage(window, {
+    channel,
+    type: "subscription_event",
+    surfaceId,
+    documentId: "document-code",
+    subscriptionId: "document-code:subscription-1",
+    sequence: 1,
+    event: { orderId: "ord-1" },
+  })
+  await flushAsync()
+
+  assert.deepEqual(jsonRoundTrip(await stream.done), {
+    ok: false,
+    error: { code: "handler_failed", message: "Subscription event handler failed." },
+  })
+  assert.equal(
+    messages.some(
+      (message) =>
+        isRecord(message) &&
+        message.type === "guest_error" &&
+        message.message === "Unknown guest error." &&
+        !Object.hasOwn(message, "stack"),
+    ),
+    true,
+  )
+  assert.equal(
+    messages.some(
+      (message) =>
+        isRecord(message) &&
+        message.type === "subscription_cancel" &&
+        message.reason === "handler_failed",
+    ),
+    true,
+  )
+})
+
+void test("code bootstrap bounds forged early-ack event buffering", async () => {
+  const subscriptions = [
+    {
+      name: "orders.changes",
+      description: "Receive order changes.",
+      confidentiality: "normal",
+      maxEventBytes: subscriptionEventByteLimit,
+    },
+  ] satisfies readonly Subscription[]
+  const { genui, messages, window } = createHarness({ subscriptions })
+  const handlerGate = deferred<void>()
+  const opening = genui.subscribe("orders.changes", {}, () => handlerGate.promise)
+  dispatchInboundMessage(window, {
+    channel,
+    type: "subscription_opened",
+    surfaceId,
+    documentId: "document-code",
+    subscriptionId: "document-code:subscription-1",
+  })
+  const stream = await opening
+  for (const sequence of [1, 2, 3]) {
+    dispatchInboundMessage(window, {
+      channel,
+      type: "subscription_event",
+      surfaceId,
+      documentId: "document-code",
+      subscriptionId: "document-code:subscription-1",
+      sequence,
+      event: { sequence },
+    })
+  }
+  await flushAsync()
+  assert.deepEqual(jsonRoundTrip(await stream.done), {
+    ok: false,
+    error: { code: "overflow", message: "Subscription event queue overflowed." },
+  })
+  assert.equal(
+    messages.some(
+      (message) =>
+        isRecord(message) &&
+        message.type === "subscription_cancel" &&
+        message.reason === "overflow",
+    ),
+    true,
+  )
+  handlerGate.resolve(undefined)
+})
+
+void test("code bootstrap enforces the 64 KiB subscription input boundary", async () => {
+  const subscriptions = [
+    {
+      name: "orders.changes",
+      description: "Receive order changes.",
+      confidentiality: "normal",
+      maxEventBytes: subscriptionEventByteLimit,
+    },
+  ] satisfies readonly Subscription[]
+  const { genui, messages } = createHarness({ subscriptions })
+  void genui.subscribe("orders.changes", "x".repeat(64 * 1_024 - 2), () => undefined)
+  assert.equal(
+    messages.some((message) => isRecord(message) && message.type === "subscription_start"),
+    true,
+  )
+  await assertGenuiError(
+    genui.subscribe("orders.changes", "x".repeat(64 * 1_024 - 1), () => undefined),
+    "invalid_input",
+  )
+
+  const limited = createHarness({ subscriptions }).genui
+  for (let index = 0; index < 4; index += 1) {
+    void limited.subscribe("orders.changes", { index }, () => undefined)
+  }
+  await assertGenuiError(
+    limited.subscribe("orders.changes", { index: 5 }, () => undefined),
+    "rate_limited",
+  )
+})
+
+void test("red team: guest intrinsic tampering cannot weaken subscription handling", async () => {
+  const subscriptions = [
+    {
+      name: "orders.changes",
+      description: "Receive order changes.",
+      confidentiality: "normal",
+      maxEventBytes: subscriptionEventByteLimit,
+    },
+  ] satisfies readonly Subscription[]
+  const { genui, messages, window } = createHarness({ subscriptions })
+  window.eval(`
+    Promise = class BrokenPromise { constructor() { throw new Error("tampered Promise") } }
+    JSON.stringify = () => { throw new Error("tampered JSON") }
+    TextEncoder = class BrokenTextEncoder { constructor() { throw new Error("tampered encoder") } }
+    Object.freeze = () => { throw new Error("tampered freeze") }
+  `)
+
+  let handled = false
+  const opening = genui.subscribe("orders.changes", { status: "processing" }, () => {
+    handled = true
+  })
+  dispatchInboundMessage(window, {
+    channel,
+    type: "subscription_opened",
+    surfaceId,
+    documentId: "document-code",
+    subscriptionId: "document-code:subscription-1",
+  })
+  await opening
+  dispatchInboundMessage(window, {
+    channel,
+    type: "subscription_event",
+    surfaceId,
+    documentId: "document-code",
+    subscriptionId: "document-code:subscription-1",
+    sequence: 1,
+    event: { orderId: "ord-1" },
+  })
+  await flushAsync()
+
+  assert.equal(handled, true)
+  assert.equal(
+    messages.some((message) => isRecord(message) && message.type === "subscription_ack"),
+    true,
+  )
+})
+
+void test("red team: synthetic and stale-document subscription messages are ignored", async () => {
+  const subscriptions = [
+    {
+      name: "orders.changes",
+      description: "Receive order changes.",
+      confidentiality: "normal",
+      maxEventBytes: subscriptionEventByteLimit,
+    },
+  ] satisfies readonly Subscription[]
+  const { genui, window } = createHarness({ subscriptions })
+  let settled = false
+  const opening = genui
+    .subscribe("orders.changes", {}, () => undefined)
+    .then((stream) => {
+      settled = true
+      return stream
+    })
+  dispatchSyntheticInboundMessage(window, {
+    channel,
+    type: "subscription_opened",
+    surfaceId,
+    documentId: "document-code",
+    subscriptionId: "document-code:subscription-1",
+  })
+  dispatchInboundMessage(window, {
+    channel,
+    type: "subscription_opened",
+    surfaceId,
+    documentId: "stale-document",
+    subscriptionId: "document-code:subscription-1",
+  })
+  await flushAsync()
+  assert.equal(settled, false)
+
+  dispatchInboundMessage(window, {
+    channel,
+    type: "subscription_opened",
+    surfaceId,
+    documentId: "document-code",
+    subscriptionId: "document-code:subscription-1",
+  })
+  await opening
+  assert.equal(settled, true)
+})
+
+void test("bounded broker errors settle initial and streamed subscription failures", async () => {
+  const subscriptions = [
+    {
+      name: "orders.changes",
+      description: "Receive order changes.",
+      confidentiality: "normal",
+      maxEventBytes: subscriptionEventByteLimit,
+    },
+  ] satisfies readonly Subscription[]
+  const surface: Surface = {
+    id: surfaceId,
+    dialect: codeDialect,
+    content: "",
+    grant: { surfaceId, actions: [], subscriptions },
+  }
+  const oversizedMessage = "x".repeat(3_000)
+  const { genui, messages, window } = createHarness({ subscriptions })
+  const broker = createSubscriptionBroker(surface, "document-code", {
+    subscriptionTransport: async (request) => {
+      if (request.subscriptionId === "document-code:subscription-1") {
+        throw new SubscriptionTransportError("blocked", oversizedMessage)
+      }
+      return {
+        events: {
+          async *[Symbol.asyncIterator]() {
+            yield {
+              type: "error",
+              surfaceId,
+              subscriptionId: request.subscriptionId,
+              error: { code: "revoked", message: oversizedMessage },
+            }
+          },
+        },
+      }
+    },
+    post: (message) => dispatchInboundMessage(window, message),
+    emit: () => undefined,
+  })
+  const routeLatestStart = (): void => {
+    const parsed = parseSandboxMessage(messages.at(-1))
+    if (!parsed.ok || parsed.value.type !== "subscription_start") {
+      throw new Error("Expected a parsed subscription start.")
+    }
+    broker.handleSandboxMessage(parsed.value)
+  }
+
+  const rejected = genui.subscribe("orders.changes", {}, () => undefined)
+  routeLatestStart()
+  await assert.rejects(rejected, (error: unknown) => {
+    assert.equal(isRecord(error) ? error.code : undefined, "blocked")
+    assert.equal(
+      isRecord(error) && typeof error.message === "string" ? error.message.length : 0,
+      2_048,
+    )
+    return true
+  })
+
+  const opening = genui.subscribe("orders.changes", {}, () => undefined)
+  routeLatestStart()
+  const stream = await opening
+  const result = await stream.done
+  assert.equal(result.ok, false)
+  assert.equal(result.ok ? undefined : result.error.code, "revoked")
+  assert.equal(result.ok ? 0 : result.error.message.length, 2_048)
+  broker.dispose()
+})
+
+void test("code bootstrap freezes deeply nested subscription events without recursion", async () => {
+  const subscriptions = [
+    {
+      name: "orders.changes",
+      description: "Receive order changes.",
+      confidentiality: "normal",
+      maxEventBytes: subscriptionEventByteLimit,
+    },
+  ] satisfies readonly Subscription[]
+  const { genui, messages, window } = createHarness({ subscriptions })
+  let handled = false
+  const opening = genui.subscribe("orders.changes", {}, () => {
+    handled = true
+  })
+  dispatchInboundMessage(window, {
+    channel,
+    type: "subscription_opened",
+    surfaceId,
+    documentId: "document-code",
+    subscriptionId: "document-code:subscription-1",
+  })
+  await opening
+  let event: Readonly<Record<string, unknown>> = {}
+  for (let depth = 0; depth < 5_000; depth += 1) event = { nested: event }
+  dispatchInboundMessage(window, {
+    channel,
+    type: "subscription_event",
+    surfaceId,
+    documentId: "document-code",
+    subscriptionId: "document-code:subscription-1",
+    sequence: 1,
+    event,
+  })
+  await flushAsync()
+
+  assert.equal(handled, true)
+  assert.equal(
+    messages.some((message) => isRecord(message) && message.type === "subscription_ack"),
+    true,
+  )
 })
 
 void test("code bootstrap exposes frozen host capability flags and methods", () => {

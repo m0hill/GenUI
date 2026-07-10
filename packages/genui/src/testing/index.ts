@@ -1,4 +1,9 @@
-import type { ActionResult, MaybePromise, SurfaceRecord } from "../protocol/index.js"
+import {
+  subscriptionEventByteLimit,
+  type ActionResult,
+  type MaybePromise,
+  type SurfaceRecord,
+} from "../protocol/index.js"
 import type { IdempotencyRequest, IdempotencyResult, SurfaceStore } from "../types.js"
 
 export type SurfaceStoreFactory = () => MaybePromise<SurfaceStore>
@@ -36,20 +41,66 @@ export const assertSurfaceStoreConformance = async (
   const peer = await createStore()
   const namespace = `genui-store-${globalThis.crypto.randomUUID()}`
   const surfaceId = `${namespace}-surface`
+  const subscriptionName = "records.changes"
   const record: SurfaceRecord = {
     surface: {
       id: surfaceId,
       content: "<p>Store contract</p>",
       dialect: "code/0",
-      grant: { surfaceId, subject: "subject-1", actions: [] },
+      grant: {
+        surfaceId,
+        subject: "subject-1",
+        actions: [],
+        subscriptions: [
+          {
+            name: subscriptionName,
+            description: "Receive changes to matching records.",
+            confidentiality: "normal",
+            maxEventBytes: subscriptionEventByteLimit,
+            inputSchema: {
+              type: "object",
+              properties: {
+                filter: {
+                  type: "object",
+                  properties: { status: { type: "string" } },
+                  required: ["status"],
+                },
+              },
+              required: ["filter"],
+            },
+            eventSchema: {
+              type: "object",
+              properties: {
+                record: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string" },
+                    status: { type: "string" },
+                  },
+                  required: ["id", "status"],
+                },
+              },
+              required: ["record"],
+            },
+          },
+        ],
+      },
     },
     source: {
       content: "<p>Store contract</p>",
       actions: [],
+      subscriptions: [subscriptionName],
       subject: "subject-1",
     },
     subject: "subject-1",
-    diagnostics: { actions: [], granted: [], dropped: [] },
+    diagnostics: {
+      actions: [],
+      granted: [],
+      dropped: [],
+      subscriptions: [subscriptionName],
+      grantedSubscriptions: [subscriptionName],
+      droppedSubscriptions: [],
+    },
   }
 
   await primary.set(record)

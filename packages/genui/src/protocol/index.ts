@@ -6,6 +6,9 @@ const actionNamePattern = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$/i
 /** Names start with a letter and contain at least two segments separated by `.`, `_`, or `-`. */
 export const isValidActionName = (name: string): boolean => actionNamePattern.test(name)
 
+/** Subscription names follow the same stable, namespaced syntax as action names. */
+export const isValidSubscriptionName = (name: string): boolean => actionNamePattern.test(name)
+
 export type MaybePromise<Value> = Value | Promise<Value>
 
 const effects = ["local", "read", "write", "dangerous"] as const
@@ -24,6 +27,9 @@ export type Confidentiality = (typeof confidentialities)[number]
 /** Dependency-free JSON Schema object used in model-facing action contracts. */
 export type JsonSchema = Readonly<Record<string, unknown>>
 
+/** Fixed maximum JSON-serialized size of one validated subscription event. */
+export const subscriptionEventByteLimit = 64 * 1_024
+
 /** Public action projection visible to models, sandboxes, and approval UI. */
 export interface Action {
   readonly name: string
@@ -34,6 +40,16 @@ export interface Action {
   readonly inputSchema?: JsonSchema
   /** Optional confirmation template; hosts must render interpolated values as untrusted text. */
   readonly intent?: string
+}
+
+/** Public read-only subscription projection visible to models and sandboxes. */
+export interface Subscription {
+  readonly name: string
+  readonly description: string
+  readonly confidentiality: Confidentiality
+  readonly maxEventBytes: typeof subscriptionEventByteLimit
+  readonly inputSchema?: JsonSchema
+  readonly eventSchema?: JsonSchema
 }
 
 const intentPlaceholderPattern = /\{input\.([^{}]+)\}/g
@@ -69,6 +85,7 @@ export interface Grant {
   /** Absolute Unix epoch timestamp in milliseconds after which this grant is invalid. */
   readonly expiresAt?: number
   readonly actions: readonly Action[]
+  readonly subscriptions: readonly Subscription[]
 }
 
 /** Serializable generated UI document after dialect projection and grant projection. */
@@ -86,6 +103,14 @@ export interface ActionCall {
   readonly surfaceId: string
   readonly callId: string
   readonly action: string
+  readonly input: unknown
+}
+
+/** Transport-independent request to open one granted subscription. */
+export interface SubscriptionRequest {
+  readonly surfaceId: string
+  readonly subscriptionId: string
+  readonly subscription: string
   readonly input: unknown
 }
 
@@ -120,6 +145,59 @@ export const actionError = (code: ActionErrorCode, message: string): ActionResul
   error: { code, message },
 })
 
+const subscriptionErrorCodes = [
+  "unknown_surface",
+  "not_granted",
+  "blocked",
+  "invalid_input",
+  "rate_limited",
+  "storage_unavailable",
+  "source_failed",
+  "invalid_event",
+  "event_too_large",
+  "revoked",
+  "expired",
+  "not_available",
+  "handler_failed",
+  "ack_timeout",
+  "overflow",
+  "transport_failed",
+] as const
+
+/** Stable subscription failure codes shared by the kernel and browser broker. */
+export type SubscriptionErrorCode = (typeof subscriptionErrorCodes)[number]
+
+export interface SubscriptionError {
+  readonly code: SubscriptionErrorCode
+  readonly message: string
+}
+
+/** One validated event or terminal failure yielded by a trusted subscription transport. */
+export type SubscriptionDelivery =
+  | {
+      readonly type: "event"
+      readonly surfaceId: string
+      readonly subscriptionId: string
+      readonly sequence: number
+      readonly event: unknown
+    }
+  | {
+      readonly type: "error"
+      readonly surfaceId: string
+      readonly subscriptionId: string
+      readonly error: SubscriptionError
+    }
+
+/** Expected subscription-open failures are values; accepted streams remain pull-based. */
+export type SubscriptionOpenResult =
+  | { readonly ok: true; readonly events: AsyncIterable<SubscriptionDelivery> }
+  | { readonly ok: false; readonly error: SubscriptionError }
+
+export const subscriptionOpenError = (
+  code: SubscriptionErrorCode,
+  message: string,
+): SubscriptionOpenResult => ({ ok: false, error: { code, message } })
+
 /** Input accepted by a registry when creating a dialect-projected surface. */
 export interface SurfaceInput {
   /** Defaults to code/0. */
@@ -127,6 +205,8 @@ export interface SurfaceInput {
   /** Dialect-defined source content. */
   readonly content: string
   readonly actions: readonly string[]
+  /** Read-only subscriptions requested for this generated surface. Defaults to none. */
+  readonly subscriptions?: readonly string[]
   /** Optional opaque user or session identity bound to this surface. */
   readonly subject?: string
   /** Optional lifetime for the projected grant, in milliseconds. */
@@ -140,11 +220,20 @@ export interface DroppedAction {
   readonly reason: "duplicate" | "unknown" | "blocked" | "confidential"
 }
 
+/** One requested subscription omitted while projecting a surface grant. */
+export interface DroppedSubscription {
+  readonly name: string
+  readonly reason: "duplicate" | "unknown" | "blocked" | "confidential"
+}
+
 /** Grant projection details for a generated surface. */
 export interface SurfaceProjectionDiagnostics {
   readonly actions: readonly string[]
   readonly granted: readonly string[]
   readonly dropped: readonly DroppedAction[]
+  readonly subscriptions: readonly string[]
+  readonly grantedSubscriptions: readonly string[]
+  readonly droppedSubscriptions: readonly DroppedSubscription[]
 }
 
 /** Persistable authoritative surface record owned by the host application. */
@@ -170,6 +259,16 @@ const isAction = (value: unknown): value is Action =>
   (value.intent === undefined || typeof value.intent === "string") &&
   (value.inputSchema === undefined || isRecord(value.inputSchema))
 
+const isSubscription = (value: unknown): value is Subscription =>
+  isRecord(value) &&
+  typeof value.name === "string" &&
+  isValidSubscriptionName(value.name) &&
+  typeof value.description === "string" &&
+  confidentialities.some((confidentiality) => confidentiality === value.confidentiality) &&
+  value.maxEventBytes === subscriptionEventByteLimit &&
+  (value.inputSchema === undefined || isRecord(value.inputSchema)) &&
+  (value.eventSchema === undefined || isRecord(value.eventSchema))
+
 const isGrant = (value: unknown, surfaceId: string): value is Grant =>
   isRecord(value) &&
   value.surfaceId === surfaceId &&
@@ -179,7 +278,9 @@ const isGrant = (value: unknown, surfaceId: string): value is Grant =>
       Number.isSafeInteger(value.expiresAt) &&
       value.expiresAt >= 0)) &&
   Array.isArray(value.actions) &&
-  value.actions.every(isAction)
+  value.actions.every(isAction) &&
+  Array.isArray(value.subscriptions) &&
+  value.subscriptions.every(isSubscription)
 
 /** Return undefined unless value is a valid serialized generated UI surface. */
 export const parseSurface = (value: unknown): Surface | undefined => {
@@ -213,8 +314,74 @@ export const parseActionCall = (value: unknown): ActionCall | undefined => {
   }
 }
 
+const subscriptionRequestKeys: ReadonlySet<string> = new Set([
+  "surfaceId",
+  "subscriptionId",
+  "subscription",
+  "input",
+])
+const subscriptionEventKeys: ReadonlySet<string> = new Set([
+  "type",
+  "surfaceId",
+  "subscriptionId",
+  "sequence",
+  "event",
+])
+const subscriptionFailureKeys: ReadonlySet<string> = new Set([
+  "type",
+  "surfaceId",
+  "subscriptionId",
+  "error",
+])
+const subscriptionErrorKeys: ReadonlySet<string> = new Set(["code", "message"])
+
+const hasExactOwnKeys = (
+  value: Readonly<Record<string, unknown>>,
+  keys: ReadonlySet<string>,
+): boolean =>
+  Object.keys(value).length === keys.size &&
+  Object.keys(value).every((key) => keys.has(key)) &&
+  Array.from(keys).every((key) => Object.hasOwn(value, key))
+
+/** Return undefined unless value is an exact transport-independent subscription request. */
+export const parseSubscriptionRequest = (value: unknown): SubscriptionRequest | undefined => {
+  if (!isRecord(value) || !hasExactOwnKeys(value, subscriptionRequestKeys)) return undefined
+  if (typeof value.surfaceId !== "string") return undefined
+  if (typeof value.subscriptionId !== "string") return undefined
+  if (typeof value.subscription !== "string" || !isValidSubscriptionName(value.subscription)) {
+    return undefined
+  }
+  const input = copyJsonValue(value.input)
+  if (input === undefined) return undefined
+  return {
+    surfaceId: value.surfaceId,
+    subscriptionId: value.subscriptionId,
+    subscription: value.subscription,
+    input: input.value,
+  }
+}
+
+const copyJsonValue = (value: unknown): { readonly value: unknown } | undefined => {
+  try {
+    const encoded = JSON.stringify(value)
+    return encoded === undefined ? undefined : { value: JSON.parse(encoded) }
+  } catch {
+    return undefined
+  }
+}
+
 const isActionErrorCode = (value: unknown): value is ActionErrorCode =>
   actionErrorCodes.some((code) => code === value)
+
+const isSubscriptionErrorCode = (value: unknown): value is SubscriptionErrorCode =>
+  subscriptionErrorCodes.some((code) => code === value)
+
+/** Return undefined unless value is an exact serialized subscription error. */
+export const parseSubscriptionError = (value: unknown): SubscriptionError | undefined => {
+  if (!isRecord(value) || !hasExactOwnKeys(value, subscriptionErrorKeys)) return undefined
+  if (!isSubscriptionErrorCode(value.code) || typeof value.message !== "string") return undefined
+  return { code: value.code, message: value.message }
+}
 
 /** Return undefined unless value is a valid action execution result envelope. */
 export const parseActionResult = (value: unknown): ActionResult | undefined => {
@@ -226,5 +393,42 @@ export const parseActionResult = (value: unknown): ActionResult | undefined => {
   return {
     ok: false,
     error: { code: value.error.code, message: value.error.message },
+  }
+}
+
+/** Return undefined unless value is an exact, JSON-safe subscription delivery envelope. */
+export const parseSubscriptionDelivery = (value: unknown): SubscriptionDelivery | undefined => {
+  if (!isRecord(value)) return undefined
+  if (typeof value.surfaceId !== "string" || typeof value.subscriptionId !== "string") {
+    return undefined
+  }
+  if (value.type === "event") {
+    if (!hasExactOwnKeys(value, subscriptionEventKeys)) return undefined
+    if (
+      typeof value.sequence !== "number" ||
+      !Number.isSafeInteger(value.sequence) ||
+      value.sequence <= 0
+    ) {
+      return undefined
+    }
+    const event = copyJsonValue(value.event)
+    return event === undefined
+      ? undefined
+      : {
+          type: "event",
+          surfaceId: value.surfaceId,
+          subscriptionId: value.subscriptionId,
+          sequence: value.sequence,
+          event: event.value,
+        }
+  }
+  if (value.type !== "error" || !hasExactOwnKeys(value, subscriptionFailureKeys)) return undefined
+  const error = parseSubscriptionError(value.error)
+  if (error === undefined) return undefined
+  return {
+    type: "error",
+    surfaceId: value.surfaceId,
+    subscriptionId: value.subscriptionId,
+    error,
   }
 }

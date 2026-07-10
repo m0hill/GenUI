@@ -119,7 +119,7 @@ void test("a throwing audit hook cannot change the action result", async () => {
   let executions = 0
   const runtime = new Genui({
     onError: (event) => {
-      errors.push(event)
+      if (event.type === "call") errors.push(event)
     },
     onCall: () => {
       throw new Error("Audit backend failed")
@@ -151,7 +151,7 @@ void test("a rejecting audit hook cannot change the action result", async () => 
   const errors: CallErrorEvent[] = []
   const runtime = new Genui({
     onError: (event) => {
-      errors.push(event)
+      if (event.type === "call") errors.push(event)
     },
     onCall: async () => {
       throw new Error("Audit backend rejected")

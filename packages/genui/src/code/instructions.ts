@@ -1,5 +1,5 @@
 import { mcpUiStyleVariableKeys } from "../host-context.js"
-import type { Action } from "../protocol/index.js"
+import type { Action, Subscription } from "../protocol/index.js"
 
 const hostStyleVariableInstructions = mcpUiStyleVariableKeys.map((key) => `- \`${key}\``).join("\n")
 
@@ -20,24 +20,48 @@ const actionInstructions = (action: Action): string => {
   return details.join("\n")
 }
 
-export const codeInstructions = (actions: readonly Action[]): string => `# Generated UI: code/0
+const subscriptionInstructions = (subscription: Subscription): string => {
+  const details = [
+    `### ${subscription.name}`,
+    subscription.description,
+    `Confidentiality: ${subscription.confidentiality}`,
+    `Maximum event size: ${subscription.maxEventBytes} bytes`,
+    "Input JSON Schema:",
+    "```json",
+    JSON.stringify(subscription.inputSchema ?? {}, null, 2),
+    "```",
+    "Event JSON Schema:",
+    "```json",
+    JSON.stringify(subscription.eventSchema ?? {}, null, 2),
+    "```",
+  ]
+  return details.join("\n")
+}
+
+export const codeInstructions = (
+  actions: readonly Action[],
+  subscriptions: readonly Subscription[] = [],
+): string => `# Generated UI: code/0
 
 Return only an HTML fragment, without Markdown fences or a document wrapper. Use ordinary HTML,
 inline CSS, and inline \`<script type="module">\` blocks. Standard browser DOM APIs are available.
 
 The fragment runs in an opaque-origin sandbox. It has no network, storage, parent DOM access, or
-external resources. Keep all JavaScript and CSS inline. Do not use fetch, WebSocket, external
-resource URLs, external scripts, external stylesheets, or direct navigation. Only an advertised
+external resources. Keep all JavaScript and CSS inline. Do not use fetch, WebSocket, EventSource,
+external resource URLs, external scripts, external stylesheets, or direct navigation. Only an
 \`genui.openLink\` capability can ask the host to open an external HTTPS URL.
 
 The trusted bridge available as \`window.genui\` has exactly this API:
 
 - \`genui.surfaceId\`: this surface's string identifier.
 - \`genui.actions\`: the granted action descriptors listed below.
+- \`genui.subscriptions\`: the frozen granted read-only subscription descriptors listed below.
 - \`genui.hostContext\`: the current deeply frozen host environment.
 - \`genui.onHostContextChange(handler)\`: registers one live-context handler.
 - \`await genui.call(name, input)\`: resolves to the action output or rejects with a
   \`GenuiActionError\` containing \`code\` and \`message\`.
+- \`await genui.subscribe(name, input, handler)\`: opens a granted subscription and returns a
+  frozen handle with \`done\` and idempotent \`unsubscribe()\`.
 - \`genui.capabilities\`: frozen booleans for optional host capabilities.
 - \`await genui.sendMessage(text)\`, \`await genui.openLink(url)\`, and
   \`await genui.updateModelContext({ content?, structuredContent? })\`: optional host capabilities.
@@ -56,6 +80,35 @@ Schemas. Example:
   document.querySelector("#search").onclick = async () => {
     const orders = await genui.call("orders.search", { status: "open" })
     document.querySelector("#result").textContent = JSON.stringify(orders)
+  }
+</script>
+\`\`\`
+
+## Subscriptions
+
+Subscriptions are granted read-only authority, not host capabilities. Feature-detect through
+\`genui.subscriptions\`. Starting may reject, so handle that failure. Events arrive in order; the
+next event waits for the current handler's returned Promise. The handle's \`done\` Promise always
+resolves, including terminal errors. A thrown or rejected handler cancels only its subscription.
+There is no automatic reconnect or replay.
+
+\`\`\`html
+<button id="stop" disabled>Stop live updates</button><output id="live-status"></output>
+<script type="module">
+  const status = document.querySelector("#live-status")
+  const stop = document.querySelector("#stop")
+  if (genui.subscriptions.some(({ name }) => name === "orders.changes")) {
+    try {
+      const stream = await genui.subscribe("orders.changes", { status: "processing" }, async event => {
+        status.textContent = event.summary
+      })
+      stop.disabled = false
+      stop.onclick = () => stream.unsubscribe()
+      stream.done.then(result => {
+        stop.disabled = true
+        if (!result.ok) status.textContent = result.error.message
+      })
+    } catch (error) { status.textContent = String(error) }
   }
 </script>
 \`\`\`
@@ -137,4 +190,12 @@ ${hostStyleVariableInstructions}
 ## Granted actions
 
 ${actions.length === 0 ? "No actions are granted." : actions.map(actionInstructions).join("\n\n")}
+
+## Granted subscriptions
+
+${
+  subscriptions.length === 0
+    ? "No subscriptions are granted."
+    : subscriptions.map(subscriptionInstructions).join("\n\n")
+}
 `

@@ -20,8 +20,9 @@ working read/write flow, **Guest error fixture** for error forwarding, and
 
 The root `dev` command builds the `genui` package and browser client before
 starting the server. The event panel shows guest errors, violations, action
-results, width-and-height resize reports, host capability requests and
-deliveries, graceful teardown outcomes, and audit entries.
+results, subscription starts, payload-free delivery metadata and closes,
+width-and-height resize reports, host capability requests and deliveries,
+graceful teardown outcomes, and audit entries.
 
 The reference browser host supplies `en-US`, `UTC`, and `web` as its locale,
 time zone, and platform context. It uses a flexible 720-pixel height cap and
@@ -32,6 +33,12 @@ envelope to drain synchronous audit entries and carry single-use approval
 tokens to the trusted parent. The approval endpoint exchanges that token for a
 distinct one-time retry token. Neither token enters the sandbox. This envelope
 is not part of `genui/protocol`; hosts may send audit data to any trusted sink.
+
+The orders example also grants `orders.changes`. Its trusted browser adapter
+uses a streaming server endpoint while generated code receives only
+`genui.subscribe()`. The playground's stream framing is application-specific;
+it is not part of `genui/protocol` and does not expose fetch, SSE, WebSocket, or
+the app source to the iframe.
 
 ## Evaluate model output
 

@@ -3,6 +3,9 @@
 Define each host action once with `action()`. Use the same schema source for
 runtime validation and model-facing JSON Schema.
 
+Use [subscriptions.md](subscriptions.md) for granted read-only event sources.
+Do not make an action return a topic, stream ID, callback, or live iterator.
+
 ```ts
 import { action } from "genui"
 import { z } from "zod"
@@ -45,7 +48,8 @@ choice, not a runtime dependency.
 - `execute(context, input)` receives only the canonical validated input.
 
 Action names must contain at least two segments. Separate segments with `.`,
-`_`, or `-`.
+`_`, or `-`. Names are globally unique across actions and subscriptions in one
+`Genui` instance.
 
 ## JSON Schema projection
 

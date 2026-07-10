@@ -1,10 +1,12 @@
-import type { Action } from "../protocol/index.js"
+import type { Action, Subscription } from "../protocol/index.js"
 import type { GuestHostContext } from "../host-context.js"
 
 interface CodeBootstrapOptions {
   readonly channel: string
   readonly surfaceId: string
+  readonly documentId: string
   readonly actions: readonly Action[]
+  readonly subscriptions: readonly Subscription[]
   readonly sendMessage: boolean
   readonly openLink: boolean
   readonly updateModelContext: boolean
@@ -20,17 +22,32 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
   "use strict"
 
   const config = ${config}
-  const { actions, channel, hostContext: initialHostContext, openLink: canOpenLink,
-    sendMessage: canSendMessage, surfaceId, updateModelContext: canUpdateModelContext } = config
+  const { actions, channel, documentId, hostContext: initialHostContext,
+    openLink: canOpenLink, sendMessage: canSendMessage, surfaceId,
+    subscriptions: configuredSubscriptions,
+    updateModelContext: canUpdateModelContext } = config
   const objectFreeze = Object.freeze
+  const objectIsFrozen = Object.isFrozen
   const objectKeys = Object.keys
   const arrayIsArray = Array.isArray
   const numberIsFinite = Number.isFinite
+  const numberIsSafeInteger = Number.isSafeInteger
   const hasOwn = Function.prototype.call.bind(Object.prototype.hasOwnProperty)
   const arrayEvery = Function.prototype.call.bind(Array.prototype.every)
   const arraySome = Function.prototype.call.bind(Array.prototype.some)
+  const arrayPush = Function.prototype.call.bind(Array.prototype.push)
   const setHas = Function.prototype.call.bind(Set.prototype.has)
+  const TrustedPromise = Promise
   const promiseResolve = Promise.resolve.bind(Promise)
+  const promiseReject = Promise.reject.bind(Promise)
+  const jsonStringify = JSON.stringify.bind(JSON)
+  const jsonParse = JSON.parse.bind(JSON)
+  const textEncoder = new TextEncoder()
+  const encodeText = Function.prototype.call.bind(TextEncoder.prototype.encode)
+  const mapGet = Function.prototype.call.bind(Map.prototype.get)
+  const mapSet = Function.prototype.call.bind(Map.prototype.set)
+  const mapDelete = Function.prototype.call.bind(Map.prototype.delete)
+  const stringFrom = String
   const canonicalLocales = Intl.getCanonicalLocales.bind(Intl)
   const TrustedDateTimeFormat = Intl.DateTimeFormat
   const capabilities = objectFreeze({
@@ -38,8 +55,28 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
     openLink: canOpenLink,
     updateModelContext: canUpdateModelContext,
   })
+  const deepFreeze = (value) => {
+    if (typeof value !== "object" || value === null || objectIsFrozen(value)) return value
+    const pendingFreeze = [value]
+    for (let index = 0; index < pendingFreeze.length; index += 1) {
+      const current = pendingFreeze[index]
+      if (objectIsFrozen(current)) continue
+      for (const key of objectKeys(current)) {
+        const child = current[key]
+        if (typeof child === "object" && child !== null && !objectIsFrozen(child)) {
+          arrayPush(pendingFreeze, child)
+        }
+      }
+      objectFreeze(current)
+    }
+    return value
+  }
+  const subscriptions = deepFreeze(configuredSubscriptions)
   const pending = new Map()
+  const pendingSubscriptions = new Map()
   let nextCallId = 0
+  let nextSubscriptionId = 0
+  let activeSubscriptionCount = 0
   let snapshotProvider
   let teardownHandler
   let hostContextChangeHandler
@@ -48,6 +85,7 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
   const maxCapabilityPayloadBytes = 16 * 1024
   const maxHostMessageStringLength = 256
   const maxLocaleTimeZoneLength = 128
+  const maxSubscriptionPayloadBytes = 64 * 1024
 
   const freezeHostContext = (value) => objectFreeze({
     ...value,
@@ -81,18 +119,41 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
   const heartbeatInterval = window.setInterval(heartbeat, 1000)
   window.addEventListener("pagehide", () => window.clearInterval(heartbeatInterval), { once: true })
 
-  const reportGuestError = (message, error) => {
-    const text = typeof message === "string" ? message : String(message)
-    const stack = typeof error === "object" && error !== null && typeof error.stack === "string"
-      ? error.stack
-      : undefined
-    post({ type: "guest_error", message: text, ...(stack === undefined ? {} : { stack }) })
+  const unknownGuestErrorMessage = "Unknown guest error."
+  const safeString = (value) => {
+    if (typeof value === "string") return value
+    try {
+      return stringFrom(value)
+    } catch {
+      return unknownGuestErrorMessage
+    }
   }
-
-  const errorMessage = (error) => typeof error === "object" && error !== null &&
-      typeof error.message === "string"
-    ? error.message
-    : String(error)
+  const errorMessage = (error) => {
+    try {
+      if (typeof error === "object" && error !== null && typeof error.message === "string") {
+        return error.message
+      }
+    } catch {
+      return unknownGuestErrorMessage
+    }
+    return safeString(error)
+  }
+  const reportGuestError = (message, error) => {
+    const text = safeString(message)
+    let stack
+    try {
+      if (typeof error === "object" && error !== null && typeof error.stack === "string") {
+        stack = error.stack
+      }
+    } catch {
+      stack = undefined
+    }
+    try {
+      post({ type: "guest_error", message: text, ...(stack === undefined ? {} : { stack }) })
+    } catch {
+      // Error reporting is best effort and must never interrupt guest cleanup.
+    }
+  }
 
   window.onerror = (message, _source, _line, _column, error) => {
     reportGuestError(message, error)
@@ -149,7 +210,7 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
   const call = (action, input) => {
     const callId = createCallId()
 
-    return new Promise((resolve, reject) => {
+    return new TrustedPromise((resolve, reject) => {
       pending.set(callId, { resolve, reject })
       try {
         post({ callId, action, input })
@@ -160,10 +221,10 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
     })
   }
 
-  const unavailableCapability = () => Promise.reject(
+  const unavailableCapability = () => promiseReject(
     new GenuiActionError("not_available", "Host capability is not available."),
   )
-  const invalidCapabilityInput = () => Promise.reject(
+  const invalidCapabilityInput = () => promiseReject(
     new GenuiActionError("invalid_input", "Capability input is invalid."),
   )
   const isRecord = (value) => typeof value === "object" && value !== null &&
@@ -175,6 +236,8 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
   const hostContextMessageKeys = new Set(["channel", "type", "surfaceId", "context"])
   const hasOnlyKeys = (value, keys) =>
     arrayEvery(objectKeys(value), (key) => setHas(keys, key))
+  const hasExactKeys = (value, keys) => objectKeys(value).length === keys.size &&
+    hasOnlyKeys(value, keys) && arrayEvery(objectKeys(value), (key) => hasOwn(value, key))
   const isDimensionValue = (value) => typeof value === "number" && numberIsFinite(value) &&
     value >= 0
   const validLocale = (value) => {
@@ -261,9 +324,228 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
     (value.content === undefined || typeof value.content === "string") &&
     (value.structuredContent === undefined || isRecord(value.structuredContent))
 
+  const subscriptionErrorCodes = new Set([
+    "unknown_surface", "not_granted", "blocked", "invalid_input", "rate_limited",
+    "storage_unavailable", "source_failed", "invalid_event", "event_too_large", "revoked",
+    "expired", "not_available", "handler_failed", "ack_timeout", "overflow",
+    "transport_failed",
+  ])
+  const subscriptionOpenedKeys = new Set([
+    "channel", "type", "surfaceId", "documentId", "subscriptionId",
+  ])
+  const subscriptionEventKeys = new Set([
+    "channel", "type", "surfaceId", "documentId", "subscriptionId", "sequence", "event",
+  ])
+  const subscriptionClosedKeys = new Set([
+    "channel", "type", "surfaceId", "documentId", "subscriptionId", "result",
+  ])
+  const subscriptionSuccessKeys = new Set(["ok", "reason"])
+  const subscriptionFailureKeys = new Set(["ok", "error"])
+  const subscriptionErrorKeys = new Set(["code", "message"])
+
+  const copyJson = (value) => {
+    try {
+      const encoded = jsonStringify(value)
+      return encoded === undefined ? undefined : { encoded, value: jsonParse(encoded) }
+    } catch {
+      return undefined
+    }
+  }
+  const frozenSubscriptionError = (code, message) => objectFreeze({ code, message })
+  const frozenSubscriptionFailure = (code, message) => objectFreeze({
+    ok: false,
+    error: frozenSubscriptionError(code, message),
+  })
+  const settleSubscription = (state, result) => {
+    if (state.terminal) return
+    state.terminal = true
+    mapDelete(pendingSubscriptions, state.subscriptionId)
+    activeSubscriptionCount -= 1
+    state.resolveUnsubscribe?.()
+    if (state.phase === "opening") {
+      if (result.ok === false) {
+        state.rejectOpen(new GenuiActionError(result.error.code, result.error.message))
+      } else {
+        state.rejectOpen(new GenuiActionError(
+          "transport_failed",
+          "Subscription closed before it opened.",
+        ))
+      }
+      return
+    }
+    state.resolveDone(result)
+  }
+  const cancelSubscription = (state, reason, message) => {
+    const result = frozenSubscriptionFailure(reason, message)
+    try {
+      post({ type: "subscription_cancel", documentId, subscriptionId: state.subscriptionId,
+        reason })
+    } finally {
+      settleSubscription(state, result)
+    }
+  }
+  const abortSubscription = (state, code, message) => {
+    try {
+      post({ type: "subscription_unsubscribe", documentId,
+        subscriptionId: state.subscriptionId })
+    } finally {
+      settleSubscription(state, frozenSubscriptionFailure(code, message))
+    }
+  }
+  const processSubscriptionEvent = (state, delivery) => {
+    if (state.terminal || state.unsubscribeRequested) return
+    state.processing = true
+    promiseResolve()
+      .then(() => state.handler(delivery.event))
+      .then(() => {
+        if (state.terminal || state.unsubscribeRequested) return
+        try {
+          post({ type: "subscription_ack", documentId, subscriptionId: state.subscriptionId,
+            sequence: delivery.sequence })
+        } catch {
+          settleSubscription(
+            state,
+            frozenSubscriptionFailure(
+              "transport_failed",
+              "Subscription acknowledgment could not be sent.",
+            ),
+          )
+          return
+        }
+        state.processing = false
+        const buffered = state.buffered
+        state.buffered = undefined
+        if (buffered !== undefined) processSubscriptionEvent(state, buffered)
+      })
+      .catch((error) => {
+        if (state.terminal) return
+        reportGuestError(errorMessage(error), error)
+        cancelSubscription(state, "handler_failed", "Subscription event handler failed.")
+      })
+  }
+  const receiveSubscriptionEvent = (state, sequence, event) => {
+    if (state.terminal || state.phase !== "open" || state.unsubscribeRequested) return
+    if (!numberIsSafeInteger(sequence) || sequence <= 0 || sequence !== state.nextSequence) return
+    const copied = copyJson(event)
+    if (copied === undefined) {
+      abortSubscription(state, "invalid_event", "Subscription event was invalid.")
+      return
+    }
+    if (encodeText(textEncoder, copied.encoded).byteLength > maxSubscriptionPayloadBytes) {
+      abortSubscription(state, "event_too_large", "Subscription event exceeded 64 KiB.")
+      return
+    }
+    const delivery = { sequence, event: deepFreeze(copied.value) }
+    state.nextSequence += 1
+    if (!state.processing) {
+      processSubscriptionEvent(state, delivery)
+      return
+    }
+    if (state.buffered === undefined) {
+      state.buffered = delivery
+      return
+    }
+    reportGuestError("Subscription event queue overflowed.")
+    cancelSubscription(state, "overflow", "Subscription event queue overflowed.")
+  }
+  const unsubscribeSubscription = (state) => {
+    if (state.unsubscribePromise !== undefined) return state.unsubscribePromise
+    state.unsubscribePromise = new TrustedPromise((resolve) => {
+      state.resolveUnsubscribe = resolve
+      if (state.terminal) {
+        resolve()
+        return
+      }
+      state.unsubscribeRequested = true
+      try {
+        post({ type: "subscription_unsubscribe", documentId,
+          subscriptionId: state.subscriptionId })
+      } catch {
+        settleSubscription(
+          state,
+          frozenSubscriptionFailure("transport_failed", "Subscription could not be canceled."),
+        )
+      }
+    })
+    return state.unsubscribePromise
+  }
+  const openSubscription = (state) => {
+    if (state.terminal || state.phase !== "opening") return
+    let resolveDone
+    const done = new TrustedPromise((resolve) => {
+      resolveDone = resolve
+    })
+    state.resolveDone = resolveDone
+    state.phase = "open"
+    const handle = objectFreeze({
+      unsubscribe: () => unsubscribeSubscription(state),
+      done,
+    })
+    state.resolveOpen(handle)
+  }
+  const subscribe = (subscription, input, handler) => {
+    if (typeof subscription !== "string" || typeof handler !== "function") {
+      return promiseReject(new GenuiActionError(
+        "invalid_input",
+        "Subscription name and event handler are required.",
+      ))
+    }
+    const granted = arraySome(subscriptions, (descriptor) => descriptor.name === subscription)
+    if (!granted) {
+      return promiseReject(new GenuiActionError(
+        "not_granted",
+        "Subscription is not granted to this surface.",
+      ))
+    }
+    if (activeSubscriptionCount >= 4) {
+      return promiseReject(new GenuiActionError(
+        "rate_limited",
+        "Surface already has four active subscriptions.",
+      ))
+    }
+    const copied = copyJson(input)
+    if (copied === undefined || encodeText(textEncoder, copied.encoded).byteLength >
+        maxSubscriptionPayloadBytes) {
+      return promiseReject(new GenuiActionError(
+        "invalid_input",
+        "Subscription input must be JSON-serializable and at most 64 KiB.",
+      ))
+    }
+    const subscriptionId = documentId + ":subscription-" + String(++nextSubscriptionId)
+    return new TrustedPromise((resolveOpen, rejectOpen) => {
+      const state = {
+        subscriptionId,
+        handler,
+        resolveOpen,
+        rejectOpen,
+        phase: "opening",
+        terminal: false,
+        unsubscribeRequested: false,
+        processing: false,
+        nextSequence: 1,
+      }
+      mapSet(pendingSubscriptions, subscriptionId, state)
+      activeSubscriptionCount += 1
+      try {
+        post({
+          type: "subscription_start",
+          documentId,
+          subscriptionId,
+          subscription,
+          input: copied.value,
+        })
+      } catch {
+        settleSubscription(
+          state,
+          frozenSubscriptionFailure("invalid_input", "Subscription request could not be sent."),
+        )
+      }
+    })
+  }
+
   const requestCapability = (capability, params) => {
     const callId = createCallId()
-    return new Promise((resolve, reject) => {
+    return new TrustedPromise((resolve, reject) => {
       pending.set(callId, { resolve: () => resolve(), reject })
       try {
         post({ type: "capability_call", callId, capability, params })
@@ -330,6 +612,45 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
       promiseResolve()
         .then(() => handler?.(frozenUpdate))
         .catch((error) => reportGuestError(errorMessage(error), error))
+      return
+    }
+
+    if (message.type === "subscription_opened") {
+      if (message.documentId !== documentId || !hasExactKeys(message, subscriptionOpenedKeys) ||
+          typeof message.subscriptionId !== "string") return
+      const state = mapGet(pendingSubscriptions, message.subscriptionId)
+      if (state !== undefined) openSubscription(state)
+      return
+    }
+
+    if (message.type === "subscription_event") {
+      if (message.documentId !== documentId || !hasExactKeys(message, subscriptionEventKeys) ||
+          typeof message.subscriptionId !== "string" || !hasOwn(message, "event")) return
+      const state = mapGet(pendingSubscriptions, message.subscriptionId)
+      if (state !== undefined) receiveSubscriptionEvent(state, message.sequence, message.event)
+      return
+    }
+
+    if (message.type === "subscription_closed") {
+      if (message.documentId !== documentId || !hasExactKeys(message, subscriptionClosedKeys) ||
+          typeof message.subscriptionId !== "string" || !isRecord(message.result)) return
+      const state = mapGet(pendingSubscriptions, message.subscriptionId)
+      if (state === undefined) return
+      const result = message.result
+      if (result.ok === true && hasExactKeys(result, subscriptionSuccessKeys) &&
+          (result.reason === "completed" || result.reason === "unsubscribed")) {
+        settleSubscription(state, objectFreeze({ ok: true, reason: result.reason }))
+        return
+      }
+      if (result.ok !== false || !hasExactKeys(result, subscriptionFailureKeys) ||
+          !isRecord(result.error) || !hasExactKeys(result.error, subscriptionErrorKeys) ||
+          !setHas(subscriptionErrorCodes, result.error.code) ||
+          typeof result.error.message !== "string" ||
+          result.error.message.length > maxHostMessageStringLength * 8) return
+      settleSubscription(
+        state,
+        frozenSubscriptionFailure(result.error.code, result.error.message),
+      )
       return
     }
 
@@ -454,8 +775,10 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
   const genui = {
     surfaceId,
     actions,
+    subscriptions,
     capabilities,
     call,
+    subscribe,
     sendMessage,
     openLink,
     updateModelContext,

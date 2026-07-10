@@ -1,7 +1,8 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { mcpUiStyleVariableKeys } from "../host-context.js"
-import type { Action } from "../protocol/index.js"
+import { subscriptionEventByteLimit } from "../protocol/index.js"
+import type { Action, Subscription } from "../protocol/index.js"
 import { codeInstructions } from "./instructions.js"
 
 void test("code instructions include every granted action name and input schema", () => {
@@ -40,6 +41,51 @@ void test("code instructions include every granted action name and input schema"
     assert.equal(instructions.includes(action.name), true)
     assert.equal(instructions.includes(JSON.stringify(action.inputSchema, null, 2)), true)
   }
+})
+
+void test("code instructions include granted subscription input and event schemas", () => {
+  const subscriptions = [
+    {
+      name: "orders.changes",
+      description: "Receive matching order changes.",
+      confidentiality: "normal",
+      maxEventBytes: subscriptionEventByteLimit,
+      inputSchema: {
+        type: "object",
+        properties: { status: { enum: ["processing", "shipped"] } },
+        additionalProperties: false,
+      },
+      eventSchema: {
+        type: "object",
+        properties: { summary: { type: "string" } },
+        required: ["summary"],
+        additionalProperties: false,
+      },
+    },
+  ] satisfies readonly Subscription[]
+
+  const instructions = codeInstructions([], subscriptions)
+
+  assert.match(instructions, /## Granted subscriptions/)
+  assert.match(instructions, /orders\.changes/)
+  assert.equal(instructions.includes(JSON.stringify(subscriptions[0]?.inputSchema, null, 2)), true)
+  assert.equal(instructions.includes(JSON.stringify(subscriptions[0]?.eventSchema, null, 2)), true)
+  assert.match(instructions, /Maximum event size: 65536 bytes/)
+})
+
+void test("code instructions teach the read-only subscription guest contract", () => {
+  const instructions = codeInstructions([])
+
+  assert.match(instructions, /## Subscriptions/)
+  assert.match(instructions, /genui\.subscriptions/)
+  assert.match(instructions, /genui\.subscribe\(/)
+  assert.match(instructions, /read-only authority, not host capabilities/)
+  assert.match(instructions, /Events arrive in order/)
+  assert.match(instructions, /handler's returned Promise/)
+  assert.match(instructions, /done` Promise always\s+resolves/)
+  assert.match(instructions, /unsubscribe\(\)/)
+  assert.match(instructions, /no automatic reconnect or replay/)
+  assert.match(instructions, /EventSource/)
 })
 
 void test("code instructions teach portable host styling", () => {

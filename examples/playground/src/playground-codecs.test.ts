@@ -6,8 +6,32 @@ import {
   parseExecuteEnvelope,
   parseExecuteRequest,
   parsePlaygroundEvent,
+  parseSubscriptionOpenFailure,
   type PlaygroundEvent,
 } from "./playground-codecs.js"
+
+void test("subscription open failures are decoded strictly", () => {
+  const failure = {
+    ok: false,
+    error: { code: "not_granted", message: "Subscription is not granted." },
+  } as const
+
+  assert.deepEqual(parseSubscriptionOpenFailure(failure), failure)
+  assert.equal(parseSubscriptionOpenFailure({ ...failure, unexpected: true }), undefined)
+  assert.equal(
+    parseSubscriptionOpenFailure({
+      ...failure,
+      error: { code: "unknown", message: failure.error.message },
+    }),
+    undefined,
+  )
+  assert.equal(parseSubscriptionOpenFailure({ ok: true, error: failure.error }), undefined)
+  const inheritedOk = Object.assign(Object.create({ ok: false }), {
+    error: failure.error,
+    unexpected: true,
+  })
+  assert.equal(parseSubscriptionOpenFailure(inheritedOk), undefined)
+})
 
 void test("execute envelope parses action results and audit entries", () => {
   const value = {
@@ -147,6 +171,37 @@ void test("playground events parse at the serialized log boundary", () => {
         at: 1_000,
       },
     },
+    {
+      type: "subscription_start",
+      surfaceId: "surface-1",
+      subscriptionId: "subscription-1",
+      subscription: "orders.changes",
+      inputBytes: 23,
+    },
+    {
+      type: "subscription_opened",
+      surfaceId: "surface-1",
+      subscriptionId: "subscription-1",
+      subscription: "orders.changes",
+    },
+    {
+      type: "subscription_event",
+      surfaceId: "surface-1",
+      subscriptionId: "subscription-1",
+      subscription: "orders.changes",
+      sequence: 1,
+      payloadBytes: 48,
+    },
+    {
+      type: "subscription_closed",
+      surfaceId: "surface-1",
+      subscriptionId: "subscription-1",
+      subscription: "orders.changes",
+      reason: "unsubscribed",
+      eventCount: 1,
+      payloadBytes: 48,
+      durationMs: 250,
+    },
   ] satisfies readonly PlaygroundEvent[]
 
   assert.deepEqual(events.map(parsePlaygroundEvent), events)
@@ -169,4 +224,9 @@ void test("playground events parse at the serialized log boundary", () => {
   assert.equal(parsePlaygroundEvent({ ...events[7], snapshotCaptured: "no" }), undefined)
   assert.equal(parsePlaygroundEvent({ ...events[8], width: undefined }), undefined)
   assert.equal(parsePlaygroundEvent({ ...events[8], height: Number.POSITIVE_INFINITY }), undefined)
+  assert.equal(parsePlaygroundEvent({ ...events[13], inputBytes: -1 }), undefined)
+  assert.equal(parsePlaygroundEvent({ ...events[14], subscriptionId: undefined }), undefined)
+  assert.equal(parsePlaygroundEvent({ ...events[15], sequence: 0 }), undefined)
+  assert.equal(parsePlaygroundEvent({ ...events[15], payload: { private: true } }), undefined)
+  assert.equal(parsePlaygroundEvent({ ...events[16], reason: "unknown" }), undefined)
 })

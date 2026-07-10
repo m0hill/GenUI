@@ -3,8 +3,10 @@ import type { SurfaceEvent } from "genui/dom"
 import {
   parseActionCall,
   parseActionResult,
+  parseSubscriptionError,
   type ActionCall,
   type ActionResult,
+  type SubscriptionOpenResult,
   type SurfaceInput,
 } from "genui/protocol"
 
@@ -14,10 +16,13 @@ export interface ExecuteEnvelope {
   readonly approvalToken?: string
 }
 
+export type SubscriptionOpenFailure = Extract<SubscriptionOpenResult, { readonly ok: false }>
+
 type CapabilityCallEvent = Extract<SurfaceEvent, { readonly type: "capability_call" }>
 type CapabilityResultEvent = Extract<SurfaceEvent, { readonly type: "capability_result" }>
 type HostCapability = CapabilityCallEvent["call"]["capability"]
 type CapabilityOutcome = CapabilityResultEvent["outcome"]
+type SubscriptionClosedEvent = Extract<SurfaceEvent, { readonly type: "subscription_closed" }>
 
 export type PlaygroundHostCapabilityEvent =
   | {
@@ -64,6 +69,9 @@ export const parseRecord = (value: unknown): Readonly<Record<string, unknown>> |
   return value as Readonly<Record<string, unknown>>
 }
 
+const hasExactKeys = (value: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean =>
+  Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key))
+
 const parseEffect = (value: unknown): CallAuditEntry["effect"] | undefined =>
   value === "local" ||
   value === "read" ||
@@ -94,6 +102,22 @@ const parseCapabilityOutcome = (value: unknown): CapabilityOutcome | undefined =
   value === "superseded"
     ? value
     : undefined
+
+const parseSubscriptionCloseReason = (
+  value: unknown,
+): SubscriptionClosedEvent["reason"] | undefined => {
+  if (
+    value === "completed" ||
+    value === "unsubscribed" ||
+    value === "replaced" ||
+    value === "disposed" ||
+    value === "terminated"
+  ) {
+    return value
+  }
+  if (typeof value !== "string") return undefined
+  return parseSubscriptionError({ code: value, message: "" })?.code
+}
 
 const isNonNegativeInteger = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0
@@ -141,6 +165,17 @@ export const parseExecuteEnvelope = (value: unknown): ExecuteEnvelope | undefine
     audit,
     ...(approvalToken === undefined ? {} : { approvalToken }),
   }
+}
+
+export const parseSubscriptionOpenFailure = (
+  value: unknown,
+): SubscriptionOpenFailure | undefined => {
+  const record = parseRecord(value)
+  if (record === undefined || !hasExactKeys(record, ["ok", "error"]) || record.ok !== false) {
+    return undefined
+  }
+  const error = parseSubscriptionError(record.error)
+  return error === undefined ? undefined : { ok: false, error }
 }
 
 export const parseSurfaceRequest = (value: unknown): Pick<SurfaceInput, "content"> | undefined => {
@@ -298,6 +333,93 @@ export const parsePlaygroundEvent = (value: unknown): PlaygroundEvent | undefine
             snapshotCaptured: record.snapshotCaptured,
           }
         : undefined
+    case "subscription_start":
+      return hasExactKeys(record, [
+        "type",
+        "surfaceId",
+        "subscriptionId",
+        "subscription",
+        "inputBytes",
+      ]) &&
+        typeof record.surfaceId === "string" &&
+        typeof record.subscriptionId === "string" &&
+        typeof record.subscription === "string" &&
+        isNonNegativeInteger(record.inputBytes)
+        ? {
+            type: "subscription_start",
+            surfaceId: record.surfaceId,
+            subscriptionId: record.subscriptionId,
+            subscription: record.subscription,
+            inputBytes: record.inputBytes,
+          }
+        : undefined
+    case "subscription_opened":
+      return hasExactKeys(record, ["type", "surfaceId", "subscriptionId", "subscription"]) &&
+        typeof record.surfaceId === "string" &&
+        typeof record.subscriptionId === "string" &&
+        typeof record.subscription === "string"
+        ? {
+            type: "subscription_opened",
+            surfaceId: record.surfaceId,
+            subscriptionId: record.subscriptionId,
+            subscription: record.subscription,
+          }
+        : undefined
+    case "subscription_event":
+      return hasExactKeys(record, [
+        "type",
+        "surfaceId",
+        "subscriptionId",
+        "subscription",
+        "sequence",
+        "payloadBytes",
+      ]) &&
+        typeof record.surfaceId === "string" &&
+        typeof record.subscriptionId === "string" &&
+        typeof record.subscription === "string" &&
+        isNonNegativeInteger(record.sequence) &&
+        record.sequence > 0 &&
+        isNonNegativeInteger(record.payloadBytes)
+        ? {
+            type: "subscription_event",
+            surfaceId: record.surfaceId,
+            subscriptionId: record.subscriptionId,
+            subscription: record.subscription,
+            sequence: record.sequence,
+            payloadBytes: record.payloadBytes,
+          }
+        : undefined
+    case "subscription_closed": {
+      const reason = parseSubscriptionCloseReason(record.reason)
+      return hasExactKeys(record, [
+        "type",
+        "surfaceId",
+        "subscriptionId",
+        "subscription",
+        "reason",
+        "eventCount",
+        "payloadBytes",
+        "durationMs",
+      ]) &&
+        typeof record.surfaceId === "string" &&
+        typeof record.subscriptionId === "string" &&
+        typeof record.subscription === "string" &&
+        reason !== undefined &&
+        isNonNegativeInteger(record.eventCount) &&
+        isNonNegativeInteger(record.payloadBytes) &&
+        isNonNegativeFiniteNumber(record.durationMs)
+        ? {
+            type: "subscription_closed",
+            surfaceId: record.surfaceId,
+            subscriptionId: record.subscriptionId,
+            subscription: record.subscription,
+            reason,
+            eventCount: record.eventCount,
+            payloadBytes: record.payloadBytes,
+            durationMs: record.durationMs,
+          }
+        : undefined
+    }
     case "resize":
       return isNonNegativeFiniteNumber(record.width) && isNonNegativeFiniteNumber(record.height)
         ? { type: "resize", width: record.width, height: record.height }
@@ -318,6 +440,7 @@ export const parsePlaygroundEvent = (value: unknown): PlaygroundEvent | undefine
       const reason: Extract<SurfaceEvent, { type: "violation" }>["reason"] | undefined =
         record.reason === "bad_message" ||
         record.reason === "ungranted_call" ||
+        record.reason === "ungranted_subscription" ||
         record.reason === "navigation" ||
         record.reason === "unresponsive" ||
         record.reason === "snapshot_timeout" ||

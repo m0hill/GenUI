@@ -1,6 +1,10 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import type { ActionCall, ActionResult } from "../protocol/index.js"
+import {
+  subscriptionEventByteLimit,
+  type ActionCall,
+  type ActionResult,
+} from "../protocol/index.js"
 import {
   mount,
   type HostContext,
@@ -788,6 +792,96 @@ void test("mount aborts pending transport after replace and dispose", async () =
   result.resolve({ ok: true, value: {} })
 })
 
+void test("mount isolates subscriptions by document and aborts them on same-surface replacement", async () => {
+  const { window, element } = createMountTarget()
+  const base = testSurface([])
+  const first = {
+    ...base,
+    grant: {
+      ...base.grant,
+      subscriptions: [
+        {
+          name: "orders.changes",
+          description: "Receive order changes.",
+          confidentiality: "normal" as const,
+          maxEventBytes: subscriptionEventByteLimit,
+        },
+      ],
+    },
+  }
+  const second = { ...first, content: "<p>Replacement</p>" }
+  const signals: AbortSignal[] = []
+  let returns = 0
+  const never = deferred<IteratorResult<unknown>>()
+  const instance = mount(asDomElement(element), first, {
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+    subscriptionTransport: async (_request, options) => {
+      signals.push(options.signal)
+      return {
+        events: {
+          [Symbol.asyncIterator]() {
+            return {
+              next: () => never.promise,
+              async return() {
+                returns += 1
+                return { done: true, value: undefined }
+              },
+            }
+          },
+        },
+      }
+    },
+  })
+  const iframe = mountedIframe(element)
+  const initialDocumentId = /"documentId":"([^"]+)"/.exec(iframe.srcdoc)?.[1]
+  assert.notEqual(initialDocumentId, undefined)
+
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "subscription_start",
+    surfaceId: first.id,
+    documentId: initialDocumentId,
+    subscriptionId: `${initialDocumentId}:subscription-old`,
+    subscription: "orders.changes",
+    input: {},
+  })
+  await flushAsync()
+  assert.equal(signals.length, 1)
+  assert.equal(signals[0]?.aborted, false)
+
+  await instance.replace(second, { snapshot: {} })
+  assert.equal(signals[0]?.aborted, true)
+  assert.equal(returns, 1)
+  const replacementDocumentId = /"documentId":"([^"]+)"/.exec(iframe.srcdoc)?.[1]
+  assert.notEqual(replacementDocumentId, initialDocumentId)
+
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "subscription_start",
+    surfaceId: second.id,
+    documentId: initialDocumentId,
+    subscriptionId: `${initialDocumentId}:subscription-stale`,
+    subscription: "orders.changes",
+    input: {},
+  })
+  await flushAsync()
+  assert.equal(signals.length, 1)
+
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "subscription_start",
+    surfaceId: second.id,
+    documentId: replacementDocumentId,
+    subscriptionId: `${replacementDocumentId}:subscription-current`,
+    subscription: "orders.changes",
+    input: {},
+  })
+  await flushAsync()
+  assert.equal(signals.length, 2)
+  instance.dispose()
+  assert.equal(signals[1]?.aborted, true)
+})
+
 void test("mount snapshots and restores same-surface replacements", async () => {
   const { window, element } = createMountTarget()
   const first = testSurface([], `<p>First</p>`)
@@ -1291,6 +1385,66 @@ void test("teardown keeps guest work live until disposal and finishes pending sn
 
   assert.equal(await teardown, undefined)
   assert.equal(await snapshot, undefined)
+})
+
+void test("graceful teardown keeps subscriptions live until final disposal", async () => {
+  const { window, element } = createMountTarget()
+  const base = testSurface([])
+  const surface = {
+    ...base,
+    grant: {
+      ...base.grant,
+      subscriptions: [
+        {
+          name: "orders.changes",
+          description: "Receive order changes.",
+          confidentiality: "normal" as const,
+          maxEventBytes: subscriptionEventByteLimit,
+        },
+      ],
+    },
+  }
+  const pending = deferred<IteratorResult<unknown>>()
+  let signal: AbortSignal | undefined
+  const instance = mount(asDomElement(element), surface, {
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+    subscriptionTransport: async (_request, options) => {
+      signal = options.signal
+      return { events: { [Symbol.asyncIterator]: () => ({ next: () => pending.promise }) } }
+    },
+  })
+  const iframe = mountedIframe(element)
+  const hostMessages: Array<Readonly<Record<string, unknown>>> = []
+  if (iframe.contentWindow === null) throw new Error("Expected an iframe content window.")
+  iframe.contentWindow.postMessage = (message: unknown): void => {
+    if (isRecord(message)) hostMessages.push(message)
+  }
+  const documentId = /"documentId":"([^"]+)"/.exec(iframe.srcdoc)?.[1]
+  if (documentId === undefined) throw new Error("Missing document ID.")
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "subscription_start",
+    surfaceId: surface.id,
+    documentId,
+    subscriptionId: `${documentId}:subscription-live`,
+    subscription: "orders.changes",
+    input: {},
+  })
+  await flushAsync()
+  assert.equal(signal?.aborted, false)
+
+  const teardown = instance.teardown({ timeoutMs: 100 })
+  assert.equal(signal?.aborted, false)
+  const request = hostMessages.find((message) => message.type === "teardown_request")
+  dispatchSandboxMessage(window, iframe, {
+    channel: protocolChannel,
+    type: "teardown",
+    surfaceId: surface.id,
+    requestId: request?.requestId,
+    ok: true,
+  })
+  assert.equal(await teardown, undefined)
+  assert.equal(signal?.aborted, true)
 })
 
 void test("mount refuses unsupported surface dialects", () => {

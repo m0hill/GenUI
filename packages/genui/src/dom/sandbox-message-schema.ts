@@ -1,4 +1,4 @@
-import { parseActionCall, type ActionCall } from "../protocol/index.js"
+import { isValidSubscriptionName, parseActionCall, type ActionCall } from "../protocol/index.js"
 import type {
   OpenLinkParams,
   SendMessageParams,
@@ -110,6 +110,48 @@ export type CapabilitySandboxMessage =
   | OpenLinkSandboxMessage
   | UpdateModelContextSandboxMessage
 
+export interface SubscriptionStartSandboxMessage {
+  readonly channel: typeof protocolChannel
+  readonly type: "subscription_start"
+  readonly surfaceId: string
+  readonly documentId: string
+  readonly subscriptionId: string
+  readonly subscription: string
+  readonly input: SnapshotValue
+}
+
+export interface SubscriptionAckSandboxMessage {
+  readonly channel: typeof protocolChannel
+  readonly type: "subscription_ack"
+  readonly surfaceId: string
+  readonly documentId: string
+  readonly subscriptionId: string
+  readonly sequence: number
+}
+
+export interface SubscriptionUnsubscribeSandboxMessage {
+  readonly channel: typeof protocolChannel
+  readonly type: "subscription_unsubscribe"
+  readonly surfaceId: string
+  readonly documentId: string
+  readonly subscriptionId: string
+}
+
+export interface SubscriptionCancelSandboxMessage {
+  readonly channel: typeof protocolChannel
+  readonly type: "subscription_cancel"
+  readonly surfaceId: string
+  readonly documentId: string
+  readonly subscriptionId: string
+  readonly reason: "handler_failed" | "overflow"
+}
+
+export type SubscriptionSandboxMessage =
+  | SubscriptionStartSandboxMessage
+  | SubscriptionAckSandboxMessage
+  | SubscriptionUnsubscribeSandboxMessage
+  | SubscriptionCancelSandboxMessage
+
 export type SandboxMessage =
   | ActionSandboxMessage
   | HeartbeatSandboxMessage
@@ -118,6 +160,7 @@ export type SandboxMessage =
   | SnapshotSandboxMessage
   | TeardownSandboxMessage
   | CapabilitySandboxMessage
+  | SubscriptionSandboxMessage
 
 type ParseSandboxMessageResult =
   | { readonly ok: true; readonly value: SandboxMessage }
@@ -158,6 +201,38 @@ const sendMessageParamKeys: ReadonlySet<string> = new Set(["role", "content"])
 const textContentKeys: ReadonlySet<string> = new Set(["type", "text"])
 const openLinkParamKeys: ReadonlySet<string> = new Set(["url"])
 const updateModelContextParamKeys: ReadonlySet<string> = new Set(["content", "structuredContent"])
+const subscriptionStartKeys: ReadonlySet<string> = new Set([
+  "channel",
+  "type",
+  "surfaceId",
+  "documentId",
+  "subscriptionId",
+  "subscription",
+  "input",
+])
+const subscriptionAckKeys: ReadonlySet<string> = new Set([
+  "channel",
+  "type",
+  "surfaceId",
+  "documentId",
+  "subscriptionId",
+  "sequence",
+])
+const subscriptionUnsubscribeKeys: ReadonlySet<string> = new Set([
+  "channel",
+  "type",
+  "surfaceId",
+  "documentId",
+  "subscriptionId",
+])
+const subscriptionCancelKeys: ReadonlySet<string> = new Set([
+  "channel",
+  "type",
+  "surfaceId",
+  "documentId",
+  "subscriptionId",
+  "reason",
+])
 const resizeMessageKeys: ReadonlySet<string> = new Set([
   "channel",
   "type",
@@ -253,6 +328,101 @@ const parseCapabilityMessage = (
   }
 
   return undefined
+}
+
+const parseSubscriptionMessage = (
+  value: Readonly<Record<string, unknown>>,
+): SubscriptionSandboxMessage | undefined => {
+  const surfaceId = boundedString(value.surfaceId, maxIdentifierLength)
+  const documentId = boundedString(value.documentId, maxIdentifierLength)
+  const subscriptionId = boundedString(value.subscriptionId, maxIdentifierLength)
+  if (
+    surfaceId === undefined ||
+    surfaceId.length === 0 ||
+    documentId === undefined ||
+    documentId.length === 0 ||
+    subscriptionId === undefined ||
+    subscriptionId.length === 0 ||
+    !subscriptionId.startsWith(`${documentId}:`)
+  ) {
+    return undefined
+  }
+
+  if (value.type === "subscription_start") {
+    if (
+      !hasOnlyKeys(value, subscriptionStartKeys) ||
+      Object.keys(value).length !== subscriptionStartKeys.size ||
+      typeof value.subscription !== "string" ||
+      value.subscription.length === 0 ||
+      value.subscription.length > maxIdentifierLength ||
+      !isValidSubscriptionName(value.subscription) ||
+      !Object.hasOwn(value, "input")
+    ) {
+      return undefined
+    }
+    const input = parseSnapshotValue(value.input)
+    return input === undefined
+      ? undefined
+      : {
+          channel: protocolChannel,
+          type: "subscription_start",
+          surfaceId,
+          documentId,
+          subscriptionId,
+          subscription: value.subscription,
+          input,
+        }
+  }
+
+  if (value.type === "subscription_ack") {
+    if (
+      !hasOnlyKeys(value, subscriptionAckKeys) ||
+      Object.keys(value).length !== subscriptionAckKeys.size ||
+      typeof value.sequence !== "number" ||
+      !Number.isSafeInteger(value.sequence) ||
+      value.sequence <= 0
+    ) {
+      return undefined
+    }
+    return {
+      channel: protocolChannel,
+      type: "subscription_ack",
+      surfaceId,
+      documentId,
+      subscriptionId,
+      sequence: value.sequence,
+    }
+  }
+
+  if (value.type === "subscription_unsubscribe") {
+    return !hasOnlyKeys(value, subscriptionUnsubscribeKeys) ||
+      Object.keys(value).length !== subscriptionUnsubscribeKeys.size
+      ? undefined
+      : {
+          channel: protocolChannel,
+          type: "subscription_unsubscribe",
+          surfaceId,
+          documentId,
+          subscriptionId,
+        }
+  }
+
+  if (value.type !== "subscription_cancel") return undefined
+  if (
+    !hasOnlyKeys(value, subscriptionCancelKeys) ||
+    Object.keys(value).length !== subscriptionCancelKeys.size ||
+    (value.reason !== "handler_failed" && value.reason !== "overflow")
+  ) {
+    return undefined
+  }
+  return {
+    channel: protocolChannel,
+    type: "subscription_cancel",
+    surfaceId,
+    documentId,
+    subscriptionId,
+    reason: value.reason,
+  }
 }
 
 const truncatedString = (value: unknown, maxLength: number): string | undefined =>
@@ -405,6 +575,11 @@ export const parseSandboxMessage = (value: unknown): ParseSandboxMessageResult =
                 ? parseTeardownMessage(value)
                 : value.type === "capability_call"
                   ? parseCapabilityMessage(value)
-                  : undefined
+                  : value.type === "subscription_start" ||
+                      value.type === "subscription_ack" ||
+                      value.type === "subscription_unsubscribe" ||
+                      value.type === "subscription_cancel"
+                    ? parseSubscriptionMessage(value)
+                    : undefined
   return message === undefined ? { ok: false, reason: "bad_message" } : { ok: true, value: message }
 }

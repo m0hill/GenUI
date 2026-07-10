@@ -1,11 +1,13 @@
-import { mount, type Mounted } from "genui/dom"
+import { mount, SubscriptionTransportError, type Mounted } from "genui/dom"
 import { actionError, parseSurface } from "genui/protocol"
 import { guestErrorFixture, ordersDashboardFixture } from "./fixtures.js"
 import {
   parseApprovalResponse,
   parseExecuteEnvelope,
+  parseSubscriptionOpenFailure,
   type PlaygroundEvent,
 } from "./playground-codecs.js"
+import { subscriptionDeliveries } from "./subscription-stream.js"
 
 const requiredElement = <ElementType extends Element>(selector: string): ElementType => {
   const element = document.querySelector<ElementType>(selector)
@@ -72,6 +74,36 @@ const transport: Parameters<typeof mount>[2]["transport"] = async (call, options
   return envelope.result
 }
 
+const subscriptionTransport: NonNullable<
+  Parameters<typeof mount>[2]["subscriptionTransport"]
+> = async (request, options) => {
+  const response = await fetch("/genui/subscribe", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(request),
+    signal: options.signal,
+  })
+  if (!response.ok) {
+    const failure = parseSubscriptionOpenFailure(await response.json())
+    if (failure === undefined) {
+      throw new SubscriptionTransportError(
+        "transport_failed",
+        "Host returned an invalid subscription failure.",
+      )
+    }
+    throw new SubscriptionTransportError(failure.error.code, failure.error.message)
+  }
+  try {
+    return { events: subscriptionDeliveries(response) }
+  } catch {
+    await response.body?.cancel().catch(() => undefined)
+    throw new SubscriptionTransportError(
+      "transport_failed",
+      "Host returned an invalid subscription stream.",
+    )
+  }
+}
+
 const createSurface = (content: string): Promise<void> => {
   const transition = surfaceTransition.then(async () => {
     showStatus("Creating surface…")
@@ -104,6 +136,7 @@ const createSurface = (content: string): Promise<void> => {
         platform: "web",
       },
       transport,
+      subscriptionTransport,
       capabilities: {
         sendMessage: ({ role, content }) => {
           appendEvent({

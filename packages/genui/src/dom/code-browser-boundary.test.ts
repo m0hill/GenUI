@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { after, before, test } from "node:test"
 import { build } from "esbuild"
 import { chromium, type Browser, type Page } from "playwright"
-import type { ActionCall, Surface } from "../protocol/index.js"
+import { subscriptionEventByteLimit, type ActionCall, type Surface } from "../protocol/index.js"
 import type { Mounted, SurfaceEvent } from "./index.js"
 
 let browser: Browser | undefined
@@ -13,6 +13,7 @@ type BrowserDomRuntime = Pick<typeof import("./index.js"), "mount">
 interface CodeHostState {
   readonly calls: ActionCall[]
   readonly capabilityCalls?: unknown[]
+  readonly subscriptionRequests?: unknown[]
   readonly events: SurfaceEvent[]
   readonly mounted: Mounted
   readonly setDocumentVisible?: (visible: boolean) => void
@@ -68,6 +69,7 @@ const surface: Surface = {
         },
       },
     ],
+    subscriptions: [],
   },
 }
 
@@ -97,7 +99,7 @@ const snapshotSurface: Surface = {
       render()
     </script>
   `,
-  grant: { surfaceId: "surface-snapshot-browser", actions: [] },
+  grant: { surfaceId: "surface-snapshot-browser", actions: [], subscriptions: [] },
 }
 
 const startupGrantSurface: Surface = {
@@ -113,6 +115,7 @@ const startupGrantSurface: Surface = {
   grant: {
     surfaceId: "surface-startup-grant-browser",
     actions: surface.grant.actions,
+    subscriptions: [],
   },
 }
 
@@ -156,7 +159,7 @@ const hostContextSurface: Surface = {
       }
     </script>
   `,
-  grant: { surfaceId: "surface-host-context-browser", actions: [] },
+  grant: { surfaceId: "surface-host-context-browser", actions: [], subscriptions: [] },
 }
 
 const replacementContextSurface: Surface = {
@@ -179,7 +182,11 @@ const replacementContextSurface: Surface = {
       render()
     </script>
   `,
-  grant: { surfaceId: "surface-host-context-replacement-browser", actions: [] },
+  grant: {
+    surfaceId: "surface-host-context-replacement-browser",
+    actions: [],
+    subscriptions: [],
+  },
 }
 
 const syntheticContextSurface: Surface = {
@@ -205,14 +212,14 @@ const syntheticContextSurface: Surface = {
         JSON.stringify({ context: genui.hostContext, changes })
     </script>
   `,
-  grant: { surfaceId: "surface-synthetic-context-browser", actions: [] },
+  grant: { surfaceId: "surface-synthetic-context-browser", actions: [], subscriptions: [] },
 }
 
 const heartbeatSurface: Surface = {
   id: "surface-heartbeat-browser",
   dialect: "code/0",
   content: `<p id="heartbeat-fixture">Heartbeat fixture</p>`,
-  grant: { surfaceId: "surface-heartbeat-browser", actions: [] },
+  grant: { surfaceId: "surface-heartbeat-browser", actions: [], subscriptions: [] },
 }
 
 const capabilitySurface: Surface = {
@@ -265,7 +272,7 @@ const capabilitySurface: Surface = {
       )
     </script>
   `,
-  grant: { surfaceId: "surface-capability-browser", actions: [] },
+  grant: { surfaceId: "surface-capability-browser", actions: [], subscriptions: [] },
 }
 
 const teardownSurface: Surface = {
@@ -292,13 +299,61 @@ const teardownSurface: Surface = {
       render()
     </script>
   `,
-  grant: { surfaceId: "surface-teardown-browser", actions: [] },
+  grant: { surfaceId: "surface-teardown-browser", actions: [], subscriptions: [] },
 }
 
 const restoredTeardownSurface: Surface = {
   ...teardownSurface,
   id: "surface-teardown-restored-browser",
-  grant: { surfaceId: "surface-teardown-restored-browser", actions: [] },
+  grant: { surfaceId: "surface-teardown-restored-browser", actions: [], subscriptions: [] },
+}
+
+const subscriptionSurface: Surface = {
+  id: "surface-subscription-browser",
+  dialect: "code/0",
+  content: `
+    <output id="subscription-projection"></output>
+    <button id="subscribe">Subscribe</button>
+    <output id="subscription-events"></output>
+    <output id="subscription-done"></output>
+    <script type="module">
+      document.querySelector("#subscription-projection").textContent = JSON.stringify({
+        names: genui.subscriptions.map((subscription) => subscription.name),
+        frozen: Object.isFrozen(genui.subscriptions) &&
+          Object.isFrozen(genui.subscriptions[0]) &&
+          Object.isFrozen(genui.subscriptions[0].eventSchema),
+      })
+      document.querySelector("#subscribe").onclick = async () => {
+        const received = []
+        let handling = false
+        const stream = await genui.subscribe("orders.changes", { status: "processing" },
+          async (event) => {
+            if (handling) throw new Error("concurrent handler")
+            handling = true
+            await new Promise((resolve) => setTimeout(resolve, 20))
+            received.push({ event, frozen: Object.isFrozen(event) })
+            document.querySelector("#subscription-events").textContent = JSON.stringify(received)
+            handling = false
+          })
+        stream.done.then((result) => {
+          document.querySelector("#subscription-done").textContent = JSON.stringify(result)
+        })
+      }
+    </script>
+  `,
+  grant: {
+    surfaceId: "surface-subscription-browser",
+    actions: [],
+    subscriptions: [
+      {
+        name: "orders.changes",
+        description: "Receive order changes.",
+        confidentiality: "normal",
+        maxEventBytes: subscriptionEventByteLimit,
+        eventSchema: { type: "object" },
+      },
+    ],
+  },
 }
 
 const newPage = async (): Promise<Page> => {
@@ -345,6 +400,124 @@ void test("guest startup scripts receive the embedded grant", async (context) =>
   const output = page.frameLocator("iframe").locator("#startup-actions")
   await output.waitFor({ state: "visible" })
   assert.equal(await output.textContent(), "dice.roll")
+})
+
+void test("guest subscriptions receive frozen events sequentially and complete", async (context) => {
+  const page = await newPage()
+  context.after(async () => {
+    await page.close()
+  })
+
+  await page.evaluate((surfaceValue) => {
+    const root = document.querySelector("#root")
+    if (root === null) throw new Error("Missing mount root.")
+    const events: SurfaceEvent[] = []
+    const subscriptionRequests: unknown[] = []
+    const mounted = window.GenuiDom.mount(root, surfaceValue, {
+      transport: async () => ({ ok: true, value: {} }),
+      subscriptionTransport: async (request) => {
+        subscriptionRequests.push(request)
+        return {
+          events: {
+            async *[Symbol.asyncIterator]() {
+              for (const sequence of [1, 2]) {
+                yield {
+                  type: "event",
+                  surfaceId: request.surfaceId,
+                  subscriptionId: request.subscriptionId,
+                  sequence,
+                  event: { sequence },
+                }
+              }
+            },
+          },
+        }
+      },
+      onEvent: (event) => events.push(event),
+    })
+    Object.assign(window, {
+      __codeHost: { calls: [], events, mounted, subscriptionRequests },
+    })
+  }, subscriptionSurface)
+
+  const frame = page.frameLocator("iframe")
+  const initialDocumentId = await page
+    .locator("iframe")
+    .evaluate((iframe) => /"documentId":"([^"]+)"/.exec(iframe.getAttribute("srcdoc") ?? "")?.[1])
+  if (initialDocumentId === undefined) throw new Error("Missing initial document ID.")
+  assert.deepEqual(
+    JSON.parse((await frame.locator("#subscription-projection").textContent()) ?? "null"),
+    { names: ["orders.changes"], frozen: true },
+  )
+  await frame.locator("#subscribe").click()
+  await frame.locator("#subscription-done").getByText("completed").waitFor()
+  assert.deepEqual(
+    JSON.parse((await frame.locator("#subscription-events").textContent()) ?? "null"),
+    [
+      { event: { sequence: 1 }, frozen: true },
+      { event: { sequence: 2 }, frozen: true },
+    ],
+  )
+  assert.deepEqual(
+    JSON.parse((await frame.locator("#subscription-done").textContent()) ?? "null"),
+    { ok: true, reason: "completed" },
+  )
+  const requests = await page.evaluate(() => window.__codeHost.subscriptionRequests)
+  assert.deepEqual(requests, [
+    {
+      surfaceId: subscriptionSurface.id,
+      subscriptionId:
+        requests?.[0] !== undefined && typeof requests[0] === "object" && requests[0] !== null
+          ? Reflect.get(requests[0], "subscriptionId")
+          : "",
+      subscription: "orders.changes",
+      input: { status: "processing" },
+    },
+  ])
+  assert.equal(
+    await page.evaluate(
+      () => window.__codeHost.events.filter((event) => event.type === "subscription_event").length,
+    ),
+    2,
+  )
+
+  const replacementDocumentId = await page.evaluate(async (surfaceValue) => {
+    await window.__codeHost.mounted.replace(surfaceValue, { snapshot: {} })
+    const iframe = document.querySelector("iframe")
+    if (iframe === null) throw new Error("Missing subscription iframe.")
+    return /"documentId":"([^"]+)"/.exec(iframe.getAttribute("srcdoc") ?? "")?.[1]
+  }, subscriptionSurface)
+  if (replacementDocumentId === undefined) throw new Error("Missing replacement document ID.")
+  assert.notEqual(replacementDocumentId, initialDocumentId)
+
+  const dispatchStart = async (documentId: string, subscriptionId: string): Promise<void> => {
+    await page.evaluate(
+      ({ documentId, subscriptionId, surfaceId }) => {
+        const iframe = document.querySelector("iframe")
+        if (iframe === null || iframe.contentWindow === null) throw new Error("Missing iframe.")
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: iframe.contentWindow,
+            data: {
+              channel: "genui/dom/0",
+              type: "subscription_start",
+              surfaceId,
+              documentId,
+              subscriptionId: documentId + ":" + subscriptionId,
+              subscription: "orders.changes",
+              input: {},
+            },
+          }),
+        )
+      },
+      { documentId, subscriptionId, surfaceId: subscriptionSurface.id },
+    )
+  }
+  await dispatchStart(initialDocumentId, "stale-subscription")
+  await page.waitForTimeout(20)
+  assert.equal(await page.evaluate(() => window.__codeHost.subscriptionRequests?.length), 1)
+  await dispatchStart(replacementDocumentId, "current-subscription")
+  await page.waitForFunction(() => window.__codeHost.subscriptionRequests?.length === 2)
 })
 
 void test("guest context, bidirectional sizing, live updates, and teardown compose in a browser", async (context) => {

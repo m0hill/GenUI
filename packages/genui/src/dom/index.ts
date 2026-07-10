@@ -16,16 +16,23 @@ import {
   type SnapshotValue,
   type TeardownSandboxMessage,
 } from "./sandbox-message-schema.js"
+import { createSubscriptionBroker, type SubscriptionTransport } from "./subscription-broker.js"
 import {
   createSurfaceBroker,
   defaultMaxSurfaceHeight,
   type SurfaceBrokerEffect,
   type SurfaceBrokerTask,
-  type SurfaceEvent,
   type TransportOptions,
 } from "./surface-broker.js"
+import type { SurfaceEvent } from "./surface-events.js"
 
-export type { SurfaceEvent } from "./surface-broker.js"
+export type { SurfaceEvent } from "./surface-events.js"
+export { SubscriptionTransportError } from "./subscription-broker.js"
+export type {
+  SubscriptionTransport,
+  SubscriptionTransportOptions,
+  SubscriptionTransportResult,
+} from "./subscription-broker.js"
 export type { ContainerDimensions, HostContext, McpUiStyleVariableKey } from "../host-context.js"
 export type {
   HostCapabilities,
@@ -38,6 +45,8 @@ export type {
 
 interface MountOptions {
   readonly transport: (call: ActionCall, options: TransportOptions) => Promise<unknown>
+  /** Opens trusted, kernel-authorized read-only subscription streams for this surface. */
+  readonly subscriptionTransport?: SubscriptionTransport
   /** Trusted consent UI using the kernel-rendered canonical action intent. */
   readonly confirm?: (
     action: Action,
@@ -113,6 +122,7 @@ const guestHostContext = (hostContext: HostContext): GuestHostContext => ({
 
 const surfaceDocument = (
   surface: Surface,
+  documentId: string,
   imagePolicy: ImagePolicy,
   hostContext: HostContext,
   capabilities: HostCapabilityFlags,
@@ -123,7 +133,7 @@ const surfaceDocument = (
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src ${imageSourcePolicy(imagePolicy)}; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 ${renderHostStyleVariables(hostContext)}</head>
-<body><script>${codeBootstrapScript({ channel: protocolChannel, surfaceId: surface.id, actions: surface.grant.actions, ...capabilities, hostContext: guestHostContext(hostContext), ...(restore === undefined ? {} : { restore }) })}</script>${surface.content}</body>
+<body><script>${codeBootstrapScript({ channel: protocolChannel, surfaceId: surface.id, documentId, actions: surface.grant.actions, subscriptions: surface.grant.subscriptions, ...capabilities, hostContext: guestHostContext(hostContext), ...(restore === undefined ? {} : { restore }) })}</script>${surface.content}</body>
 </html>`
 
 const assertSupportedSurface = (surface: Surface): void => {
@@ -144,6 +154,13 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
   }
   const ownerDocument = element.ownerDocument
   const ownerWindow = ownerDocument.defaultView
+  const createDocumentId = (): string => {
+    const crypto = ownerWindow?.crypto ?? globalThis.crypto
+    if (typeof crypto.randomUUID === "function") return crypto.randomUUID()
+    const words = crypto.getRandomValues(new Uint32Array(4))
+    return Array.from(words, (word) => word.toString(16).padStart(8, "0")).join("")
+  }
+  let documentId = createDocumentId()
   const imagePolicy = options.imagePolicy ?? "none"
   const initialSnapshot = options.snapshot
   const snapshotTimeoutMs =
@@ -194,6 +211,26 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
   applyContainerConstraints(hostContext.containerDimensions)
 
   const emit = (event: SurfaceEvent): void => options.onEvent?.(event)
+
+  const subscriptionBroker = createSubscriptionBroker(surface, documentId, {
+    ...(options.subscriptionTransport === undefined
+      ? {}
+      : { subscriptionTransport: options.subscriptionTransport }),
+    post(message) {
+      if (disposed || terminated || message.documentId !== documentId) return
+      iframe.contentWindow?.postMessage(message, "*")
+    },
+    emit,
+    now: () => ownerWindow?.performance.now() ?? Date.now(),
+    schedule(callback, delayMs) {
+      if (ownerWindow === null) {
+        const timeout = setTimeout(callback, delayMs)
+        return () => clearTimeout(timeout)
+      }
+      const timeout = ownerWindow.setTimeout(callback, delayMs)
+      return () => ownerWindow.clearTimeout(timeout)
+    },
+  })
 
   const postHostContext = (context: GuestHostContext): void => {
     iframe.contentWindow?.postMessage(
@@ -276,6 +313,7 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
     if (disposed) return
     disposed = true
     try {
+      subscriptionBroker.dispose("disposed")
       broker.dispose()
       finishPendingSnapshots()
       stopMonitoring()
@@ -293,6 +331,7 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
     terminated = true
     try {
       emit({ type: "violation", reason })
+      subscriptionBroker.dispose("terminated")
       broker.dispose()
       finishPendingSnapshots()
       stopMonitoring()
@@ -366,6 +405,15 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
       handleTeardownMessage(parsed.value)
       return
     }
+    if (
+      parsed.value.type === "subscription_start" ||
+      parsed.value.type === "subscription_ack" ||
+      parsed.value.type === "subscription_unsubscribe" ||
+      parsed.value.type === "subscription_cancel"
+    ) {
+      subscriptionBroker.handleSandboxMessage(parsed.value)
+      return
+    }
     if (parsed.value.type === "resize" && normalizeFlexibleWidthReports) {
       // The borderless iframe's untransformed integer client width matches guest innerWidth.
       const effectiveWidth = iframe.clientWidth
@@ -392,7 +440,14 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
   const setDocument = (nextSurface: Surface, restore?: SnapshotValue): void => {
     heartbeatTripwire?.reset()
     expectedDocumentLoads += 1
-    iframe.srcdoc = surfaceDocument(nextSurface, imagePolicy, hostContext, capabilityFlags, restore)
+    iframe.srcdoc = surfaceDocument(
+      nextSurface,
+      documentId,
+      imagePolicy,
+      hostContext,
+      capabilityFlags,
+      restore,
+    )
   }
 
   heartbeatTripwire = createHeartbeatTripwire({
@@ -447,7 +502,10 @@ export const mount = (element: Element, surface: Surface, options: MountOptions)
               ? await requestSnapshot(current.id)
               : undefined
         if (disposed || terminated || teardownPromise !== undefined) return
+        const nextDocumentId = createDocumentId()
+        subscriptionBroker.replace(nextSurface, nextDocumentId)
         broker.replace(nextSurface)
+        documentId = nextDocumentId
         applyContainerConstraints(hostContext.containerDimensions)
         applyTask(broker.updateContainerDimensions(hostContext.containerDimensions))
         updateFlexibleWidthNormalization(hostContext.containerDimensions)

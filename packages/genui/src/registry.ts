@@ -1,6 +1,7 @@
 import {
   actionError,
   isValidActionName,
+  isValidSubscriptionName,
   renderActionIntent,
   type Action,
   type ActionCall,
@@ -8,17 +9,30 @@ import {
   type ActionResult,
   type Effect,
   type MaybePromise,
+  type Subscription,
+  type SubscriptionOpenResult,
+  type SubscriptionRequest,
   type Surface,
   type SurfaceInput,
   type SurfaceRecord,
 } from "./protocol/index.js"
 import { actionPolicy, projectGrantedActions, publicActions } from "./action-projections.js"
 import { parseWithSchema } from "./schema.js"
+import { projectGrantedSubscriptions, publicSubscriptions } from "./subscription-projections.js"
+import {
+  createSubscriptionRuntime,
+  type SubscriptionAuditEntry,
+  type SubscriptionErrorEvent,
+  type SubscriptionRuntime,
+} from "./subscription-runtime.js"
 import { createSurfaceRuntime, type SurfaceRuntime } from "./surface-runtime.js"
 import type {
   ActionDefinition,
   AnyActionDefinition,
+  AnySubscriptionDefinition,
   ExecuteOptions,
+  SubscribeOptions,
+  SubscriptionDefinition,
   SurfaceStore,
 } from "./types.js"
 
@@ -45,10 +59,12 @@ const serializeActionInput = (input: unknown): string | undefined => {
 
 export interface GenuiOptions<Ctx> {
   readonly actions: readonly AnyActionDefinition<Ctx>[]
+  readonly subscriptions?: readonly AnySubscriptionDefinition<Ctx>[]
   readonly store?: SurfaceStore
   readonly onCall?: (entry: CallAuditEntry) => MaybePromise<void>
+  readonly onSubscription?: (entry: SubscriptionAuditEntry) => MaybePromise<void>
   /** Trusted diagnostics for internal failures hidden from generated code. */
-  readonly onError?: (event: CallErrorEvent) => MaybePromise<void>
+  readonly onError?: (event: GenuiErrorEvent) => MaybePromise<void>
 }
 
 /** Emitted after every execute attempt without action input or output. */
@@ -73,6 +89,7 @@ export type CallErrorPhase =
 
 /** Trusted-side diagnostic for an internal call failure suppressed at the guest boundary. */
 export interface CallErrorEvent {
+  readonly type: "call"
   readonly surfaceId: string
   readonly callId: string
   readonly subject?: string
@@ -81,21 +98,31 @@ export interface CallErrorEvent {
   readonly cause: unknown
 }
 
+export type GenuiErrorEvent = CallErrorEvent | SubscriptionErrorEvent
+
 /** Preserve an action definition's input and output types at declaration sites. */
 export const action = <Ctx, Input, Output>(
   definition: ActionDefinition<Ctx, Input, Output>,
 ): ActionDefinition<Ctx, Input, Output> => definition
 
+/** Preserve a subscription definition's input and event types at declaration sites. */
+export const subscription = <Ctx, Input, Event>(
+  definition: SubscriptionDefinition<Ctx, Input, Event>,
+): SubscriptionDefinition<Ctx, Input, Event> => definition
+
 /** Owns one app action registry and its authoritative surface records. */
 export class Genui<Ctx> {
   readonly #byName: ReadonlyMap<string, AnyActionDefinition<Ctx>>
+  readonly #subscriptionsByName: ReadonlyMap<string, AnySubscriptionDefinition<Ctx>>
   readonly #surfaceRuntime: SurfaceRuntime
+  readonly #subscriptionRuntime: SubscriptionRuntime<Ctx>
   readonly #onCall: ((entry: CallAuditEntry) => MaybePromise<void>) | undefined
-  readonly #onError: ((event: CallErrorEvent) => MaybePromise<void>) | undefined
+  readonly #onError: ((event: GenuiErrorEvent) => MaybePromise<void>) | undefined
   readonly #inFlightBySurface = new Map<string, number>()
 
   constructor(options: GenuiOptions<Ctx>) {
     const byName = new Map<string, AnyActionDefinition<Ctx>>()
+    const subscriptionsByName = new Map<string, AnySubscriptionDefinition<Ctx>>()
 
     for (const action of options.actions) {
       if (!isValidActionName(action.name)) {
@@ -107,10 +134,38 @@ export class Genui<Ctx> {
       byName.set(action.name, action)
     }
 
+    for (const definition of options.subscriptions ?? []) {
+      if (!isValidSubscriptionName(definition.name)) {
+        throw new Error(`Invalid subscription name: ${definition.name}`)
+      }
+      if (byName.has(definition.name) || subscriptionsByName.has(definition.name)) {
+        throw new Error(`Duplicate authority name: ${definition.name}`)
+      }
+      if (
+        definition.policy !== undefined &&
+        definition.policy !== "allow" &&
+        definition.policy !== "block"
+      ) {
+        throw new Error(`Invalid subscription policy: ${String(definition.policy)}`)
+      }
+      subscriptionsByName.set(definition.name, definition)
+    }
+
     this.#byName = byName
-    this.#surfaceRuntime = createSurfaceRuntime({ byName, store: options.store })
+    this.#subscriptionsByName = subscriptionsByName
+    this.#surfaceRuntime = createSurfaceRuntime({
+      byName,
+      subscriptionsByName,
+      store: options.store,
+    })
     this.#onCall = options.onCall
     this.#onError = options.onError
+    this.#subscriptionRuntime = createSubscriptionRuntime({
+      byName: subscriptionsByName,
+      surfaceRuntime: this.#surfaceRuntime,
+      onSubscription: options.onSubscription,
+      onError: options.onError === undefined ? undefined : (event) => options.onError?.(event),
+    })
   }
 
   surface(input: SurfaceInput): Promise<Surface> {
@@ -122,8 +177,15 @@ export class Genui<Ctx> {
   }
 
   /** Permanently remove a surface's authority and stored idempotency state. */
-  revoke(id: string): Promise<void> {
-    return this.#surfaceRuntime.revoke(id)
+  async revoke(id: string): Promise<void> {
+    const revocation = this.#subscriptionRuntime.beginSurfaceRevocation(id)
+    try {
+      await this.#surfaceRuntime.revoke(id)
+      revocation.finish("succeeded")
+    } catch (cause) {
+      revocation.finish("failed")
+      throw cause
+    }
   }
 
   diagnostics(id: string) {
@@ -134,6 +196,14 @@ export class Genui<Ctx> {
     const result = await this.#executeResult(call, ctx, options)
     this.#emitCallAudit(call, options, result)
     return result
+  }
+
+  subscribe(
+    request: SubscriptionRequest,
+    ctx: Ctx,
+    options?: SubscribeOptions,
+  ): Promise<SubscriptionOpenResult> {
+    return this.#subscriptionRuntime.open(request, ctx, options)
   }
 
   async #executeResult(
@@ -302,6 +372,7 @@ export class Genui<Ctx> {
   ): void {
     if (this.#onError === undefined) return
     const event: CallErrorEvent = {
+      type: "call",
       surfaceId: call.surfaceId,
       callId: call.callId,
       ...(options?.subject === undefined ? {} : { subject: options.subject }),
@@ -320,11 +391,22 @@ export class Genui<Ctx> {
     return publicActions(this.#byName.values())
   }
 
+  subscriptions(): Subscription[] {
+    return publicSubscriptions(this.#subscriptionsByName.values())
+  }
+
   instructions(): string {
     const projection = projectGrantedActions({
       actions: Array.from(this.#byName.keys()),
       byName: this.#byName,
     })
-    return this.#surfaceRuntime.instructions(projection.actions)
+    const subscriptionProjection = projectGrantedSubscriptions({
+      subscriptions: Array.from(this.#subscriptionsByName.keys()),
+      byName: this.#subscriptionsByName,
+    })
+    return this.#surfaceRuntime.instructions(
+      projection.actions,
+      subscriptionProjection.subscriptions,
+    )
   }
 }

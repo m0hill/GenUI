@@ -29,6 +29,26 @@ export interface ActionDefinition<Ctx, Input = unknown, Output = unknown> {
 /** Erased action shape stored by a GenUI instance after the schema boundary is recorded. */
 export type AnyActionDefinition<Ctx> = ActionDefinition<Ctx, unknown, unknown>
 
+/** Read-only app-owned event source that generated UI may subscribe to when granted. */
+export interface SubscriptionDefinition<Ctx, Input = unknown, Event = unknown> {
+  readonly name: string
+  readonly description: string
+  readonly confidentiality?: Confidentiality
+  readonly policy?: Exclude<Policy, "ask">
+  readonly input: StandardSchemaV1<unknown, Input>
+  readonly inputJsonSchema?: JsonSchema
+  readonly event: StandardSchemaV1<unknown, Event>
+  readonly eventJsonSchema?: JsonSchema
+  subscribe(
+    ctx: Ctx,
+    input: Input,
+    options: { readonly signal: AbortSignal },
+  ): MaybePromise<AsyncIterable<Event>>
+}
+
+/** Erased subscription definition retained after its schema boundary is recorded. */
+export type AnySubscriptionDefinition<Ctx> = SubscriptionDefinition<Ctx, unknown, unknown>
+
 export interface IdempotencyRequest {
   readonly surfaceId: string
   readonly callId: string
@@ -57,4 +77,11 @@ export interface ExecuteOptions {
   readonly subject?: string
   /** Return true to approve, false to deny, or undefined when trusted consent is pending. */
   approve?(action: Action, input: unknown): MaybePromise<boolean | undefined>
+}
+
+export interface SubscribeOptions {
+  /** Opaque identity expected by a subject-bound surface. */
+  readonly subject?: string
+  /** Trusted transport cancellation; the kernel always creates its own source signal. */
+  readonly signal?: AbortSignal
 }

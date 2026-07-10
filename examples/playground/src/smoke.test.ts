@@ -139,6 +139,10 @@ void test("playground drives paste, mount, action, approval, and guest-error flo
   const frame = page.frameLocator("#surface iframe")
   await frame.locator('#orders-rows [data-order-id="ord-1001"]').waitFor()
   assert.equal(await frame.locator("#orders-rows tr").count(), 3)
+  await frame
+    .locator("#orders-live")
+    .getByText("Live event 1: orders.snapshot", { exact: true })
+    .waitFor()
 
   const approvalRoundTrip: ApprovalRoundTripRequest[] = []
   page.on("request", (request) => {
@@ -171,6 +175,10 @@ void test("playground drives paste, mount, action, approval, and guest-error flo
     await frame.locator('[data-order-id="ord-1001"] select[data-status]').inputValue(),
     "shipped",
   )
+  await frame
+    .locator("#orders-live")
+    .getByText("Live event 2: order.updated", { exact: true })
+    .waitFor()
 
   assert.deepEqual(
     approvalRoundTrip.map((request) => request.path),
@@ -194,6 +202,8 @@ void test("playground drives paste, mount, action, approval, and guest-error flo
   assert.equal(eventText?.includes('"type": "audit"'), true)
   assert.equal(eventText?.includes('"outcome": "approval_required"'), true)
   assert.equal(eventText?.includes('"outcome": "ok"'), true)
+  assert.equal(eventText?.includes('"type": "subscription_opened"'), true)
+  assert.equal(eventText?.includes('"type": "subscription_event"'), true)
 
   await page.locator("#fixture-error").click()
   await eventLog.getByText('"type": "host_teardown"', { exact: false }).waitFor({ timeout: 1_000 })

@@ -13,55 +13,18 @@ import type {
   HostCapabilityOutcome,
 } from "./host-capabilities.js"
 import { protocolChannel } from "./protocol.js"
+import type { SurfaceEvent } from "./surface-events.js"
 import type {
   ActionSandboxMessage,
   CapabilitySandboxMessage,
   SandboxMessage,
+  SubscriptionSandboxMessage,
 } from "./sandbox-message-schema.js"
 
 /** Safe height ceiling when the host does not provide an explicit height policy. */
 export const defaultMaxSurfaceHeight = 1_200
 // Host capabilities use a tighter boundary than the kernel's 64 KiB action-input limit.
 const maxCapabilityPayloadBytes = 16 * 1_024
-
-type SurfaceViolationReason =
-  | "bad_message"
-  | "ungranted_call"
-  | "navigation"
-  | "unresponsive"
-  | "snapshot_timeout"
-  | "teardown_timeout"
-
-export type SurfaceEvent =
-  | { readonly type: "call"; readonly call: ActionCall }
-  | {
-      readonly type: "result"
-      readonly callId: string
-      readonly action: string
-      readonly result: ActionResult
-    }
-  | {
-      readonly type: "capability_call"
-      readonly call: {
-        readonly surfaceId: string
-        readonly callId: string
-        readonly capability: HostCapabilityName
-      }
-      readonly payloadBytes: number
-    }
-  | {
-      readonly type: "capability_result"
-      readonly callId: string
-      readonly capability: HostCapabilityName
-      readonly outcome: HostCapabilityOutcome
-    }
-  | { readonly type: "resize"; readonly width: number; readonly height: number }
-  | { readonly type: "guest_error"; readonly message: string; readonly stack?: string }
-  | {
-      readonly type: "violation"
-      readonly reason: SurfaceViolationReason
-      readonly detail?: string
-    }
 
 export interface TransportOptions {
   readonly signal: AbortSignal
@@ -119,7 +82,9 @@ export interface SurfaceBrokerTask {
 
 interface SurfaceBroker {
   readonly surface: Surface
-  handleSandboxMessage(message: SandboxMessage): SurfaceBrokerTask
+  handleSandboxMessage(
+    message: Exclude<SandboxMessage, SubscriptionSandboxMessage>,
+  ): SurfaceBrokerTask
   updateContainerDimensions(dimensions: ContainerDimensions | undefined): SurfaceBrokerTask
   replace(surface: Surface): void
   dispose(): void
@@ -618,7 +583,9 @@ export const createSurfaceBroker = (
     return capabilityTask({ ...call, invoke: () => handler(message.params) })
   }
 
-  const handleSandboxMessage = (message: SandboxMessage): SurfaceBrokerTask => {
+  const handleSandboxMessage = (
+    message: Exclude<SandboxMessage, SubscriptionSandboxMessage>,
+  ): SurfaceBrokerTask => {
     if (disposed) return task([])
     if (message.surfaceId !== currentSurface.id) return task([])
     if (message.type === "heartbeat") return task([])

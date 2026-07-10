@@ -296,7 +296,7 @@ void test("idempotency store failures return storage_unavailable", async () => {
   const runtime = new Genui({
     store,
     onError: (event) => {
-      errors.push(event)
+      if (event.type === "call") errors.push(event)
     },
     actions: [
       action({

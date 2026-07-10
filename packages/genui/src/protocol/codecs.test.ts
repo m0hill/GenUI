@@ -1,6 +1,14 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { parseActionCall, parseActionResult, parseSurface } from "./index.js"
+import {
+  parseActionCall,
+  parseActionResult,
+  parseSubscriptionDelivery,
+  parseSubscriptionError,
+  parseSubscriptionRequest,
+  parseSurface,
+  subscriptionEventByteLimit,
+} from "./index.js"
 
 const validSurface = {
   id: "surface-1",
@@ -25,6 +33,16 @@ const validSurface = {
         },
       },
     ],
+    subscriptions: [
+      {
+        name: "orders.changes",
+        description: "Receive order changes.",
+        confidentiality: "normal",
+        maxEventBytes: subscriptionEventByteLimit,
+        inputSchema: { type: "object" },
+        eventSchema: { type: "object" },
+      },
+    ],
   },
   meta: { source: "test" },
 } as const
@@ -46,6 +64,10 @@ void test("parseSurface accepts a JSON round trip and rejects malformed fields",
       { ...validSurface, grant: { ...validSurface.grant, surfaceId: "surface-other" } },
     ],
     ["grant actions", { ...validSurface, grant: { ...validSurface.grant, actions: {} } }],
+    [
+      "grant subscriptions",
+      { ...validSurface, grant: { ...validSurface.grant, subscriptions: {} } },
+    ],
     ["grant subject", { ...validSurface, grant: { ...validSurface.grant, subject: 42 } }],
     ["grant expiresAt", { ...validSurface, grant: { ...validSurface.grant, expiresAt: -1 } }],
     [
@@ -97,6 +119,96 @@ void test("parseSurface accepts a JSON round trip and rejects malformed fields",
   for (const [field, value] of malformed) {
     assert.equal(parseSurface(value), undefined, field)
   }
+})
+
+void test("subscription codecs copy exact requests and delivery envelopes", () => {
+  const request = {
+    surfaceId: "surface-1",
+    subscriptionId: "subscription-1",
+    subscription: "orders.changes",
+    input: { status: "processing" },
+  }
+  const parsedRequest = parseSubscriptionRequest(request)
+  assert.deepEqual(parsedRequest, request)
+  request.input.status = "mutated"
+  assert.deepEqual(parsedRequest?.input, { status: "processing" })
+  request.input.status = "processing"
+  assert.equal(parseSubscriptionRequest({ ...request, extra: true }), undefined)
+  assert.equal(parseSubscriptionRequest({ ...request, subscription: "invalid" }), undefined)
+  assert.equal(
+    parseSubscriptionRequest({
+      surfaceId: request.surfaceId,
+      subscriptionId: request.subscriptionId,
+      subscription: request.subscription,
+    }),
+    undefined,
+  )
+
+  const sourceEvent = { order: { id: "ord-1" } }
+  const delivery = parseSubscriptionDelivery({
+    type: "event",
+    surfaceId: request.surfaceId,
+    subscriptionId: request.subscriptionId,
+    sequence: 1,
+    event: sourceEvent,
+  })
+  assert.deepEqual(delivery, {
+    type: "event",
+    surfaceId: request.surfaceId,
+    subscriptionId: request.subscriptionId,
+    sequence: 1,
+    event: sourceEvent,
+  })
+  sourceEvent.order.id = "mutated"
+  assert.deepEqual(delivery?.type === "event" ? delivery.event : undefined, {
+    order: { id: "ord-1" },
+  })
+
+  const error = { code: "revoked", message: "Subscription authority was revoked." } as const
+  assert.deepEqual(parseSubscriptionError(error), error)
+  assert.equal(parseSubscriptionError({ ...error, cause: "secret" }), undefined)
+  assert.deepEqual(
+    parseSubscriptionDelivery({
+      type: "error",
+      surfaceId: request.surfaceId,
+      subscriptionId: request.subscriptionId,
+      error,
+    }),
+    {
+      type: "error",
+      surfaceId: request.surfaceId,
+      subscriptionId: request.subscriptionId,
+      error,
+    },
+  )
+
+  const malformed = [
+    { type: "event", surfaceId: "surface-1", subscriptionId: "sub-1", sequence: 0, event: {} },
+    { type: "event", surfaceId: "surface-1", subscriptionId: "sub-1", sequence: 1.5, event: {} },
+    { type: "event", surfaceId: "surface-1", subscriptionId: "sub-1", sequence: 1 },
+    {
+      type: "event",
+      surfaceId: "surface-1",
+      subscriptionId: "sub-1",
+      sequence: 1,
+      event: undefined,
+    },
+    {
+      type: "event",
+      surfaceId: "surface-1",
+      subscriptionId: "sub-1",
+      sequence: 1,
+      event: {},
+      extra: true,
+    },
+    {
+      type: "error",
+      surfaceId: "surface-1",
+      subscriptionId: "sub-1",
+      error: { code: "unknown", message: "no" },
+    },
+  ]
+  for (const value of malformed) assert.equal(parseSubscriptionDelivery(value), undefined)
 })
 
 void test("parseActionCall accepts a JSON round trip and rejects malformed fields", () => {
