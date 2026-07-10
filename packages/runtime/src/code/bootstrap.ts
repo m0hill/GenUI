@@ -1,6 +1,6 @@
 import type { Action } from "@genui/protocol"
 
-export interface CodeBootstrapOptions {
+interface CodeBootstrapOptions {
   readonly channel: string
   readonly surfaceId: string
   readonly actions: readonly Action[]
