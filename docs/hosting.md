@@ -28,6 +28,16 @@ The build emits ESM JavaScript, declarations, and source maps to
 point consumers at those files. The repository's `pnpm check`, `pnpm test`,
 and `pnpm dev` commands build them first.
 
+Run the external-consumer smoke test before distributing a local build:
+
+```sh
+pnpm test:pack
+```
+
+It packs both private packages, installs the tarballs into a temporary project
+without registry access, and checks runtime and TypeScript imports through the
+published export maps. The temporary tarballs are deleted after the test.
+
 ## Create the server runtime
 
 Create one `Genui` instance from app-owned actions and a store. The in-memory
