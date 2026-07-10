@@ -9,7 +9,7 @@ import {
 } from "genui/protocol"
 import { app, resetPlaygroundState } from "./app.js"
 import { resetDemoOrders } from "./actions.js"
-import { parseExecuteEnvelope } from "./playground-codecs.js"
+import { parseExecuteEnvelope, parseRecord } from "./playground-codecs.js"
 
 const sessionCookie = (subject: string): string => `genui_session=${subject}`
 const defaultCookie = sessionCookie("session-test")
@@ -62,6 +62,44 @@ void test("playground instructions expose granted schemas but not confidential a
   assert.equal(instructions.includes("orders.search"), true)
   assert.equal(instructions.includes('"query"'), true)
   assert.equal(instructions.includes("orders.export_private"), false)
+})
+
+void test("playground action schemas canonicalize input and reject unknown keys", async () => {
+  const surface = await createSurface()
+
+  const trimmedSearch = await execute({
+    surfaceId: surface.id,
+    callId: "search-trimmed",
+    action: "orders.search",
+    input: { query: "  aster  " },
+  })
+  assert.deepEqual(trimmedSearch, {
+    ok: true,
+    value: {
+      orders: [{ id: "ord-1001", customer: "Aster Labs", status: "processing", total: 148 }],
+    },
+  })
+
+  const defaultSearch = await execute({
+    surfaceId: surface.id,
+    callId: "search-default",
+    action: "orders.search",
+    input: {},
+  })
+  assert.equal(defaultSearch.ok, true)
+  if (defaultSearch.ok) {
+    const value = parseRecord(defaultSearch.value)
+    assert.equal(Array.isArray(value?.orders) ? value.orders.length : undefined, 3)
+  }
+
+  const unknownKey = await execute({
+    surfaceId: surface.id,
+    callId: "search-unknown-key",
+    action: "orders.search",
+    input: { query: "", unexpected: true },
+  })
+  assert.equal(unknownKey.ok, false)
+  if (!unknownKey.ok) assert.equal(unknownKey.error.code, "invalid_input")
 })
 
 void test("playground requires one server-held approval before executing a write", async () => {

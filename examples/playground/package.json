@@ -19,7 +19,8 @@
   "dependencies": {
     "@hono/node-server": "^2.0.8",
     "genui": "workspace:*",
-    "hono": "^4.12.28"
+    "hono": "^4.12.28",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "esbuild": "^0.28.1",

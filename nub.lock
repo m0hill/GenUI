@@ -35,6 +35,9 @@ importers:
       hono:
         specifier: ^4.12.28
         version: 4.12.28
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
     devDependencies:
       esbuild:
         specifier: ^0.28.1
@@ -716,6 +719,9 @@ packages:
       utf-8-validate:
         optional: true
 
+  zod@4.4.3:
+    resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
+
 snapshots:
 
   '@esbuild/aix-ppc64@0.28.1':
@@ -1149,3 +1155,5 @@ snapshots:
   whatwg-mimetype@3.0.0: {}
 
   ws@8.21.0: {}
+
+  zod@4.4.3: {}

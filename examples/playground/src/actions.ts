@@ -1,28 +1,31 @@
 import { action } from "genui"
-import { parseRecord } from "./playground-codecs.js"
+import { z } from "zod"
 
-const orderStatuses = ["pending", "processing", "shipped"] as const
-type OrderStatus = (typeof orderStatuses)[number]
+const OrderStatusSchema = z.enum(["pending", "processing", "shipped"])
 
-interface Order {
-  readonly id: string
-  readonly customer: string
-  readonly status: OrderStatus
-  readonly total: number
-}
+const OrderSchema = z.strictObject({
+  id: z.string(),
+  customer: z.string(),
+  status: OrderStatusSchema,
+  total: z.number(),
+})
+type Order = z.infer<typeof OrderSchema>
 
-interface SearchInput {
-  readonly query: string
-  readonly status?: OrderStatus
-}
+const SearchInputSchema = z.strictObject({
+  query: z.string().trim().default(""),
+  status: OrderStatusSchema.optional(),
+})
 
-interface OrderIdInput {
-  readonly id: string
-}
+const OrderIdInputSchema = z.strictObject({ id: z.string().min(1) })
 
-interface UpdateStatusInput extends OrderIdInput {
-  readonly status: OrderStatus
-}
+const UpdateStatusInputSchema = z.strictObject({
+  id: z.string().min(1),
+  status: OrderStatusSchema,
+})
+
+const EmptyInputSchema = z.strictObject({})
+
+const OrdersOutputSchema = z.strictObject({ orders: z.array(OrderSchema) })
 
 const initialOrders: readonly Order[] = [
   { id: "ord-1001", customer: "Aster Labs", status: "processing", total: 148 },
@@ -38,107 +41,7 @@ export const resetDemoOrders = (): void => {
 
 resetDemoOrders()
 
-const hasOnlyKeys = (
-  value: Readonly<Record<string, unknown>>,
-  allowed: readonly string[],
-): boolean => Object.keys(value).every((key) => allowed.includes(key))
-
-const standardSchema = <Output>(validate: (value: unknown) => Output | undefined) => ({
-  "~standard": {
-    version: 1 as const,
-    vendor: "genui-playground",
-    validate(value: unknown) {
-      const output = validate(value)
-      return output === undefined
-        ? { issues: [{ message: "Input does not match the action schema." }] }
-        : { value: output }
-    },
-  },
-})
-
-const parseOrderStatus = (value: unknown): OrderStatus | undefined =>
-  orderStatuses.find((status) => status === value)
-
-const searchInput = standardSchema<SearchInput>((value) => {
-  const record = parseRecord(value)
-  if (record === undefined || !hasOnlyKeys(record, ["query", "status"])) return undefined
-  const query = record.query === undefined ? "" : record.query
-  if (typeof query !== "string") return undefined
-  if (record.status === undefined) return { query: query.trim() }
-  const status = parseOrderStatus(record.status)
-  return status === undefined ? undefined : { query: query.trim(), status }
-})
-
-const orderIdInput = standardSchema<OrderIdInput>((value) => {
-  const record = parseRecord(value)
-  return record !== undefined &&
-    hasOnlyKeys(record, ["id"]) &&
-    typeof record.id === "string" &&
-    record.id.length > 0
-    ? { id: record.id }
-    : undefined
-})
-
-const updateStatusInput = standardSchema<UpdateStatusInput>((value) => {
-  const record = parseRecord(value)
-  if (
-    record === undefined ||
-    !hasOnlyKeys(record, ["id", "status"]) ||
-    typeof record.id !== "string" ||
-    record.id.length === 0
-  ) {
-    return undefined
-  }
-  const status = parseOrderStatus(record.status)
-  return status === undefined ? undefined : { id: record.id, status }
-})
-
-const emptyInput = standardSchema<Readonly<Record<string, never>>>((value) => {
-  const record = parseRecord(value)
-  return record !== undefined && Object.keys(record).length === 0 ? {} : undefined
-})
-
-const parseOrderOutput = (value: unknown): Order | undefined => {
-  const record = parseRecord(value)
-  if (
-    record === undefined ||
-    typeof record.id !== "string" ||
-    typeof record.customer !== "string" ||
-    typeof record.total !== "number"
-  ) {
-    return undefined
-  }
-  const status = parseOrderStatus(record.status)
-  return status === undefined
-    ? undefined
-    : { id: record.id, customer: record.customer, status, total: record.total }
-}
-
-const orderOutput = standardSchema(parseOrderOutput)
-
-const ordersOutput = standardSchema<{ readonly orders: readonly Order[] }>((value) => {
-  const record = parseRecord(value)
-  if (record === undefined || !Array.isArray(record.orders)) return undefined
-  const parsed: Order[] = []
-  for (const valueOrder of record.orders) {
-    const order = parseOrderOutput(valueOrder)
-    if (order === undefined) return undefined
-    parsed.push(order)
-  }
-  return { orders: parsed }
-})
-
-const orderSchema = {
-  type: "object",
-  required: ["id", "customer", "status", "total"],
-  properties: {
-    id: { type: "string" },
-    customer: { type: "string" },
-    status: { enum: [...orderStatuses] },
-    total: { type: "number" },
-  },
-  additionalProperties: false,
-} as const
+const orderJsonSchema = z.toJSONSchema(OrderSchema)
 
 const findOrder = (id: string): Order => {
   const order = orders.find((candidate) => candidate.id === id)
@@ -151,23 +54,11 @@ export const demoActions = [
     name: "orders.search",
     description: "Search orders by customer, order ID, or status.",
     effect: "read",
-    input: searchInput,
-    inputJsonSchema: {
-      type: "object",
-      properties: {
-        query: { type: "string" },
-        status: { enum: [...orderStatuses] },
-      },
-      additionalProperties: false,
-    },
-    output: ordersOutput,
-    outputJsonSchema: {
-      type: "object",
-      required: ["orders"],
-      properties: { orders: { type: "array", items: orderSchema } },
-      additionalProperties: false,
-    },
-    execute: (_context: unknown, input: SearchInput) => {
+    input: SearchInputSchema,
+    inputJsonSchema: z.toJSONSchema(SearchInputSchema, { io: "input" }),
+    output: OrdersOutputSchema,
+    outputJsonSchema: z.toJSONSchema(OrdersOutputSchema),
+    execute: (_context: unknown, input) => {
       const query = input.query.toLowerCase()
       return {
         orders: orders.filter(
@@ -184,35 +75,22 @@ export const demoActions = [
     name: "orders.get",
     description: "Get one order by ID.",
     effect: "read",
-    input: orderIdInput,
-    inputJsonSchema: {
-      type: "object",
-      required: ["id"],
-      properties: { id: { type: "string" } },
-      additionalProperties: false,
-    },
-    output: orderOutput,
-    outputJsonSchema: orderSchema,
-    execute: (_context: unknown, input: OrderIdInput) => ({ ...findOrder(input.id) }),
+    input: OrderIdInputSchema,
+    inputJsonSchema: z.toJSONSchema(OrderIdInputSchema),
+    output: OrderSchema,
+    outputJsonSchema: orderJsonSchema,
+    execute: (_context: unknown, input) => ({ ...findOrder(input.id) }),
   }),
   action({
     name: "orders.update_status",
     description: "Change an order's fulfillment status.",
     effect: "write",
     intent: "Change order {input.id} to {input.status}",
-    input: updateStatusInput,
-    inputJsonSchema: {
-      type: "object",
-      required: ["id", "status"],
-      properties: {
-        id: { type: "string" },
-        status: { enum: [...orderStatuses] },
-      },
-      additionalProperties: false,
-    },
-    output: orderOutput,
-    outputJsonSchema: orderSchema,
-    execute: (_context: unknown, input: UpdateStatusInput) => {
+    input: UpdateStatusInputSchema,
+    inputJsonSchema: z.toJSONSchema(UpdateStatusInputSchema),
+    output: OrderSchema,
+    outputJsonSchema: orderJsonSchema,
+    execute: (_context: unknown, input) => {
       const current = findOrder(input.id)
       const updated = { ...current, status: input.status }
       orders = orders.map((order) => (order.id === input.id ? updated : order))
@@ -224,8 +102,8 @@ export const demoActions = [
     description: "Export private customer contact data.",
     effect: "read",
     confidentiality: "sensitive",
-    input: emptyInput,
-    inputJsonSchema: { type: "object", additionalProperties: false },
+    input: EmptyInputSchema,
+    inputJsonSchema: z.toJSONSchema(EmptyInputSchema),
     execute: () => ({ contacts: ["private@example.test"] }),
   }),
 ] as const
