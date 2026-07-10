@@ -3,20 +3,23 @@ export const codeDialect = "code/0"
 
 const actionNamePattern = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$/i
 
-/** Return whether a string is a valid wire-level action name. */
+/** Names start with a letter and contain at least two segments separated by `.`, `_`, or `-`. */
 export const isValidActionName = (name: string): boolean => actionNamePattern.test(name)
 
-/** Value that may be returned synchronously or asynchronously by host adapters. */
 export type MaybePromise<Value> = Value | Promise<Value>
 
+const effects = ["local", "read", "write", "dangerous"] as const
+
 /** Coarse effect class used for policy, approval, and product UX. */
-export type Effect = "local" | "read" | "write" | "dangerous"
+export type Effect = (typeof effects)[number]
 
 /** Genui policy applied before app action code can run. */
 export type Policy = "allow" | "ask" | "block"
 
+const confidentialities = ["normal", "sensitive"] as const
+
 /** Whether an action may expose its result to the default generated-code renderer. */
-export type Confidentiality = "normal" | "sensitive"
+export type Confidentiality = (typeof confidentialities)[number]
 
 /** Dependency-free JSON Schema object used in model-facing action contracts. */
 export type JsonSchema = Readonly<Record<string, unknown>>
@@ -52,7 +55,7 @@ const renderIntentValue = (value: unknown): string =>
     ? String(value)
     : "?"
 
-/** Render a human-facing action intent template against an action call input. */
+/** Replace `{input.path}` placeholders with primitives; unresolved values become `?`. */
 export const renderActionIntent = (intent: string, input: unknown): string =>
   intent.replace(intentPlaceholderPattern, (_placeholder, path: string) =>
     renderIntentValue(readIntentPath(input, path)),
@@ -86,20 +89,22 @@ export interface ActionCall {
   readonly input: unknown
 }
 
-/** Stable error code returned for expected action execution failures. */
-export type ActionErrorCode =
-  | "unknown_surface"
-  | "not_granted"
-  | "blocked"
-  | "invalid_input"
-  | "invalid_output"
-  | "approval_required"
-  | "approval_denied"
-  | "rate_limited"
-  | "storage_unavailable"
-  | "execution_failed"
+const actionErrorCodes = [
+  "unknown_surface",
+  "not_granted",
+  "blocked",
+  "invalid_input",
+  "invalid_output",
+  "approval_required",
+  "approval_denied",
+  "rate_limited",
+  "storage_unavailable",
+  "execution_failed",
+] as const
 
-/** Action execution result envelope. */
+/** Stable error code returned for expected action execution failures. */
+export type ActionErrorCode = (typeof actionErrorCodes)[number]
+
 export type ActionResult =
   | { readonly ok: true; readonly value: unknown }
   | {
@@ -110,7 +115,6 @@ export type ActionResult =
       }
     }
 
-/** Build the standard action failure envelope used across execution boundaries. */
 export const actionError = (code: ActionErrorCode, message: string): ActionResult => ({
   ok: false,
   error: { code, message },
@@ -162,13 +166,9 @@ const isAction = (value: unknown): value is Action =>
   typeof value.name === "string" &&
   isValidActionName(value.name) &&
   typeof value.description === "string" &&
-  (value.effect === "local" ||
-    value.effect === "read" ||
-    value.effect === "write" ||
-    value.effect === "dangerous") &&
+  effects.some((effect) => effect === value.effect) &&
   (value.confidentiality === undefined ||
-    value.confidentiality === "normal" ||
-    value.confidentiality === "sensitive") &&
+    confidentialities.some((confidentiality) => confidentiality === value.confidentiality)) &&
   typeof value.requiresApproval === "boolean" &&
   (value.intent === undefined || typeof value.intent === "string") &&
   (value.inputSchema === undefined || isRecord(value.inputSchema))
@@ -178,11 +178,13 @@ const isGrant = (value: unknown, surfaceId: string): value is Grant =>
   value.surfaceId === surfaceId &&
   (value.subject === undefined || typeof value.subject === "string") &&
   (value.expiresAt === undefined ||
-    (Number.isSafeInteger(value.expiresAt) && (value.expiresAt as number) >= 0)) &&
+    (typeof value.expiresAt === "number" &&
+      Number.isSafeInteger(value.expiresAt) &&
+      value.expiresAt >= 0)) &&
   Array.isArray(value.actions) &&
   value.actions.every(isAction)
 
-/** Parse an untrusted value as a serialized generated UI surface. */
+/** Return undefined unless value is a valid serialized generated UI surface. */
 export const parseSurface = (value: unknown): Surface | undefined => {
   if (!isRecord(value)) return undefined
   if (typeof value.id !== "string") return undefined
@@ -199,7 +201,7 @@ export const parseSurface = (value: unknown): Surface | undefined => {
   return value.meta === undefined ? surface : { ...surface, meta: value.meta }
 }
 
-/** Parse an untrusted value as a transport-independent action call. */
+/** Return undefined unless value is a valid transport-independent action call. */
 export const parseActionCall = (value: unknown): ActionCall | undefined => {
   if (!isRecord(value)) return undefined
   if (typeof value.surfaceId !== "string") return undefined
@@ -215,18 +217,9 @@ export const parseActionCall = (value: unknown): ActionCall | undefined => {
 }
 
 const isActionErrorCode = (value: unknown): value is ActionErrorCode =>
-  value === "unknown_surface" ||
-  value === "not_granted" ||
-  value === "blocked" ||
-  value === "invalid_input" ||
-  value === "invalid_output" ||
-  value === "approval_required" ||
-  value === "approval_denied" ||
-  value === "rate_limited" ||
-  value === "storage_unavailable" ||
-  value === "execution_failed"
+  actionErrorCodes.some((code) => code === value)
 
-/** Parse an untrusted value as an action execution result envelope. */
+/** Return undefined unless value is a valid action execution result envelope. */
 export const parseActionResult = (value: unknown): ActionResult | undefined => {
   if (!isRecord(value) || typeof value.ok !== "boolean") return undefined
   if (value.ok) return hasOwn(value, "value") ? { ok: true, value: value.value } : undefined

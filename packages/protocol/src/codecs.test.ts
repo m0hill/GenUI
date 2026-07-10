@@ -34,9 +34,6 @@ void test("parseSurface accepts a JSON round trip and rejects malformed fields",
   assert.deepEqual(parseSurface(roundTrip), validSurface)
 
   const action = validSurface.grant.actions[0]
-  assert.notEqual(action, undefined)
-  if (action === undefined) return
-
   const malformed: ReadonlyArray<readonly [string, unknown]> = [
     ["record", null],
     ["id", { ...validSurface, id: 1 }],
