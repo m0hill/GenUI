@@ -1,6 +1,8 @@
-import { isRecord } from "../record.js"
 import { parseActionCall, type ActionCall } from "../types.js"
 import { protocolChannel } from "./protocol.js"
+
+export const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
 
 export interface ActionSandboxMessage extends ActionCall {
   readonly channel: typeof protocolChannel
