@@ -54,7 +54,7 @@ export interface GenuiOptions<Ctx> {
   readonly onCall?: (entry: CallAuditEntry) => MaybePromise<void>
 }
 
-/** Safe outcome metadata emitted once for every top-level execute attempt. */
+/** Emitted after every execute attempt without action input or output. */
 export interface CallAuditEntry {
   readonly surfaceId: string
   readonly callId: string
@@ -70,7 +70,7 @@ export const action = <Ctx, Input, Output>(
   definition: ActionDefinition<Ctx, Input, Output>,
 ): ActionDefinition<Ctx, Input, Output> => definition
 
-/** Provider-independent generated UI runtime for one app authority set. */
+/** Owns one app action registry and its authoritative surface records. */
 export class Genui<Ctx> {
   readonly #byName: ReadonlyMap<string, AnyActionDefinition<Ctx>>
   readonly #surfaceRuntime: SurfaceRuntime
@@ -252,7 +252,7 @@ export class Genui<Ctx> {
     try {
       void Promise.resolve(this.#onCall(entry)).catch(() => undefined)
     } catch {
-      // Audit is observational and cannot change action behavior.
+      // Audit hook failures are isolated so observability cannot change action outcomes.
     }
   }
 

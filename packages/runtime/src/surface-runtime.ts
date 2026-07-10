@@ -133,7 +133,7 @@ const grantExpiry = (source: SurfaceInput): number | undefined => {
   return expiresAt
 }
 
-/** Create the default in-memory generated surface store. */
+/** Process-local store; authority and idempotency state are lost on restart. */
 export const memoryStore = (): SurfaceStore => {
   const records = new Map<string, SurfaceRecord>()
   const idempotency = new Map<string, Map<string, MemoryIdempotencyEntry>>()
@@ -194,7 +194,6 @@ export const memoryStore = (): SurfaceStore => {
   }
 }
 
-/** Owns code surface projection and authoritative record lifecycle. */
 export const createSurfaceRuntime = <Ctx>({
   byName,
   store = memoryStore(),

@@ -15,7 +15,7 @@ export interface HeartbeatTripwire {
 const checkIntervalMs = 1_000
 const unresponsiveAfterMs = 6_000
 
-/** Monitor guest liveness only while browser scheduling should be reliable. */
+/** Visibility and intersection gate checks because background timer throttling makes gaps unreliable. */
 export const createHeartbeatTripwire = ({
   now,
   schedule,

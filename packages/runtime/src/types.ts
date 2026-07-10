@@ -14,7 +14,7 @@ import type { StandardSchemaV1 } from "./schema.js"
 export interface ActionDefinition<Ctx, Input = unknown, Output = unknown> {
   readonly name: string
   readonly description: string
-  /** Optional raw human-facing confirmation template rendered by hosts. */
+  /** Hosts render this confirmation template from canonical input after validation. */
   readonly intent?: string
   readonly effect: Effect
   readonly confidentiality?: Confidentiality
@@ -29,7 +29,6 @@ export interface ActionDefinition<Ctx, Input = unknown, Output = unknown> {
 /** Erased action shape stored by a GenUI instance after the schema boundary is recorded. */
 export type AnyActionDefinition<Ctx> = ActionDefinition<Ctx, unknown, unknown>
 
-/** Store key for one effectful call's bounded idempotency window. */
 export interface IdempotencyRequest {
   readonly surfaceId: string
   readonly callId: string
@@ -37,12 +36,11 @@ export interface IdempotencyRequest {
   readonly windowMs: number
 }
 
-/** Result of atomically joining or starting an idempotent action call. */
 export type IdempotencyResult =
   | { readonly status: "result"; readonly result: ActionResult }
   | { readonly status: "conflict" }
 
-/** Storage boundary for generated surface authority records. */
+/** Preserves authoritative records and atomically deduplicates effectful calls. */
 export interface SurfaceStore {
   get(id: string): MaybePromise<SurfaceRecord | undefined>
   set(record: SurfaceRecord): MaybePromise<void>
@@ -54,7 +52,6 @@ export interface SurfaceStore {
   ): MaybePromise<IdempotencyResult>
 }
 
-/** Optional execution hooks supplied by the host application. */
 export interface ExecuteOptions {
   /** Opaque identity expected by a subject-bound surface. */
   readonly subject?: string

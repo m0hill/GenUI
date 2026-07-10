@@ -7,7 +7,7 @@ export interface CodeBootstrapOptions {
   readonly restore?: unknown
 }
 
-/** Build the trusted guest bridge injected before model-authored code. */
+/** Runs before untrusted content and installs its only capability bridge. */
 export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
   const config = JSON.stringify(options).replaceAll("<", "\\u003c")
 

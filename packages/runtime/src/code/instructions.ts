@@ -17,7 +17,6 @@ const actionInstructions = (action: Action): string => {
   return details.join("\n")
 }
 
-/** Build model-facing instructions for a code/0 surface and its exact grant. */
 export const codeInstructions = (actions: readonly Action[]): string => `# Generated UI: code/0
 
 Return only an HTML fragment, without Markdown fences or a document wrapper. Use ordinary HTML,

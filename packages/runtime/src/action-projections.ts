@@ -6,13 +6,11 @@ interface ProjectGrantedActionsInput<Ctx> {
   readonly byName: ReadonlyMap<string, AnyActionDefinition<Ctx>>
 }
 
-/** Internal projection returned when requested action names become a surface grant. */
 export interface ProjectedActionGrant {
   readonly actions: readonly Action[]
   readonly dropped: readonly DroppedAction[]
 }
 
-/** Resolve the effective generated UI policy for an action definition. */
 export const actionPolicy = (definition: AnyActionDefinition<unknown>): Policy =>
   definition.policy ??
   (definition.effect === "local" || definition.effect === "read" ? "allow" : "ask")
@@ -30,7 +28,6 @@ const actionFor = (definition: AnyActionDefinition<unknown>): Action => ({
   ...(definition.inputJsonSchema === undefined ? {} : { inputSchema: definition.inputJsonSchema }),
 })
 
-/** Project all non-blocked action definitions into descriptors visible outside GenUI. */
 export const publicActions = <Ctx>(actions: Iterable<AnyActionDefinition<Ctx>>): Action[] => {
   const projected: Action[] = []
   for (const action of actions) {
@@ -39,7 +36,6 @@ export const publicActions = <Ctx>(actions: Iterable<AnyActionDefinition<Ctx>>):
   return projected
 }
 
-/** Project model-requested action names into the per-surface authority set. */
 export const projectGrantedActions = <Ctx>({
   actions,
   byName,
@@ -77,6 +73,5 @@ export const projectGrantedActions = <Ctx>({
   }
 }
 
-/** Find the granted descriptor for an action call on a specific surface grant. */
 export const findGrantedAction = (grant: Grant, actionName: string): Action | undefined =>
   grant.actions.find((action) => action.name === actionName)

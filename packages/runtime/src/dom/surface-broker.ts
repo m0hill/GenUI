@@ -91,7 +91,6 @@ const task = (
   pending?: Promise<readonly SurfaceBrokerEffect[]>,
 ): SurfaceBrokerTask => (pending === undefined ? { effects } : { effects, pending })
 
-/** Owns host-side capability enforcement for one mounted surface. */
 export const createSurfaceBroker = (
   initialSurface: Surface,
   options: SurfaceBrokerOptions,
