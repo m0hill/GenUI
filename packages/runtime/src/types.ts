@@ -10,33 +10,6 @@ import type {
 } from "@genui/protocol"
 import type { StandardSchemaV1 } from "./schema.js"
 
-export {
-  actionError,
-  codeDialect,
-  isValidActionName,
-  parseActionCall,
-  parseActionResult,
-  parseSurface,
-  renderActionIntent,
-} from "@genui/protocol"
-export type {
-  Action,
-  ActionCall,
-  ActionErrorCode,
-  ActionResult,
-  Confidentiality,
-  DroppedAction,
-  Effect,
-  Grant,
-  JsonSchema,
-  MaybePromise,
-  Policy,
-  Surface,
-  SurfaceInput,
-  SurfaceProjectionDiagnostics,
-  SurfaceRecord,
-} from "@genui/protocol"
-
 /** App-owned unit of authority that generated UI may request but never execute directly. */
 export interface ActionDefinition<Ctx, Input = unknown, Output = unknown> {
   readonly name: string

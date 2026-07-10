@@ -1,11 +1,11 @@
-import { codeBootstrapScript } from "../code/bootstrap.js"
 import {
   codeDialect,
   type Action,
   type ActionCall,
   type ActionResult,
   type Surface,
-} from "../types.js"
+} from "@genui/protocol"
+import { codeBootstrapScript } from "../code/bootstrap.js"
 import { createHeartbeatTripwire, type HeartbeatTripwire } from "./heartbeat-tripwire.js"
 import { protocolChannel } from "./protocol.js"
 import { parseSandboxMessage, type SnapshotSandboxMessage } from "./sandbox-message-schema.js"

@@ -1,20 +1,13 @@
-export { action, Genui } from "./registry.js"
-export { memoryStore } from "./surface-runtime.js"
-export { codeDialect, renderActionIntent } from "./types.js"
-export type { CallAuditEntry, GenuiOptions } from "./registry.js"
+export { codeDialect, renderActionIntent } from "@genui/protocol"
 export type {
   Action,
   ActionCall,
-  ActionDefinition,
   ActionErrorCode,
   ActionResult,
   Confidentiality,
   DroppedAction,
   Effect,
-  ExecuteOptions,
   Grant,
-  IdempotencyRequest,
-  IdempotencyResult,
   JsonSchema,
   MaybePromise,
   Policy,
@@ -22,5 +15,14 @@ export type {
   SurfaceInput,
   SurfaceProjectionDiagnostics,
   SurfaceRecord,
+} from "@genui/protocol"
+export { action, Genui } from "./registry.js"
+export { memoryStore } from "./surface-runtime.js"
+export type { CallAuditEntry, GenuiOptions } from "./registry.js"
+export type {
+  ActionDefinition,
+  ExecuteOptions,
+  IdempotencyRequest,
+  IdempotencyResult,
   SurfaceStore,
 } from "./types.js"

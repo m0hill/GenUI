@@ -1,4 +1,4 @@
-import type { Action } from "../types.js"
+import type { Action } from "@genui/protocol"
 
 export interface CodeBootstrapOptions {
   readonly channel: string

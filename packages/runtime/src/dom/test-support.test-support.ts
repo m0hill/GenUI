@@ -4,7 +4,7 @@ import {
   type Element as HappyElement,
   type HTMLIFrameElement as HappyIFrameElement,
 } from "happy-dom"
-import { codeDialect, type Action, type Surface } from "../types.js"
+import { codeDialect, type Action, type Surface } from "@genui/protocol"
 import { isRecord, jsonRoundTrip } from "../test-support.test-support.js"
 import { protocolChannel } from "./protocol.js"
 

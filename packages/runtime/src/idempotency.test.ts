@@ -1,9 +1,10 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
+import type { Effect } from "@genui/protocol"
 import { action, Genui } from "./registry.js"
 import { memoryStore } from "./surface-runtime.js"
 import { isRecord, testSchema } from "./test-schema.test-support.js"
-import type { Effect, SurfaceStore } from "./types.js"
+import type { SurfaceStore } from "./types.js"
 
 const valueInput = testSchema<Readonly<{ value: string }>>((input) =>
   isRecord(input) && typeof input.value === "string"

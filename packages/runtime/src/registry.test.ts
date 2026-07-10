@@ -1,9 +1,9 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
+import { codeDialect, type ActionErrorCode, type ActionResult, type Surface } from "@genui/protocol"
 import { action, Genui } from "./registry.js"
 import type { StandardSchemaV1 } from "./schema.js"
 import { memoryStore } from "./surface-runtime.js"
-import { codeDialect, type ActionErrorCode, type ActionResult, type Surface } from "./types.js"
 import { isRecord, testSchema } from "./test-schema.test-support.js"
 
 interface TestCtx {

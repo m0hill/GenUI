@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import type { Action } from "../types.js"
+import type { Action } from "@genui/protocol"
 import { codeInstructions } from "./instructions.js"
 
 void test("code instructions include every granted action name and input schema", () => {

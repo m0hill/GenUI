@@ -1,4 +1,4 @@
-import { parseActionCall, type ActionCall } from "../types.js"
+import { parseActionCall, type ActionCall } from "@genui/protocol"
 import { protocolChannel } from "./protocol.js"
 
 export const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>

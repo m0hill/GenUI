@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import type { ActionCall, ActionResult } from "../types.js"
+import type { ActionCall, ActionResult } from "@genui/protocol"
 import { mount, type SurfaceEvent } from "./index.js"
 import { protocolChannel } from "./protocol.js"
 import {

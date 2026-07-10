@@ -1,4 +1,18 @@
 import {
+  actionError,
+  isValidActionName,
+  renderActionIntent,
+  type Action,
+  type ActionCall,
+  type ActionErrorCode,
+  type ActionResult,
+  type Effect,
+  type MaybePromise,
+  type Surface,
+  type SurfaceInput,
+  type SurfaceRecord,
+} from "@genui/protocol"
+import {
   actionPolicy,
   findGrantedAction,
   projectGrantedActions,
@@ -6,23 +20,11 @@ import {
 } from "./action-projections.js"
 import { parseWithSchema } from "./schema.js"
 import { createSurfaceRuntime, type SurfaceRuntime } from "./surface-runtime.js"
-import {
-  actionError,
-  isValidActionName,
-  renderActionIntent,
-  type Action,
-  type ActionCall,
-  type ActionDefinition,
-  type ActionErrorCode,
-  type ActionResult,
-  type AnyActionDefinition,
-  type Effect,
-  type ExecuteOptions,
-  type MaybePromise,
-  type Surface,
-  type SurfaceInput,
-  type SurfaceRecord,
-  type SurfaceStore,
+import type {
+  ActionDefinition,
+  AnyActionDefinition,
+  ExecuteOptions,
+  SurfaceStore,
 } from "./types.js"
 
 const maxInFlightCallsPerSurface = 8

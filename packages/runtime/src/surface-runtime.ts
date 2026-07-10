@@ -1,19 +1,21 @@
-import { projectGrantedActions } from "./action-projections.js"
-import { codeInstructions } from "./code/instructions.js"
 import {
   codeDialect,
   type Action,
   type ActionResult,
-  type AnyActionDefinition,
   type DroppedAction,
   type Grant,
-  type IdempotencyRequest,
-  type IdempotencyResult,
   type Surface,
   type SurfaceInput,
   type SurfaceProjectionDiagnostics,
   type SurfaceRecord,
-  type SurfaceStore,
+} from "@genui/protocol"
+import { projectGrantedActions } from "./action-projections.js"
+import { codeInstructions } from "./code/instructions.js"
+import type {
+  AnyActionDefinition,
+  IdempotencyRequest,
+  IdempotencyResult,
+  SurfaceStore,
 } from "./types.js"
 
 interface CreateSurfaceRuntimeOptions<Ctx> {

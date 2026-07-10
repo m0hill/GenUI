@@ -1,8 +1,9 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
+import type { Policy } from "@genui/protocol"
 import { createSurfaceRuntime } from "./surface-runtime.js"
 import { isRecord, testSchema } from "./test-schema.test-support.js"
-import type { AnyActionDefinition, Policy } from "./types.js"
+import type { AnyActionDefinition } from "./types.js"
 
 const emptyInput = testSchema<Readonly<Record<string, never>>>((value) =>
   isRecord(value) ? { ok: true, value: {} } : { ok: false, message: "input must be an object." },

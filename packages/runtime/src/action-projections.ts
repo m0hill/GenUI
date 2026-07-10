@@ -1,10 +1,5 @@
-import {
-  type Action,
-  type AnyActionDefinition,
-  type DroppedAction,
-  type Grant,
-  type Policy,
-} from "./types.js"
+import type { Action, DroppedAction, Grant, Policy } from "@genui/protocol"
+import type { AnyActionDefinition } from "./types.js"
 
 interface ProjectGrantedActionsInput<Ctx> {
   readonly actions: readonly string[]
