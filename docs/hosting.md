@@ -83,9 +83,10 @@ Return the serializable `Surface` to the browser. Do not let the browser supply
 or mutate the authoritative grant.
 
 Set `ttlMs` when authority should expire automatically. The runtime projects
-one absolute `grant.expiresAt` value and does not extend it during reprojection.
-An expired grant returns `unknown_surface` before validation, approval, or
-execution and removes its stored surface and idempotency state.
+one absolute `grant.expiresAt` value. Call `await genui.reproject(surface.id)`
+to apply current policy again without extending that expiry. An expired grant
+returns `unknown_surface` before validation, approval, or execution and removes
+its stored surface and idempotency state.
 
 ```ts
 const temporarySurface = await genui.surface({
@@ -110,8 +111,11 @@ Parse the browser boundary with the protocol codec. Pass the call to the same
 ```ts
 import { actionError, parseActionCall } from "@genui/protocol"
 
-const body = await request.json()
-const call = parseActionCall(body.call)
+const body: unknown = await request.json()
+const call =
+  typeof body === "object" && body !== null && "call" in body
+    ? parseActionCall(body.call)
+    : undefined
 if (call === undefined) {
   return Response.json(actionError("invalid_input", "Malformed action call."), {
     status: 400,
@@ -162,9 +166,9 @@ const genui = new Genui({
 })
 ```
 
-Entries contain `surfaceId`, `callId`, attempted `subject`, action, effect,
-outcome, and completion time. They never contain action input or output.
-Unregistered action names use effect `unknown`.
+Each `CallAuditEntry` contains `surfaceId`, `callId`, attempted `subject`,
+action, effect, outcome, and completion time. It never contains action input or
+output. Unregistered action names use effect `unknown`.
 
 Audit is per request, not per underlying effect. Idempotent replays and the
 `approval_required`/approved retry each produce an entry even when app code
@@ -189,7 +193,7 @@ import {
 } from "@genui/protocol"
 
 const surface = parseSurface(await surfaceResponse.json())
-if (surface === undefined) throw new Error("Invalid surface response")
+if (surface === undefined) throw new Error("Invalid surface response.")
 
 const mounted = mount(container, surface, {
   confirm: async (_action, call, intent) => {
@@ -210,7 +214,7 @@ const mounted = mount(container, surface, {
     })
     return (
       parseActionResult(await response.json()) ??
-      actionError("execution_failed", "Invalid action response")
+      actionError("execution_failed", "Invalid action response.")
     )
   },
   onEvent: (event) => renderSurfaceEvent(event),
@@ -222,9 +226,9 @@ kernel-rendered canonical intent to `confirm`. A successful callback registers
 consent on the server; the broker retries the identical call once. A declined
 callback returns `approval_denied` without a retry.
 
-Call `mounted.dispose()` before removing the host view. Use `replace()` to load
-a new supported surface into a live mount. Pending calls are aborted on replace
-or dispose.
+`mount()` returns a `Mounted` handle. Call `mounted.dispose()` before removing
+the host view. Use `replace()` to load a new supported surface into a live
+mount. Pending calls are aborted on replace or dispose.
 
 Guests opt into state preservation with `genui.snapshot(fn)`. Call
 `await mounted.snapshot()` to capture the registered JSON value. Replacing a
@@ -248,8 +252,8 @@ appropriate. A missed deadline resolves to `undefined` and emits a
 
 ## Expose failures
 
-Render `onEvent` output somewhere the user or developer can inspect and copy.
-At minimum, show:
+Render `SurfaceEvent` values from `onEvent` somewhere the user or developer can
+inspect and copy. At minimum, show:
 
 - `guest_error` with its message and available stack.
 - `violation` with its reason and detail.
@@ -285,9 +289,6 @@ Open `http://localhost:3000`. The editor starts with the orders dashboard
 fixture. Use **Create surface** for paste mode, **Orders fixture** for the
 working read/write flow, **Guest error fixture** for error forwarding, and
 **Copy model instructions** for the manual LLM loop.
-
-The playground intentionally has no chat UI, model credentials, frontend
-framework, CSS framework, session system, or streaming layer.
 
 ## Evaluate model output
 

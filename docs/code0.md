@@ -4,7 +4,7 @@ Use `code/0` when a model should author an interactive HTML and JavaScript
 fragment. The fragment runs as code, not as a template language.
 
 ```ts
-import { codeDialect, Genui } from "@genui/genui"
+import { codeDialect } from "@genui/genui"
 
 const surface = await genui.surface({
   dialect: codeDialect,
@@ -15,7 +15,8 @@ const surface = await genui.surface({
 
 The runtime stores `content` verbatim. It does not sanitize, rewrite, compile,
 or resolve dependencies in the fragment. Grant projection still removes
-unknown, blocked, duplicate, and confidential actions.
+unknown, blocked, duplicate, and confidential actions. Use
+`genui.diagnostics(surface.id)` to inspect projection decisions.
 
 Use `genui.instructions()` to give a model the code/0 contract and the current
 action descriptors. The output includes each action's input JSON Schema.
@@ -80,8 +81,8 @@ genui.snapshot(fn)
 `genui.surfaceId` is the current surface ID. `genui.actions` is the grant
 snapshot embedded by the trusted host before generated content. It is
 available to top-level guest scripts without waiting for an event. Each
-descriptor contains `name`, `description`, `effect`, `requiresApproval`, and
-optional `intent` and `inputSchema` fields.
+descriptor contains `name`, `description`, `effect`, `confidentiality`, and
+`requiresApproval`, plus optional `intent` and `inputSchema` fields.
 
 `genui.call(name, input)` posts a call carrying `surfaceId`, a unique `callId`,
 the action name, and input. It resolves to the successful action output. It
@@ -115,9 +116,7 @@ snapshot unavailable.
 The host broker rejects calls missing from the surface grant before transport.
 The kernel independently reloads the surface record, checks current policy and
 grant, validates input, obtains authoritative approval, executes, and validates
-output. If it returns `approval_required`, the broker invokes
-`confirm(action, call, intent)` with the server-rendered intent and retries the
-same call once after confirmation.
+output.
 
 Render consent UI in trusted host code. Display the supplied intent instead of
 reconstructing approval text from raw guest input.
@@ -126,8 +125,8 @@ reconstructing approval text from raw guest input.
 
 The bootstrap forwards `window.onerror` and `unhandledrejection` as
 `guest_error` events with a message and a stack when available. Handle these in
-`mount({ onEvent })` and make them visible or send them back to the generating
-model.
+the `onEvent` callback passed to `mount()` and make them visible or send them
+back to the generating model.
 
 A generated iframe may try to navigate itself despite the CSP. After the
 initial document load, any additional iframe `load` is a violation. The host

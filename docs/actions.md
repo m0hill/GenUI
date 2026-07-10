@@ -78,11 +78,6 @@ canonical input. Its result has three meanings:
 - `undefined` returns `approval_required` with the server-rendered intent in
   its message.
 
-The browser broker transports a call before showing consent UI. When the
-kernel returns `approval_required`, the broker passes that trusted intent to
-`confirm`, then retries the identical call at most once after consent is stored
-server-side.
-
 `write` and `dangerous` calls are idempotent by `(surfaceId, callId)` for five
 minutes after completion. Concurrent retries share one result and do not ask
 for approval or execute twice. Object key order is ignored recursively when
@@ -116,9 +111,9 @@ inside the kernel, not from raw guest input in the browser.
 Actions default to `confidentiality: "normal"`.
 
 Set `confidentiality: "sensitive"` when an action result must not enter the
-default generated-code renderer. Sensitive actions remain available for
-trusted registry inspection but are dropped from surface grants with reason
-`confidential`.
+default generated-code renderer. Non-blocked sensitive actions remain
+available through `genui.actions()` for trusted registry inspection, but
+surface grants drop them with reason `confidential`.
 
 ## Subject binding
 
