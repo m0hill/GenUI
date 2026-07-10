@@ -4,6 +4,7 @@
 code surfaces.
 
 Import serialized wire types and codecs from `genui/protocol`.
+Verify shared `SurfaceStore` adapters with `genui/testing`.
 
 Define app actions with `action()`. Create one `Genui` instance to project
 per-surface grants, persist authoritative surface records, validate calls,
@@ -21,6 +22,8 @@ Security comes from isolation and trusted-side enforcement:
 - The kernel reloads the surface record and rechecks policy and grant.
 - Input is validated before authoritative approval and execution.
 - Sensitive actions never enter generated-code grants.
+- Internal failures reach an optional trusted `onError` hook without crossing
+  the guest boundary.
 
 Read [the action guide](../../docs/actions.md), [code surface
 contract](../../docs/code0.md), and [hosting guide](../../docs/hosting.md) for

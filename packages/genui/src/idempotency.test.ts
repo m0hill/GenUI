@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import type { Effect } from "./protocol/index.js"
-import { action, Genui } from "./registry.js"
+import { action, type CallErrorEvent, Genui } from "./registry.js"
 import { memoryStore } from "./surface-runtime.js"
 import { isRecord, testSchema } from "./test-schema.test-support.js"
 import type { SurfaceStore } from "./types.js"
@@ -292,8 +292,12 @@ void test("idempotency store failures return storage_unavailable", async () => {
     },
   } satisfies SurfaceStore
   let executions = 0
+  const errors: CallErrorEvent[] = []
   const runtime = new Genui({
     store,
+    onError: (event) => {
+      errors.push(event)
+    },
     actions: [
       action({
         name: "records.change",
@@ -318,4 +322,6 @@ void test("idempotency store failures return storage_unavailable", async () => {
 
   assert.equal(result.ok ? undefined : result.error.code, "storage_unavailable")
   assert.equal(executions, 0)
+  assert.equal(errors[0]?.phase, "idempotency_store")
+  assert.match(String(errors[0]?.cause), /idempotency backend unavailable/)
 })

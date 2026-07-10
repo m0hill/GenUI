@@ -9,7 +9,7 @@ import {
 } from "genui/protocol"
 import { app, resetPlaygroundState } from "./app.js"
 import { resetDemoOrders } from "./actions.js"
-import { parseExecuteEnvelope, parseRecord } from "./playground-codecs.js"
+import { parseApprovalResponse, parseExecuteEnvelope, parseRecord } from "./playground-codecs.js"
 
 const sessionCookie = (subject: string): string => `genui_session=${subject}`
 const defaultCookie = sessionCookie("session-test")
@@ -29,8 +29,16 @@ const createSurface = async (content = `<p>Orders</p>`): Promise<Surface> => {
   return surface
 }
 
-const execute = async (call: ActionCall, cookie = defaultCookie): Promise<ActionResult> => {
-  const response = await postJson("/genui/execute", { call }, cookie)
+const execute = async (
+  call: ActionCall,
+  cookie = defaultCookie,
+  approvalRetryToken?: string,
+): Promise<ActionResult> => {
+  const response = await postJson(
+    "/genui/execute",
+    { call, ...(approvalRetryToken === undefined ? {} : { approvalRetryToken }) },
+    cookie,
+  )
   const envelope = parseExecuteEnvelope(await response.json())
   if (envelope === undefined) throw new Error("Expected an execute response envelope.")
   return envelope.result
@@ -111,7 +119,10 @@ void test("playground requires one server-held approval before executing a write
     input: { id: "ord-1001", status: "shipped" },
   } satisfies ActionCall
 
-  assert.equal((await postJson("/genui/approve", updateCall)).status, 409)
+  assert.equal(
+    (await postJson("/genui/approve", { ...updateCall, token: "not-issued" })).status,
+    409,
+  )
 
   const bypass = await postJson("/genui/execute", { call: updateCall, approved: true })
   const pending = parseExecuteEnvelope(await bypass.json())
@@ -126,13 +137,20 @@ void test("playground requires one server-held approval before executing a write
     pending?.audit.map((entry) => entry.outcome),
     ["approval_required"],
   )
+  const approvalToken = pending?.approvalToken
+  assert.equal(typeof approvalToken, "string")
+  const approvalRequest = { ...updateCall, token: approvalToken ?? "" }
   assert.equal(
-    (await postJson("/genui/approve", updateCall, sessionCookie("session-other"))).status,
+    (await postJson("/genui/approve", approvalRequest, sessionCookie("session-other"))).status,
     403,
   )
-  assert.equal((await postJson("/genui/approve", updateCall)).status, 204)
+  const approvalResponse = await postJson("/genui/approve", approvalRequest)
+  assert.equal(approvalResponse.status, 200)
+  const retryToken = parseApprovalResponse(await approvalResponse.json())?.retryToken
+  assert.equal(typeof retryToken, "string")
+  assert.equal((await postJson("/genui/approve", approvalRequest)).status, 409)
 
-  const approved = await execute(updateCall)
+  const approved = await execute(updateCall, defaultCookie, retryToken)
   assert.deepEqual(approved, {
     ok: true,
     value: { id: "ord-1001", customer: "Aster Labs", status: "shipped", total: 148 },

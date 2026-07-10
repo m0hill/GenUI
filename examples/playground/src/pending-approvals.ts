@@ -4,15 +4,19 @@ interface PendingApprovalCheck {
   readonly subject: string
   readonly action: string
   readonly input: unknown
+  readonly retryToken?: string
 }
 
 type PendingApprovalKey = Pick<PendingApprovalCheck, "surfaceId" | "callId" | "subject">
 
 type PendingApprovalRecord = Pick<PendingApprovalCheck, "subject" | "action"> & {
   readonly inputFingerprint: string
+  readonly approvalToken: string
   readonly expiresAt: number
-  approved: boolean
+  retryToken?: string
 }
+
+type PendingApprovalToken = PendingApprovalKey & { readonly token: string }
 
 interface PendingApprovalOptions {
   readonly now?: () => number
@@ -57,12 +61,13 @@ export const createPendingApprovals = ({
       const inputFingerprint = canonicalJson(request.input)
       const existing = records.get(key)
       if (existing === undefined) {
+        if (request.retryToken !== undefined) return false
         records.set(key, {
           subject: request.subject,
           action: request.action,
           inputFingerprint,
+          approvalToken: globalThis.crypto.randomUUID(),
           expiresAt: now() + lifetimeMs,
-          approved: false,
         })
         return undefined
       }
@@ -73,17 +78,29 @@ export const createPendingApprovals = ({
       ) {
         return false
       }
-      if (!existing.approved) return undefined
+      if (existing.retryToken === undefined)
+        return request.retryToken === undefined ? undefined : false
+      if (request.retryToken !== existing.retryToken) return false
       records.delete(key)
       return true
     },
-    approve(request: PendingApprovalKey): boolean | undefined {
+    token(request: PendingApprovalKey): string | undefined {
       clearExpired()
       const existing = records.get(approvalKey(request))
-      if (existing === undefined) return undefined
-      if (existing.subject !== request.subject) return false
-      existing.approved = true
-      return true
+      return existing !== undefined &&
+        existing.subject === request.subject &&
+        existing.retryToken === undefined
+        ? existing.approvalToken
+        : undefined
+    },
+    approve(request: PendingApprovalToken): string | false | undefined {
+      clearExpired()
+      const existing = records.get(approvalKey(request))
+      if (existing === undefined || existing.retryToken !== undefined) return undefined
+      if (existing.subject !== request.subject || existing.approvalToken !== request.token)
+        return false
+      existing.retryToken = globalThis.crypto.randomUUID()
+      return existing.retryToken
     },
     clear(): void {
       records.clear()

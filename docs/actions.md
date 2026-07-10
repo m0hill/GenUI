@@ -106,6 +106,12 @@ Placeholders use `{input.path}`. Only primitive values render directly. Missing
 or non-primitive values render as `?`. Rendering happens from canonical input
 inside the kernel, not from raw guest input in the browser.
 
+Treat interpolated strings as untrusted display data even after validation. A
+value can contain persuasive or instruction-like text. Put the action and its
+consequence in fixed template text, use placeholders only for clearly labelled
+values, and render the final intent as plain text rather than HTML. For long
+values, show a bounded preview with a separate trusted detail view.
+
 ## Confidentiality
 
 Actions default to `confidentiality: "normal"`.

@@ -26,6 +26,7 @@ interface MountOptions {
     call: ActionCall,
     intent: string,
   ) => boolean | Promise<boolean>
+  /** HTTPS policies permit outbound image requests and can exfiltrate sandbox-visible data. */
   readonly imagePolicy?: ImagePolicy
   readonly maxHeight?: number
   readonly onEvent?: (event: SurfaceEvent) => void

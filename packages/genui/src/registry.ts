@@ -47,6 +47,8 @@ export interface GenuiOptions<Ctx> {
   readonly actions: readonly AnyActionDefinition<Ctx>[]
   readonly store?: SurfaceStore
   readonly onCall?: (entry: CallAuditEntry) => MaybePromise<void>
+  /** Trusted diagnostics for internal failures hidden from generated code. */
+  readonly onError?: (event: CallErrorEvent) => MaybePromise<void>
 }
 
 /** Emitted after every execute attempt without action input or output. */
@@ -60,6 +62,25 @@ export interface CallAuditEntry {
   readonly at: number
 }
 
+export type CallErrorPhase =
+  | "surface_store"
+  | "input_validation"
+  | "approval"
+  | "action"
+  | "output_validation"
+  | "idempotency_store"
+  | "audit"
+
+/** Trusted-side diagnostic for an internal call failure suppressed at the guest boundary. */
+export interface CallErrorEvent {
+  readonly surfaceId: string
+  readonly callId: string
+  readonly subject?: string
+  readonly action: string
+  readonly phase: CallErrorPhase
+  readonly cause: unknown
+}
+
 /** Preserve an action definition's input and output types at declaration sites. */
 export const action = <Ctx, Input, Output>(
   definition: ActionDefinition<Ctx, Input, Output>,
@@ -70,6 +91,7 @@ export class Genui<Ctx> {
   readonly #byName: ReadonlyMap<string, AnyActionDefinition<Ctx>>
   readonly #surfaceRuntime: SurfaceRuntime
   readonly #onCall: ((entry: CallAuditEntry) => MaybePromise<void>) | undefined
+  readonly #onError: ((event: CallErrorEvent) => MaybePromise<void>) | undefined
   readonly #inFlightBySurface = new Map<string, number>()
 
   constructor(options: GenuiOptions<Ctx>) {
@@ -88,6 +110,7 @@ export class Genui<Ctx> {
     this.#byName = byName
     this.#surfaceRuntime = createSurfaceRuntime({ byName, store: options.store })
     this.#onCall = options.onCall
+    this.#onError = options.onError
   }
 
   surface(input: SurfaceInput): Promise<Surface> {
@@ -121,7 +144,8 @@ export class Genui<Ctx> {
     let record: SurfaceRecord | undefined
     try {
       record = await this.#surfaceRuntime.getRecord(call.surfaceId)
-    } catch {
+    } catch (cause) {
+      this.#reportCallError(call, options, "surface_store", cause)
       return actionError("storage_unavailable", "Surface store is unavailable.")
     }
 
@@ -139,7 +163,8 @@ export class Genui<Ctx> {
     ) {
       try {
         await this.#surfaceRuntime.revoke(call.surfaceId)
-      } catch {
+      } catch (cause) {
+        this.#reportCallError(call, options, "surface_store", cause)
         return actionError("storage_unavailable", "Surface store is unavailable.")
       }
       return actionError("unknown_surface", "Surface grant has expired.")
@@ -171,13 +196,19 @@ export class Genui<Ctx> {
 
     const executeOnce = async (): Promise<ActionResult> => {
       const input = await parseWithSchema(definition.input, call.input)
-      if (!input.ok) return actionError("invalid_input", input.message)
+      if (!input.ok) {
+        if (Object.hasOwn(input, "cause")) {
+          this.#reportCallError(call, options, "input_validation", input.cause)
+        }
+        return actionError("invalid_input", input.message)
+      }
 
       if (actionPolicy(definition) === "ask") {
         let approved: boolean | undefined
         try {
           approved = await options?.approve?.(granted, input.value)
-        } catch {
+        } catch (cause) {
+          this.#reportCallError(call, options, "approval", cause)
           return actionError("execution_failed", "Action approval failed.")
         }
         if (approved === undefined) {
@@ -195,9 +226,18 @@ export class Genui<Ctx> {
         if (definition.output === undefined) return { ok: true, value }
 
         const output = await parseWithSchema(definition.output, value)
-        if (!output.ok) return actionError("invalid_output", "Action returned invalid output.")
+        if (!output.ok) {
+          this.#reportCallError(
+            call,
+            options,
+            "output_validation",
+            Object.hasOwn(output, "cause") ? output.cause : new Error(output.message),
+          )
+          return actionError("invalid_output", "Action returned invalid output.")
+        }
         return { ok: true, value: output.value }
-      } catch {
+      } catch (cause) {
+        this.#reportCallError(call, options, "action", cause)
         return actionError("execution_failed", "Action failed.")
       }
     }
@@ -217,7 +257,8 @@ export class Genui<Ctx> {
           return idempotent.status === "conflict"
             ? actionError("invalid_input", "Call ID was reused with different input.")
             : idempotent.result
-        } catch {
+        } catch (cause) {
+          this.#reportCallError(call, options, "idempotency_store", cause)
           return actionError("storage_unavailable", "Idempotency store is unavailable.")
         }
       }
@@ -245,9 +286,33 @@ export class Genui<Ctx> {
       at: Date.now(),
     }
     try {
-      void Promise.resolve(this.#onCall(entry)).catch(() => undefined)
+      void Promise.resolve(this.#onCall(entry)).catch((cause: unknown) => {
+        this.#reportCallError(call, options, "audit", cause)
+      })
+    } catch (cause) {
+      this.#reportCallError(call, options, "audit", cause)
+    }
+  }
+
+  #reportCallError(
+    call: ActionCall,
+    options: ExecuteOptions | undefined,
+    phase: CallErrorPhase,
+    cause: unknown,
+  ): void {
+    if (this.#onError === undefined) return
+    const event: CallErrorEvent = {
+      surfaceId: call.surfaceId,
+      callId: call.callId,
+      ...(options?.subject === undefined ? {} : { subject: options.subject }),
+      action: call.action,
+      phase,
+      cause,
+    }
+    try {
+      void Promise.resolve(this.#onError(event)).catch(() => undefined)
     } catch {
-      // Audit hook failures are isolated so observability cannot change action outcomes.
+      // Diagnostic hook failures are isolated from action outcomes.
     }
   }
 

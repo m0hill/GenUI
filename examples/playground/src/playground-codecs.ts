@@ -11,11 +11,17 @@ import {
 export interface ExecuteEnvelope {
   readonly result: ActionResult
   readonly audit: readonly CallAuditEntry[]
+  readonly approvalToken?: string
 }
 
 export type PlaygroundEvent =
   | SurfaceEvent
   | { readonly type: "audit"; readonly entry: CallAuditEntry }
+
+export interface ExecuteRequest {
+  readonly call: ActionCall
+  readonly approvalRetryToken?: string
+}
 
 export const parseRecord = (value: unknown): Readonly<Record<string, unknown>> | undefined => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined
@@ -65,13 +71,20 @@ export const parseExecuteEnvelope = (value: unknown): ExecuteEnvelope | undefine
   if (record === undefined || !Array.isArray(record.audit)) return undefined
   const result = parseActionResult(record.result)
   if (result === undefined) return undefined
+  const approvalRequired = !result.ok && result.error.code === "approval_required"
+  const approvalToken = typeof record.approvalToken === "string" ? record.approvalToken : undefined
+  if (approvalRequired !== (approvalToken !== undefined)) return undefined
   const audit: CallAuditEntry[] = []
   for (const entryValue of record.audit) {
     const entry = parseAuditEntry(entryValue)
     if (entry === undefined) return undefined
     audit.push(entry)
   }
-  return { result, audit }
+  return {
+    result,
+    audit,
+    ...(approvalToken === undefined ? {} : { approvalToken }),
+  }
 }
 
 export const parseSurfaceRequest = (value: unknown): Pick<SurfaceInput, "content"> | undefined => {
@@ -81,20 +94,40 @@ export const parseSurfaceRequest = (value: unknown): Pick<SurfaceInput, "content
     : undefined
 }
 
-export const parseExecuteRequest = (value: unknown): ActionCall | undefined => {
+export const parseExecuteRequest = (value: unknown): ExecuteRequest | undefined => {
   const record = parseRecord(value)
   if (record === undefined) return undefined
-  return parseActionCall(record.call)
+  const call = parseActionCall(record.call)
+  if (call === undefined) return undefined
+  if (record.approvalRetryToken !== undefined && typeof record.approvalRetryToken !== "string") {
+    return undefined
+  }
+  return {
+    call,
+    ...(record.approvalRetryToken === undefined
+      ? {}
+      : { approvalRetryToken: record.approvalRetryToken }),
+  }
+}
+
+export const parseApprovalResponse = (
+  value: unknown,
+): { readonly retryToken: string } | undefined => {
+  const record = parseRecord(value)
+  return record !== undefined && typeof record.retryToken === "string"
+    ? { retryToken: record.retryToken }
+    : undefined
 }
 
 export const parseApprovalRequest = (
   value: unknown,
-): Pick<ActionCall, "surfaceId" | "callId"> | undefined => {
+): (Pick<ActionCall, "surfaceId" | "callId"> & { readonly token: string }) | undefined => {
   const record = parseRecord(value)
   return record !== undefined &&
     typeof record.surfaceId === "string" &&
-    typeof record.callId === "string"
-    ? { surfaceId: record.surfaceId, callId: record.callId }
+    typeof record.callId === "string" &&
+    typeof record.token === "string"
+    ? { surfaceId: record.surfaceId, callId: record.callId, token: record.token }
     : undefined
 }
 

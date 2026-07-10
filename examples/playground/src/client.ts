@@ -1,7 +1,11 @@
 import { mount, type Mounted } from "genui/dom"
 import { actionError, parseSurface } from "genui/protocol"
 import { guestErrorFixture, ordersDashboardFixture } from "./fixtures.js"
-import { parseExecuteEnvelope, type PlaygroundEvent } from "./playground-codecs.js"
+import {
+  parseApprovalResponse,
+  parseExecuteEnvelope,
+  type PlaygroundEvent,
+} from "./playground-codecs.js"
 
 const requiredElement = <ElementType extends Element>(selector: string): ElementType => {
   const element = document.querySelector<ElementType>(selector)
@@ -15,6 +19,9 @@ const surfaceRoot = requiredElement<HTMLElement>("#surface")
 const eventLog = requiredElement<HTMLOListElement>("#event-log")
 const status = requiredElement<HTMLOutputElement>("#host-status")
 let mounted: Mounted | undefined
+const approvalTokens = new Map<string, string>()
+const retryTokens = new Map<string, string>()
+const callKey = (surfaceId: string, callId: string): string => JSON.stringify([surfaceId, callId])
 
 const showStatus = (message: string, error = false): void => {
   status.textContent = message
@@ -28,16 +35,24 @@ const appendEvent = (event: PlaygroundEvent): void => {
 }
 
 const transport: Parameters<typeof mount>[2]["transport"] = async (call, options) => {
+  const key = callKey(call.surfaceId, call.callId)
+  const retryToken = retryTokens.get(key)
+  retryTokens.delete(key)
   const response = await fetch("/genui/execute", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ call }),
+    body: JSON.stringify({
+      call,
+      ...(retryToken === undefined ? {} : { approvalRetryToken: retryToken }),
+    }),
     signal: options.signal,
   })
   const envelope = parseExecuteEnvelope(await response.json())
   if (envelope === undefined) {
     return actionError("execution_failed", "Host returned an invalid action result.")
   }
+  if (envelope.approvalToken === undefined) approvalTokens.delete(key)
+  else approvalTokens.set(key, envelope.approvalToken)
   for (const entry of envelope.audit) appendEvent({ type: "audit", entry })
   return envelope.result
 }
@@ -53,18 +68,27 @@ const createSurface = async (content: string): Promise<void> => {
   if (!response.ok || surface === undefined) throw new Error("Host returned an invalid surface.")
 
   mounted?.dispose()
+  approvalTokens.clear()
+  retryTokens.clear()
   eventLog.replaceChildren()
   mounted = mount(surfaceRoot, surface, {
     maxHeight: 720,
     transport,
     confirm: async (_action, call, intent) => {
+      const key = callKey(call.surfaceId, call.callId)
+      const token = approvalTokens.get(key)
+      approvalTokens.delete(key)
+      if (token === undefined) throw new Error("Host did not issue an approval token.")
       if (!window.confirm(intent)) return false
       const response = await fetch("/genui/approve", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ surfaceId: call.surfaceId, callId: call.callId }),
+        body: JSON.stringify({ surfaceId: call.surfaceId, callId: call.callId, token }),
       })
       if (!response.ok) throw new Error("Host could not register action approval.")
+      const approval = parseApprovalResponse(await response.json())
+      if (approval === undefined) throw new Error("Host returned an invalid approval response.")
+      retryTokens.set(key, approval.retryToken)
       return true
     },
     onEvent: appendEvent,

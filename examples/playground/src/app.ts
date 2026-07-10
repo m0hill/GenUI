@@ -114,8 +114,8 @@ app.post("/genui/execute", async (context) => {
       401,
     )
   }
-  const call = parseExecuteRequest(await requestJson(context.req.raw))
-  if (call === undefined) {
+  const request = parseExecuteRequest(await requestJson(context.req.raw))
+  if (request === undefined) {
     return context.json(
       {
         result: actionError("invalid_input", "Malformed action call."),
@@ -124,6 +124,7 @@ app.post("/genui/execute", async (context) => {
       400,
     )
   }
+  const { call } = request
 
   const result = await genui.execute(
     call,
@@ -137,12 +138,18 @@ app.post("/genui/execute", async (context) => {
           subject,
           action: action.name,
           input,
+          retryToken: request.approvalRetryToken,
         }),
     },
   )
+  const approvalToken =
+    !result.ok && result.error.code === "approval_required"
+      ? pendingApprovals.token({ surfaceId: call.surfaceId, callId: call.callId, subject })
+      : undefined
   return context.json({
     result,
     audit: takeCallAudits(call.surfaceId, call.callId),
+    ...(approvalToken === undefined ? {} : { approvalToken }),
   } satisfies ExecuteEnvelope)
 })
 
@@ -156,16 +163,17 @@ app.post("/genui/approve", async (context) => {
     return context.json(actionError("invalid_input", "Malformed approval request."), 400)
   }
 
-  const approved = pendingApprovals.approve({
+  const retryToken = pendingApprovals.approve({
     surfaceId: request.surfaceId,
     callId: request.callId,
     subject,
+    token: request.token,
   })
-  if (approved === undefined) {
+  if (retryToken === undefined) {
     return context.json(actionError("not_granted", "Approval is not pending."), 409)
   }
-  if (!approved) {
-    return context.json(actionError("not_granted", "Approval belongs to another subject."), 403)
+  if (retryToken === false) {
+    return context.json(actionError("not_granted", "Approval credentials do not match."), 403)
   }
-  return context.body(null, 204)
+  return context.json({ retryToken })
 })

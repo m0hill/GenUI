@@ -15,8 +15,8 @@ Read [actions.md](actions.md) before defining the authority set. Read
 
 ## Build the package
 
-The `genui` package is private while its final npm scope and name are undecided. Build
-the workspace copy before using it locally:
+The `genui` package is private while its final npm scope and name are
+undecided. Build the workspace copy before using it locally:
 
 ```sh
 nub install
@@ -24,9 +24,9 @@ nub run build
 ```
 
 The build emits ESM JavaScript, declarations, and source maps to
-`packages/genui/dist/`. Its export map exposes `.`, `./protocol`, and
-`./dom`. The repository's `nub run check` and `nub run test` commands build it
-first.
+`packages/genui/dist/`. Its export map exposes `.`, `./protocol`, `./dom`, and
+`./testing`. The repository's `nub run check` and `nub run test` commands build
+it first.
 
 Run the external-consumer smoke test before distributing a local build:
 
@@ -35,8 +35,8 @@ nub run test:pack
 ```
 
 It packs the private package, installs the tarball into a temporary project
-without registry access, and checks JavaScript and TypeScript imports through all
-three public entrypoints. The temporary tarball is deleted after the test.
+without registry access, and checks JavaScript and TypeScript imports through
+all four public entrypoints. The temporary tarball is deleted after the test.
 
 ## Create the server runtime
 
@@ -62,6 +62,11 @@ call ID, and fingerprint, retain the completed result for the requested window,
 and report conflicting fingerprints. It must return `approval_required` to
 current callers without retaining that provisional result. The bundled
 `memoryStore()` implements this contract for one process.
+
+Before using a shared adapter, run the `genui/testing` conformance check against
+two connections to the real backend. Follow [stores.md](stores.md) for the
+Postgres and Redis coordination algorithms, crash limits, and downstream
+idempotency requirements.
 
 ## Create code surfaces
 
@@ -116,7 +121,14 @@ const call =
   typeof body === "object" && body !== null && "call" in body
     ? parseActionCall(body.call)
     : undefined
-if (call === undefined) {
+const approvalRetryToken =
+  typeof body === "object" && body !== null && "approvalRetryToken" in body
+    ? body.approvalRetryToken
+    : undefined
+if (
+  call === undefined ||
+  (approvalRetryToken !== undefined && typeof approvalRetryToken !== "string")
+) {
   return Response.json(actionError("invalid_input", "Malformed action call."), {
     status: 400,
   })
@@ -131,9 +143,23 @@ const result = await genui.execute(call, appContext, {
       subject: currentSession.id,
       action: action.name,
       input: canonicalInput,
+      retryToken: approvalRetryToken,
     }),
 })
-return Response.json(result)
+const responseApprovalToken =
+  !result.ok && result.error.code === "approval_required"
+    ? pendingApprovals.token({
+        surfaceId: call.surfaceId,
+        callId: call.callId,
+        subject: currentSession.id,
+      })
+    : undefined
+return Response.json({
+  result,
+  ...(responseApprovalToken === undefined
+    ? {}
+    : { approvalToken: responseApprovalToken }),
+})
 ```
 
 Treat the kernel `approve` hook as authoritative. It runs after schema
@@ -141,11 +167,36 @@ validation and receives canonical input. Return `undefined` while consent is
 pending, `false` for an explicit denial, and `true` only after trusted consent.
 Never approve from guest-rendered UI.
 
-Keep pending approvals on the server. Key lookup by `(surfaceId, callId)`, bind
-each record to the subject, action, and canonical input fingerprint, expire it,
-and consume approval once. An approval endpoint may mark only an existing
-pending record for the authenticated subject. Do not accept preapproval or an
-`approved: true` field on the execute request.
+## Implement the approval retry protocol
+
+Treat a repeated action call as unapproved unless trusted server state says
+otherwise. The browser retry is not evidence of consent.
+
+Apply every rule below:
+
+1. When `approve` first returns `undefined`, create a pending record bound to
+   `(subject, surfaceId, callId, action, canonical input fingerprint)`. Give it
+   an unpredictable token and a short expiry.
+2. Return the token only in an app-owned envelope consumed by the trusted
+   parent. Never put it in `ActionResult`, the surface grant, an audit event, or
+   any value sent into the sandbox.
+3. After trusted consent UI succeeds, send the token to an authenticated,
+   CSRF-protected approval endpoint. `callId` is a correlation key, not a
+   secret.
+4. The approval endpoint must atomically consume an unused, unexpired approval
+   token only when every bound field matches, then return a distinct,
+   unpredictable one-time retry token. Reject missing, reused, expired, or
+   mismatched tokens. Do not create records from the approval endpoint.
+5. The trusted parent attaches the retry token to an app-owned execute envelope
+   for the identical call. The server passes it to the kernel `approve`
+   callback, which atomically matches and consumes it before returning `true`.
+   A plain retry without the retry token remains unapproved.
+6. Store pending approvals in shared server-side storage when requests can hit
+   different replicas.
+
+Do not accept preapproval, an `approved: true` request field, or a token chosen
+by generated code. The reference playground implements this flow in
+`examples/playground/src/pending-approvals.ts`, `app.ts`, and `client.ts`.
 
 Authenticate the request before calling `surface()` or `execute()`. Use the
 same opaque `subject` value for both operations. A subject-bound grant echoes
@@ -180,42 +231,92 @@ An HTTP envelope that combines results with audit entries is application
 specific. It is not part of `genui/protocol`; hosts may send audit data to any
 trusted sink.
 
+## Observe trusted failures
+
+Set `GenuiOptions.onError` to receive internal failures that the kernel hides
+from generated code:
+
+```ts
+const genui = new Genui({
+  actions,
+  onError: ({ surfaceId, callId, action, phase, cause }) => {
+    logger.error({ surfaceId, callId, action, phase, cause })
+  },
+})
+```
+
+`CallErrorEvent.phase` distinguishes surface storage, input-validator crashes,
+approval integration, action execution, output validation, idempotency storage,
+and audit delivery. The guest still receives only the stable `ActionResult`
+code and safe message.
+
+The hook is trusted-side only. Its original `cause` may contain secrets or
+application data from a thrown error. Redact it before exporting telemetry and
+never serialize it into an action result, surface event, or browser response.
+The kernel does not await the hook, and hook failures cannot change action
+outcomes.
+
 ## Mount in the browser
 
-Parse server responses before mounting or returning transport results.
+Parse server responses before mounting or returning transport results. Define
+an app-owned `parseExecuteEnvelope()` that requires an approval token exactly
+when its nested result is `approval_required`.
 
 ```ts
 import { mount } from "genui/dom"
-import {
-  actionError,
-  parseActionResult,
-  parseSurface,
-} from "genui/protocol"
+import { actionError, parseSurface, type ActionCall } from "genui/protocol"
+import { parseApprovalResponse, parseExecuteEnvelope } from "./execute-envelope.js"
 
 const surface = parseSurface(await surfaceResponse.json())
 if (surface === undefined) throw new Error("Invalid surface response.")
 
+const approvalTokens = new Map<string, string>()
+const retryTokens = new Map<string, string>()
+const callKey = (call: Pick<ActionCall, "surfaceId" | "callId">): string =>
+  JSON.stringify([call.surfaceId, call.callId])
+
 const mounted = mount(container, surface, {
   confirm: async (_action, call, intent) => {
+    const key = callKey(call)
+    const token = approvalTokens.get(key)
+    approvalTokens.delete(key)
+    if (token === undefined) throw new Error("Missing approval token.")
     if (!window.confirm(intent)) return false
     const response = await fetch("/genui/approve", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ surfaceId: call.surfaceId, callId: call.callId }),
+      body: JSON.stringify({
+        surfaceId: call.surfaceId,
+        callId: call.callId,
+        token,
+      }),
     })
-    return response.ok
+    if (!response.ok) return false
+    const approval = parseApprovalResponse(await response.json())
+    if (approval === undefined) throw new Error("Invalid approval response.")
+    retryTokens.set(key, approval.retryToken)
+    return true
   },
   transport: async (call, { signal }) => {
+    const key = callKey(call)
+    const approvalRetryToken = retryTokens.get(key)
+    retryTokens.delete(key)
     const response = await fetch("/genui/execute", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ call }),
+      body: JSON.stringify({
+        call,
+        ...(approvalRetryToken === undefined ? {} : { approvalRetryToken }),
+      }),
       signal,
     })
-    return (
-      parseActionResult(await response.json()) ??
-      actionError("execution_failed", "Invalid action response.")
-    )
+    const envelope = parseExecuteEnvelope(await response.json())
+    if (envelope === undefined) {
+      return actionError("execution_failed", "Invalid action response.")
+    }
+    if (envelope.approvalToken === undefined) approvalTokens.delete(key)
+    else approvalTokens.set(key, envelope.approvalToken)
+    return envelope.result
   },
   onEvent: (event) => renderSurfaceEvent(event),
 })
@@ -268,9 +369,11 @@ mount.
 
 ## Respect call limits
 
-The kernel permits at most eight in-flight calls per surface. Excess calls
-return `rate_limited`. Keep controls disabled while their call is pending and
-handle this error like any other recoverable action failure.
+Each `Genui` instance permits at most eight in-flight calls per surface. Excess
+calls on that instance return `rate_limited`. This cap is per process and per
+replica; use a shared limiter when the limit must be deployment-wide. Keep
+controls disabled while their call is pending and handle this error like any
+other recoverable action failure.
 
 Action input must be JSON-serializable and no larger than 64 KiB after UTF-8
 JSON encoding. The kernel rejects larger or non-JSON input as `invalid_input`

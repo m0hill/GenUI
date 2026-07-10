@@ -67,6 +67,16 @@ form-action 'none'
 - `https` maps to `https:`.
 - `https-and-data` maps to `https: data:`.
 
+**Warning:** `https` and `https-and-data` open an outbound data channel. Guest
+code can put any sandbox-visible value into an image URL path or query string.
+`connect-src 'none'` does not block requests allowed by `img-src`, and
+`referrerpolicy="no-referrer"` does not remove data placed in the image URL.
+
+Keep the default `none` for surfaces that can see user, action-result, or other
+sensitive data. `data` permits embedded images without an outbound request.
+The current HTTPS policy is scheme-wide, not a domain allowlist; enable it only
+when that exfiltration risk is acceptable.
+
 The iframe boundary is the security control. Content filtering is not part of
 the code/0 security model.
 
@@ -122,7 +132,11 @@ grant, validates input, obtains authoritative approval, executes, and validates
 output.
 
 Render consent UI in trusted host code. Display the supplied intent instead of
-reconstructing approval text from raw guest input.
+reconstructing approval text from raw guest input. Render it as plain text.
+Canonical validation does not make interpolated strings trustworthy prose;
+they can still contain manipulative instructions. Keep the fixed action and
+consequence visually distinct from interpolated values, and never render an
+intent with `innerHTML`.
 
 ## Errors, navigation, and liveness
 

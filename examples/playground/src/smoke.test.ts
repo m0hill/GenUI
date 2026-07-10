@@ -68,7 +68,7 @@ void test("playground drives paste, mount, action, approval, and guest-error flo
     const value: unknown = JSON.parse(request.postData() ?? "null")
     if (path === "/genui/execute") {
       const body = parseExecuteRequest(value)
-      if (body?.action === "orders.update_status") {
+      if (body?.call.action === "orders.update_status") {
         approvalRoundTrip.push({ path, body })
       }
     } else if (path === "/genui/approve") {
@@ -103,9 +103,12 @@ void test("playground drives paste, mount, action, approval, and guest-error flo
   assert.ok(firstExecute?.path === "/genui/execute")
   assert.ok(approve?.path === "/genui/approve")
   assert.ok(secondExecute?.path === "/genui/execute")
-  assert.equal(firstExecute.body.callId, secondExecute.body.callId)
-  assert.equal(approve.body.surfaceId, firstExecute.body.surfaceId)
-  assert.equal(approve.body.callId, firstExecute.body.callId)
+  assert.equal(firstExecute.body.call.callId, secondExecute.body.call.callId)
+  assert.equal(firstExecute.body.approvalRetryToken, undefined)
+  assert.equal(approve.body.surfaceId, firstExecute.body.call.surfaceId)
+  assert.equal(approve.body.callId, firstExecute.body.call.callId)
+  assert.equal(typeof secondExecute.body.approvalRetryToken, "string")
+  assert.notEqual(secondExecute.body.approvalRetryToken, approve.body.token)
 
   const eventLog = page.locator("#event-log")
   const eventText = await eventLog.textContent()

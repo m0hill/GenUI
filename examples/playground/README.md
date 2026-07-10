@@ -22,9 +22,11 @@ The root `dev` command builds the `genui` package and browser client before
 starting the server. The event panel shows guest errors, violations, action
 results, and audit entries.
 
-The playground uses an app-specific `{ result, audit }` HTTP envelope to drain
-synchronous audit entries into the event panel. That envelope is not part of
-`genui/protocol`; hosts may send audit data to any trusted sink.
+The playground uses an app-specific `{ result, audit, approvalToken? }` HTTP
+envelope to drain synchronous audit entries and carry single-use approval
+tokens to the trusted parent. The approval endpoint exchanges that token for a
+distinct one-time retry token. Neither token enters the sandbox. This envelope
+is not part of `genui/protocol`; hosts may send audit data to any trusted sink.
 
 ## Evaluate model output
 

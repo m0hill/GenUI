@@ -74,11 +74,13 @@ try {
 import { Genui, memoryStore } from "genui"
 import { mount } from "genui/dom"
 import { codeDialect, parseActionCall, parseSurface } from "genui/protocol"
+import { assertSurfaceStoreConformance } from "genui/testing"
 
 assert.equal(typeof Genui, "function")
 assert.equal(typeof memoryStore, "function")
 assert.equal(typeof mount, "function")
 assert.equal(typeof parseActionCall, "function")
+assert.equal(typeof assertSurfaceStoreConformance, "function")
 assert.equal(codeDialect, "code/0")
 
 const genui = new Genui({ actions: [], store: memoryStore() })
@@ -101,6 +103,7 @@ assert.equal(
     `import { Genui, memoryStore } from "genui"
 import { mount, type Mounted } from "genui/dom"
 import { parseActionCall, parseSurface, type ActionCall, type Surface } from "genui/protocol"
+import { assertSurfaceStoreConformance, type SurfaceStoreFactory } from "genui/testing"
 
 const genui = new Genui<undefined>({ actions: [], store: memoryStore() })
 const call: ActionCall = {
@@ -113,12 +116,16 @@ const parsedCall: ActionCall | undefined = parseActionCall(call)
 const parsedSurface: Surface | undefined = parseSurface({})
 const mountFunction: typeof mount = mount
 const mounted: Mounted | undefined = undefined
+const storeFactory: SurfaceStoreFactory = memoryStore
+const conformanceCheck: typeof assertSurfaceStoreConformance = assertSurfaceStoreConformance
 
 void genui
 void parsedCall
 void parsedSurface
 void mountFunction
 void mounted
+void storeFactory
+void conformanceCheck
 `,
   )
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { action, type CallAuditEntry, Genui } from "./registry.js"
+import { action, type CallAuditEntry, type CallErrorEvent, Genui } from "./registry.js"
 import { isRecord, testSchema } from "./test-schema.test-support.js"
 
 const emptyInput = testSchema<Readonly<Record<string, never>>>((value) =>
@@ -115,8 +115,12 @@ void test("audit records denied and invalid call outcomes", async () => {
 })
 
 void test("a throwing audit hook cannot change the action result", async () => {
+  const errors: CallErrorEvent[] = []
   let executions = 0
   const runtime = new Genui({
+    onError: (event) => {
+      errors.push(event)
+    },
     onCall: () => {
       throw new Error("Audit backend failed")
     },
@@ -139,10 +143,16 @@ void test("a throwing audit hook cannot change the action result", async () => {
 
   assert.deepEqual(result, { ok: true, value: { execution: 1 } })
   assert.equal(executions, 1)
+  assert.equal(errors[0]?.phase, "audit")
+  assert.match(String(errors[0]?.cause), /Audit backend failed/)
 })
 
 void test("a rejecting audit hook cannot change the action result", async () => {
+  const errors: CallErrorEvent[] = []
   const runtime = new Genui({
+    onError: (event) => {
+      errors.push(event)
+    },
     onCall: async () => {
       throw new Error("Audit backend rejected")
     },
@@ -166,6 +176,8 @@ void test("a rejecting audit hook cannot change the action result", async () => 
     { ok: true, value: { name: "Ada" } },
   )
   await Promise.resolve()
+  assert.equal(errors[0]?.phase, "audit")
+  assert.match(String(errors[0]?.cause), /Audit backend rejected/)
 })
 
 void test("audit marks unregistered action effects as unknown", async () => {

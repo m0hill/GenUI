@@ -14,7 +14,7 @@ import type { StandardSchemaV1 } from "./schema.js"
 export interface ActionDefinition<Ctx, Input = unknown, Output = unknown> {
   readonly name: string
   readonly description: string
-  /** Hosts render this confirmation template from canonical input after validation. */
+  /** Hosts render this template as plain text; interpolated input remains untrusted display data. */
   readonly intent?: string
   readonly effect: Effect
   readonly confidentiality?: Confidentiality
@@ -40,12 +40,12 @@ export type IdempotencyResult =
   | { readonly status: "result"; readonly result: ActionResult }
   | { readonly status: "conflict" }
 
-/** Preserves authoritative records and atomically deduplicates effectful calls. */
+/** Preserves authoritative records and atomically deduplicates effectful calls across replicas. */
 export interface SurfaceStore {
   get(id: string): MaybePromise<SurfaceRecord | undefined>
   set(record: SurfaceRecord): MaybePromise<void>
   revoke(id: string): MaybePromise<void>
-  /** Do not retain provisional approval_required results after their callers receive them. */
+  /** Atomically join matching calls; never retain provisional approval_required results. */
   runIdempotent(
     request: IdempotencyRequest,
     operation: () => Promise<ActionResult>,

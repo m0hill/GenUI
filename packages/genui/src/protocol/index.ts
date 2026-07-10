@@ -32,7 +32,7 @@ export interface Action {
   readonly confidentiality?: Confidentiality
   readonly requiresApproval: boolean
   readonly inputSchema?: JsonSchema
-  /** Optional raw human-facing confirmation template rendered by hosts. */
+  /** Optional confirmation template; hosts must render interpolated values as untrusted text. */
   readonly intent?: string
 }
 

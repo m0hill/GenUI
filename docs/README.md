@@ -8,5 +8,7 @@
   surfaces, use the guest bridge, and handle errors and navigation.
 - [hosting.md](hosting.md) — create and execute surfaces on a server, mount
   them in a browser, connect approval, and expose repair events.
+- [stores.md](stores.md) — implement and verify shared surface persistence,
+  idempotency, revocation, and distributed coordination.
 - [playground README](../examples/playground/README.md) — run the reference host
   and evaluate model output through the real sandbox and action pipeline.
