@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "pnpm run build && pnpm --filter @genui/playground dev",
+    "eval": "pnpm run build && pnpm --filter @genui/playground eval",
     "build": "pnpm --filter @genui/protocol build && pnpm --filter @genui/genui build",
     "test": "pnpm run build && pnpm --filter @genui/protocol test && pnpm --filter @genui/genui test && pnpm --filter @genui/playground test",
     "check": "pnpm run build && pnpm run format:check && pnpm --filter @genui/protocol check && pnpm --filter @genui/genui check && pnpm --filter @genui/playground check && pnpm run test:pack",

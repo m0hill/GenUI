@@ -7,6 +7,7 @@
     "build": "node ./scripts/build-client.mjs",
     "check": "pnpm run lint && pnpm run format:check && tsc --noEmit && pnpm run test",
     "dev": "pnpm run build && nub watch src/server.ts",
+    "eval": "pnpm run build && nub src/eval.ts",
     "format": "oxfmt src scripts package.json tsconfig.json",
     "format:check": "oxfmt --check src scripts package.json tsconfig.json",
     "lint": "oxlint src --type-aware",

@@ -1,0 +1,394 @@
+import { readFile, readdir } from "node:fs/promises"
+import { basename, join, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
+import { isDeepStrictEqual } from "node:util"
+import { serve, type ServerType } from "@hono/node-server"
+import { chromium, type Browser, type Page, type Request } from "playwright"
+import { app, resetPlaygroundState } from "./app.js"
+import { resetDemoOrders } from "./actions.js"
+
+interface ExpectedCall {
+  readonly action: string
+  readonly input: unknown
+}
+
+export interface EvaluationChecks {
+  readonly mounted: boolean
+  readonly noGuestErrors: boolean
+  readonly noViolations: boolean
+  readonly grantedCallsSucceeded: boolean
+  readonly ungrantedCallsDenied: boolean
+  readonly expectedCallsMatched: boolean
+}
+
+export interface FixtureEvaluation {
+  readonly name: string
+  readonly checks: EvaluationChecks
+  readonly expectationProvided: boolean
+  readonly passed: boolean
+  readonly failures: readonly string[]
+  readonly events: readonly unknown[]
+}
+
+export interface EvaluationReport {
+  readonly fixtures: readonly FixtureEvaluation[]
+  readonly errors: readonly string[]
+  readonly passed: boolean
+}
+
+export interface EvaluateFixturesOptions {
+  readonly fixturesDirectory: string | URL
+  readonly quietMs?: number
+  readonly timeoutMs?: number
+}
+
+interface LoadedExpectation {
+  readonly calls?: readonly ExpectedCall[]
+  readonly error?: string
+}
+
+interface CallEvent {
+  readonly type: "call"
+  readonly call: {
+    readonly callId: string
+    readonly action: string
+    readonly input: unknown
+  }
+}
+
+interface ResultEvent {
+  readonly type: "result"
+  readonly callId: string
+  readonly action: string
+  readonly result: Readonly<Record<string, unknown>>
+}
+
+interface ViolationEvent {
+  readonly type: "violation"
+  readonly reason: string
+  readonly detail?: string
+}
+
+interface GuestErrorEvent {
+  readonly type: "guest_error"
+  readonly message: string
+}
+
+const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+const hasOwn = (value: Readonly<Record<string, unknown>>, key: string): boolean =>
+  Object.prototype.hasOwnProperty.call(value, key)
+
+const isCallEvent = (value: unknown): value is CallEvent =>
+  isRecord(value) &&
+  value.type === "call" &&
+  isRecord(value.call) &&
+  typeof value.call.callId === "string" &&
+  typeof value.call.action === "string" &&
+  hasOwn(value.call, "input")
+
+const isResultEvent = (value: unknown): value is ResultEvent =>
+  isRecord(value) &&
+  value.type === "result" &&
+  typeof value.callId === "string" &&
+  typeof value.action === "string" &&
+  isRecord(value.result)
+
+const isViolationEvent = (value: unknown): value is ViolationEvent =>
+  isRecord(value) &&
+  value.type === "violation" &&
+  typeof value.reason === "string" &&
+  (value.detail === undefined || typeof value.detail === "string")
+
+const isGuestErrorEvent = (value: unknown): value is GuestErrorEvent =>
+  isRecord(value) && value.type === "guest_error" && typeof value.message === "string"
+
+const directoryPath = (directory: string | URL): string =>
+  directory instanceof URL ? fileURLToPath(directory) : resolve(directory)
+
+const parseExpectedCalls = (value: unknown): readonly ExpectedCall[] => {
+  if (!Array.isArray(value)) throw new Error("Expected calls must be a JSON array.")
+
+  return value.map((item, index) => {
+    if (
+      !isRecord(item) ||
+      Object.keys(item).length !== 2 ||
+      typeof item.action !== "string" ||
+      !hasOwn(item, "input")
+    ) {
+      throw new Error(`Expected call ${index + 1} must contain only action and input.`)
+    }
+    return { action: item.action, input: item.input }
+  })
+}
+
+const loadExpectation = async (htmlPath: string): Promise<LoadedExpectation> => {
+  const jsonPath = htmlPath.replace(/\.html$/i, ".json")
+  let source: string
+  try {
+    source = await readFile(jsonPath, "utf8")
+  } catch (error) {
+    if (isRecord(error) && error.code === "ENOENT") return {}
+    return { error: `Could not read ${basename(jsonPath)}.` }
+  }
+
+  try {
+    return { calls: parseExpectedCalls(JSON.parse(source) as unknown) }
+  } catch (error) {
+    return {
+      error: `${basename(jsonPath)}: ${error instanceof Error ? error.message : "Invalid JSON."}`,
+    }
+  }
+}
+
+const startServer = async (): Promise<{ readonly origin: string; readonly server: ServerType }> =>
+  new Promise((resolveStart) => {
+    const server = serve({ fetch: app.fetch, hostname: "127.0.0.1", port: 0 }, (info) => {
+      resolveStart({ origin: `http://127.0.0.1:${info.port}`, server })
+    })
+  })
+
+const closeServer = async (server: ServerType): Promise<void> =>
+  new Promise((resolveClose, rejectClose) => {
+    server.close((error?: Error) => {
+      if (error === undefined) resolveClose()
+      else rejectClose(error)
+    })
+  })
+
+const isExecuteRequest = (request: Request): boolean => {
+  try {
+    return request.method() === "POST" && new URL(request.url()).pathname === "/genui/execute"
+  } catch {
+    return false
+  }
+}
+
+const waitForQuiet = async (
+  page: Page,
+  pendingExecutions: ReadonlySet<Request>,
+  quietMs: number,
+  timeoutMs: number,
+): Promise<void> => {
+  const events = page.locator("#event-log > li")
+  let count = await events.count()
+  let quietSince = Date.now()
+  const deadline = Date.now() + timeoutMs
+
+  while (Date.now() < deadline) {
+    const nextCount = await events.count()
+    if (nextCount !== count || pendingExecutions.size > 0) {
+      count = nextCount
+      quietSince = Date.now()
+    }
+    if (pendingExecutions.size === 0 && Date.now() - quietSince >= quietMs) return
+    await page.waitForTimeout(Math.min(25, quietMs))
+  }
+
+  throw new Error(`Surface did not become quiet within ${timeoutMs}ms.`)
+}
+
+const readEvents = async (page: Page): Promise<readonly unknown[]> => {
+  const encoded = await page.locator("#event-log > li").allTextContents()
+  return encoded.map((value) => JSON.parse(value) as unknown)
+}
+
+const resultSucceeded = (event: ResultEvent | undefined): boolean => event?.result.ok === true
+
+const resultDenied = (event: ResultEvent): boolean =>
+  event.result.ok === false &&
+  isRecord(event.result.error) &&
+  event.result.error.code === "not_granted"
+
+const evaluatePage = async (
+  browser: Browser,
+  origin: string,
+  htmlPath: string,
+  quietMs: number,
+  timeoutMs: number,
+): Promise<FixtureEvaluation> => {
+  resetDemoOrders()
+  resetPlaygroundState()
+
+  const name = basename(htmlPath)
+  const failures: string[] = []
+  const expectation = await loadExpectation(htmlPath)
+  if (expectation.error !== undefined) failures.push(expectation.error)
+
+  const context = await browser.newContext()
+  const page = await context.newPage()
+  const pendingExecutions = new Set<Request>()
+  const pageErrors: string[] = []
+
+  page.on("dialog", (dialog) => void dialog.accept())
+  page.on("pageerror", (error) => pageErrors.push(error.message))
+  page.on("request", (request) => {
+    if (isExecuteRequest(request)) pendingExecutions.add(request)
+  })
+  const finishRequest = (request: Request): void => {
+    pendingExecutions.delete(request)
+  }
+  page.on("requestfinished", finishRequest)
+  page.on("requestfailed", finishRequest)
+
+  let mounted = false
+  let events: readonly unknown[] = []
+
+  try {
+    const content = await readFile(htmlPath, "utf8")
+    await page.goto(origin)
+    await page.locator("#surface-source").fill(content)
+    await page.locator("#create-surface").click()
+    await page.waitForFunction(() => {
+      const status = document.querySelector<HTMLOutputElement>("#host-status")
+      return (
+        status?.textContent?.startsWith("Mounted ") === true || status?.dataset.error === "true"
+      )
+    })
+
+    const status = await page.locator("#host-status").textContent()
+    mounted = status?.startsWith("Mounted ") === true
+    if (!mounted) failures.push(`Surface did not mount: ${status ?? "no host status"}`)
+
+    if (mounted) {
+      await page
+        .frameLocator("#surface iframe")
+        .locator("body")
+        .waitFor({ state: "attached", timeout: timeoutMs })
+      await waitForQuiet(page, pendingExecutions, quietMs, timeoutMs)
+    }
+    events = await readEvents(page)
+  } catch (error) {
+    failures.push(error instanceof Error ? error.message : "Fixture evaluation failed.")
+    events = await readEvents(page).catch(() => [])
+  } finally {
+    await context.close()
+  }
+
+  for (const message of pageErrors) failures.push(`Page error: ${message}`)
+
+  const calls = events.filter(isCallEvent)
+  const results = events.filter(isResultEvent)
+  const violations = events.filter(isViolationEvent)
+  const guestErrors = events.filter(isGuestErrorEvent)
+  const callIds = new Set(calls.map((event) => event.call.callId))
+  const ungrantedViolations = violations.filter((event) => event.reason === "ungranted_call")
+  const ungrantedResults = results.filter((event) => !callIds.has(event.callId))
+
+  const noGuestErrors = guestErrors.length === 0
+  const noViolations = violations.length === 0
+  const grantedCallsSucceeded = calls.every((event) =>
+    resultSucceeded(
+      results.find(
+        (candidate) =>
+          candidate.callId === event.call.callId && candidate.action === event.call.action,
+      ),
+    ),
+  )
+  const ungrantedCallsDenied =
+    ungrantedViolations.length === ungrantedResults.length && ungrantedResults.every(resultDenied)
+  const actualCalls = calls.map((event) => ({
+    action: event.call.action,
+    input: event.call.input,
+  }))
+  const expectedCallsMatched =
+    expectation.error === undefined &&
+    (expectation.calls === undefined || isDeepStrictEqual(actualCalls, expectation.calls))
+
+  if (!noGuestErrors) {
+    failures.push(`Guest error: ${guestErrors.map((event) => event.message).join("; ")}`)
+  }
+  if (!noViolations) {
+    failures.push(`Violations: ${violations.map((event) => event.reason).join(", ")}`)
+  }
+  if (!grantedCallsSucceeded) failures.push("One or more granted calls did not succeed.")
+  if (!ungrantedCallsDenied) failures.push("One or more ungranted calls were not denied.")
+  if (!expectedCallsMatched && expectation.error === undefined) {
+    failures.push("Observed calls did not match the expected calls sidecar.")
+  }
+
+  const checks = {
+    mounted,
+    noGuestErrors,
+    noViolations,
+    grantedCallsSucceeded,
+    ungrantedCallsDenied,
+    expectedCallsMatched,
+  }
+  return {
+    name,
+    checks,
+    expectationProvided: expectation.calls !== undefined,
+    passed: failures.length === 0 && Object.values(checks).every(Boolean),
+    failures,
+    events,
+  }
+}
+
+export const evaluateFixtures = async (
+  options: EvaluateFixturesOptions,
+): Promise<EvaluationReport> => {
+  const fixturesDirectory = directoryPath(options.fixturesDirectory)
+  const entries = await readdir(fixturesDirectory, { withFileTypes: true })
+  const fixtureNames = entries
+    .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".html"))
+    .map((entry) => entry.name)
+    .sort((left, right) => left.localeCompare(right))
+
+  if (fixtureNames.length === 0) {
+    return {
+      fixtures: [],
+      errors: [`No .html fixtures found in ${fixturesDirectory}.`],
+      passed: false,
+    }
+  }
+
+  const { origin, server } = await startServer()
+  let browser: Browser | undefined
+  const fixtures: FixtureEvaluation[] = []
+  try {
+    browser = await chromium.launch()
+    for (const name of fixtureNames) {
+      fixtures.push(
+        await evaluatePage(
+          browser,
+          origin,
+          join(fixturesDirectory, name),
+          options.quietMs ?? 200,
+          options.timeoutMs ?? 5_000,
+        ),
+      )
+    }
+  } finally {
+    try {
+      await browser?.close()
+    } finally {
+      await closeServer(server)
+    }
+  }
+
+  return {
+    fixtures,
+    errors: [],
+    passed: fixtures.every((fixture) => fixture.passed),
+  }
+}
+
+const resultCell = (passed: boolean): string => (passed ? "PASS" : "FAIL")
+
+export const formatEvaluationReport = (report: EvaluationReport): string => {
+  const lines = [
+    "| Fixture | Mounted | Guest errors | Violations | Granted calls | Ungranted denied | Expected calls | Result |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- |",
+  ]
+
+  for (const fixture of report.fixtures) {
+    lines.push(
+      `| ${fixture.name} | ${resultCell(fixture.checks.mounted)} | ${resultCell(fixture.checks.noGuestErrors)} | ${resultCell(fixture.checks.noViolations)} | ${resultCell(fixture.checks.grantedCallsSucceeded)} | ${resultCell(fixture.checks.ungrantedCallsDenied)} | ${fixture.expectationProvided ? resultCell(fixture.checks.expectedCallsMatched) : "N/A"} | ${resultCell(fixture.passed)} |`,
+    )
+  }
+
+  for (const error of report.errors) lines.push("", `Error: ${error}`)
+  return `${lines.join("\n")}\n`
+}
