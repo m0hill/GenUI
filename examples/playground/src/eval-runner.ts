@@ -7,7 +7,7 @@ import { chromium, type Browser, type Page, type Request } from "playwright"
 import { app, resetPlaygroundState } from "./app.js"
 import { resetDemoOrders } from "./actions.js"
 import {
-  parseExpectedCalls,
+  decodeExpectedCalls,
   parsePlaygroundEvent,
   parseRecord,
   type PlaygroundEvent,
@@ -44,7 +44,7 @@ interface EvaluateFixturesOptions {
 }
 
 interface LoadedExpectation {
-  readonly calls?: ReturnType<typeof parseExpectedCalls>
+  readonly calls?: ReturnType<typeof decodeExpectedCalls>
   readonly error?: string
 }
 
@@ -59,7 +59,7 @@ const loadExpectation = async (htmlPath: string): Promise<LoadedExpectation> => 
   }
 
   try {
-    return { calls: parseExpectedCalls(JSON.parse(source) as unknown) }
+    return { calls: decodeExpectedCalls(JSON.parse(source) as unknown) }
   } catch (error) {
     return {
       error: `${basename(jsonPath)}: ${error instanceof Error ? error.message : "Invalid JSON."}`,

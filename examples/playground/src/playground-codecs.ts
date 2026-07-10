@@ -108,7 +108,7 @@ export const parseApprovalRequest = (
     : undefined
 }
 
-export const parseExpectedCalls = (
+export const decodeExpectedCalls = (
   value: unknown,
 ): readonly Pick<ActionCall, "action" | "input">[] => {
   if (!Array.isArray(value)) throw new Error("Expected calls must be a JSON array.")
