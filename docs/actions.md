@@ -107,3 +107,14 @@ Set `confidentiality: "sensitive"` when an action result must not enter the
 default generated-code renderer. Sensitive actions remain available for
 trusted registry inspection but are dropped from surface grants with reason
 `confidential`.
+
+## Subject binding
+
+Bind a surface to an authenticated user or session by setting `subject` during
+surface creation. Pass the same opaque string as `ExecuteOptions.subject` on
+every call. A missing or different subject returns `not_granted` before policy,
+schema validation, approval, or execution.
+
+Subject strings are host-provided identity references. The runtime does not
+authenticate users or interpret their contents. Surfaces without a subject
+retain unbound behavior.

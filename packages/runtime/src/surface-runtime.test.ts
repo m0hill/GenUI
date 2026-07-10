@@ -57,6 +57,7 @@ void test("surface runtime reprojects authority without rewriting source", async
   const source = {
     content: `<button>Roll</button><script type="module">genui.call("dice.roll", {})</script>`,
     actions: ["dice.roll"],
+    subject: "session-1",
   }
   const created = await runtime.surface(source)
 
@@ -65,6 +66,7 @@ void test("surface runtime reprojects authority without rewriting source", async
 
   assert.equal(reprojected?.id, created.id)
   assert.equal(reprojected?.content, source.content)
+  assert.equal(reprojected?.grant.subject, "session-1")
   assert.deepEqual(reprojected?.grant.actions, [])
   assert.deepEqual(await runtime.diagnostics(created.id), {
     actions: ["dice.roll"],

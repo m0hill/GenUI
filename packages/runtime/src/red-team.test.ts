@@ -8,6 +8,66 @@ const emptyInput = testSchema<Readonly<Record<string, never>>>((value) =>
   isRecord(value) ? { ok: true, value: {} } : { ok: false, message: "Expected an object." },
 )
 
+void test("red team: subject mismatch is denied before validation or execution", async () => {
+  const store = memoryStore()
+  let validations = 0
+  let executions = 0
+  const runtime = new Genui({
+    store,
+    actions: [
+      action({
+        name: "profile.read",
+        description: "Read the current profile.",
+        effect: "read",
+        input: testSchema<Readonly<Record<string, never>>>((value) => {
+          validations += 1
+          return isRecord(value)
+            ? { ok: true, value: {} }
+            : { ok: false, message: "Expected an object." }
+        }),
+        execute: () => ({ execution: ++executions }),
+      }),
+    ],
+  })
+  const surface = await runtime.surface({
+    content: "<button>Read profile</button>",
+    actions: ["profile.read"],
+    subject: "session-1",
+  })
+
+  const denied = await runtime.execute(
+    {
+      surfaceId: surface.id,
+      callId: "call-wrong-subject",
+      action: "profile.read",
+      input: {},
+    },
+    {},
+    { subject: "session-2" },
+  )
+
+  assert.equal(denied.ok ? undefined : denied.error.code, "not_granted")
+  assert.equal(validations, 0)
+  assert.equal(executions, 0)
+  assert.equal(surface.grant.subject, "session-1")
+  assert.equal((await store.get(surface.id))?.subject, "session-1")
+  assert.equal((await store.get(surface.id))?.source.subject, "session-1")
+
+  const allowed = await runtime.execute(
+    {
+      surfaceId: surface.id,
+      callId: "call-right-subject",
+      action: "profile.read",
+      input: {},
+    },
+    {},
+    { subject: "session-1" },
+  )
+  assert.deepEqual(allowed, { ok: true, value: { execution: 1 } })
+  assert.equal(validations, 1)
+  assert.equal(executions, 1)
+})
+
 void test("red team: current block policy overrides an older surface grant", async () => {
   const store = memoryStore()
   const grantedRuntime = new Genui({

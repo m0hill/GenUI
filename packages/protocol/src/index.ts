@@ -64,6 +64,8 @@ export const renderActionIntent = (intent: string, input: unknown): string =>
 /** Authoritative action set projected for one generated surface. */
 export interface Grant {
   readonly surfaceId: string
+  /** Opaque host identity to which this authority is bound. */
+  readonly subject?: string
   /** Absolute Unix epoch timestamp in milliseconds after which this grant is invalid. */
   readonly expiresAt?: number
   readonly actions: readonly Action[]
@@ -123,6 +125,8 @@ export interface SurfaceInput {
   /** Dialect-defined source content. */
   readonly content: string
   readonly actions: readonly string[]
+  /** Optional opaque user or session identity bound to this surface. */
+  readonly subject?: string
   /** Optional lifetime for the projected grant, in milliseconds. */
   readonly ttlMs?: number
   readonly meta?: Readonly<Record<string, unknown>>
@@ -148,6 +152,7 @@ export interface SurfaceProjectionDiagnostics {
 export interface SurfaceRecord {
   readonly surface: Surface
   readonly source: SurfaceInput
+  readonly subject?: string
   readonly diagnostics: SurfaceProjectionDiagnostics
 }
 
@@ -176,6 +181,7 @@ const isAction = (value: unknown): value is Action =>
 const isGrant = (value: unknown, surfaceId: string): value is Grant =>
   isRecord(value) &&
   value.surfaceId === surfaceId &&
+  (value.subject === undefined || typeof value.subject === "string") &&
   (value.expiresAt === undefined ||
     (Number.isSafeInteger(value.expiresAt) && (value.expiresAt as number) >= 0)) &&
   Array.isArray(value.actions) &&

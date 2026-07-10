@@ -104,6 +104,10 @@ export class Genui<Ctx> {
       return actionError("unknown_surface", "Surface is not available.")
     }
 
+    if (record.subject !== undefined && record.subject !== options?.subject) {
+      return actionError("not_granted", "Surface is not granted to this subject.")
+    }
+
     if (
       record.surface.grant.expiresAt !== undefined &&
       record.surface.grant.expiresAt <= Date.now()

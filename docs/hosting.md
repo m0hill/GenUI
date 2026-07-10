@@ -48,6 +48,7 @@ const surface = await genui.surface({
   dialect: codeDialect,
   content,
   actions: ["orders.search", "orders.update_status"],
+  subject: currentSession.id,
 })
 ```
 
@@ -91,6 +92,7 @@ if (call === undefined) {
 }
 
 const result = await genui.execute(call, appContext, {
+  subject: currentSession.id,
   approve: (_action, canonicalInput) => trustedApproval(body, canonicalInput),
 })
 return Response.json(result)
@@ -98,6 +100,11 @@ return Response.json(result)
 
 Treat the kernel `approve` hook as authoritative. It runs after schema
 validation and receives canonical input. Never approve from guest-rendered UI.
+
+Authenticate the request before calling `surface()` or `execute()`. Use the
+same opaque `subject` value for both operations. A subject-bound grant echoes
+that value for inspection, but the server-side surface record remains
+authoritative.
 
 ## Mount in the browser
 

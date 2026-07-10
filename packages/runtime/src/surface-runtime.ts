@@ -25,6 +25,7 @@ interface SurfaceValueInput {
   readonly id: string
   readonly content: string
   readonly actions: readonly Action[]
+  readonly subject?: string
   readonly expiresAt?: number
   readonly meta?: Readonly<Record<string, unknown>>
 }
@@ -72,6 +73,7 @@ const copySurfaceInput = (source: SurfaceInput): SurfaceInput => {
     content: source.content,
     actions: Object.freeze([...source.actions]),
     ...(source.dialect === undefined ? {} : { dialect: source.dialect }),
+    ...(source.subject === undefined ? {} : { subject: source.subject }),
     ...(source.ttlMs === undefined ? {} : { ttlMs: source.ttlMs }),
     ...(meta === undefined ? {} : { meta }),
   })
@@ -81,6 +83,7 @@ const createSurfaceValue = (input: SurfaceValueInput): Surface => {
   const grant: Grant = Object.freeze({
     surfaceId: input.id,
     actions: copyActions(input.actions),
+    ...(input.subject === undefined ? {} : { subject: input.subject }),
     ...(input.expiresAt === undefined ? {} : { expiresAt: input.expiresAt }),
   })
   const meta = copyMeta(input.meta)
@@ -98,6 +101,7 @@ const copySurface = (surface: Surface): Surface =>
     id: surface.id,
     content: surface.content,
     actions: surface.grant.actions,
+    subject: surface.grant.subject,
     expiresAt: surface.grant.expiresAt,
     meta: surface.meta,
   })
@@ -106,6 +110,7 @@ const copySurfaceRecord = (record: SurfaceRecord): SurfaceRecord =>
   Object.freeze({
     surface: copySurface(record.surface),
     source: copySurfaceInput(record.source),
+    ...(record.subject === undefined ? {} : { subject: record.subject }),
     diagnostics: copyDiagnostics(record.diagnostics),
   })
 
@@ -214,12 +219,14 @@ export const createSurfaceRuntime = <Ctx>({
       id: globalThis.crypto.randomUUID(),
       content: projected.content,
       actions: projected.actions,
+      subject: source.subject,
       expiresAt: grantExpiry(source),
       meta: source.meta,
     })
     const record = Object.freeze({
       surface,
       source,
+      ...(source.subject === undefined ? {} : { subject: source.subject }),
       diagnostics: copyDiagnostics(projected.diagnostics),
     })
     await store.set(record)
@@ -235,12 +242,14 @@ export const createSurfaceRuntime = <Ctx>({
       id,
       content: projected.content,
       actions: projected.actions,
+      subject: record.subject,
       expiresAt: record.surface.grant.expiresAt,
       meta: record.source.meta,
     })
     const nextRecord = Object.freeze({
       surface,
       source: record.source,
+      ...(record.subject === undefined ? {} : { subject: record.subject }),
       diagnostics: copyDiagnostics(projected.diagnostics),
     })
     await store.set(nextRecord)

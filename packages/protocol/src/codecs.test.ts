@@ -8,6 +8,7 @@ const validSurface = {
   dialect: "code/0",
   grant: {
     surfaceId: "surface-1",
+    subject: "session-1",
     expiresAt: 2_000_000_000_000,
     actions: [
       {
@@ -48,6 +49,7 @@ void test("parseSurface accepts a JSON round trip and rejects malformed fields",
       { ...validSurface, grant: { ...validSurface.grant, surfaceId: "surface-other" } },
     ],
     ["grant actions", { ...validSurface, grant: { ...validSurface.grant, actions: {} } }],
+    ["grant subject", { ...validSurface, grant: { ...validSurface.grant, subject: 42 } }],
     ["grant expiresAt", { ...validSurface, grant: { ...validSurface.grant, expiresAt: -1 } }],
     [
       "action name",

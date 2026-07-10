@@ -129,6 +129,8 @@ export interface SurfaceStore {
 
 /** Optional execution hooks supplied by the host application. */
 export interface ExecuteOptions {
+  /** Opaque identity expected by a subject-bound surface. */
+  readonly subject?: string
   /** Authoritatively approve an action using its schema-validated canonical input. */
   approve?(action: Action, input: unknown): boolean | Promise<boolean>
 }
