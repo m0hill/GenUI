@@ -6,7 +6,7 @@ interface ProjectGrantedActionsInput<Ctx> {
   readonly byName: ReadonlyMap<string, AnyActionDefinition<Ctx>>
 }
 
-export interface ProjectedActionGrant {
+interface ProjectedActionGrant {
   readonly actions: readonly Action[]
   readonly dropped: readonly DroppedAction[]
 }
