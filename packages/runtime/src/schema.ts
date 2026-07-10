@@ -1,6 +1,5 @@
 interface StandardSchemaIssue {
   readonly message: string
-  readonly path?: ReadonlyArray<PropertyKey | { readonly key: PropertyKey }> | undefined
 }
 
 type StandardSchemaResult<Output> =
@@ -15,7 +14,6 @@ export interface StandardSchemaV1<Input = unknown, Output = Input> {
     readonly types?: { readonly input: Input; readonly output: Output } | undefined
     readonly validate: (
       value: unknown,
-      options?: { readonly libraryOptions?: Readonly<Record<string, unknown>> | undefined },
     ) => StandardSchemaResult<Output> | Promise<StandardSchemaResult<Output>>
   }
 }
