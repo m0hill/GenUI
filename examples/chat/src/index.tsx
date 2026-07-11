@@ -39,7 +39,7 @@ const AssistantMessage = (props: {
         block.thinking.trim().length > 0 ? (
           <details class="thinking" open={props.pending === true}>
             <summary>Reasoning</summary>
-            <p class="thinking-body">{block.thinking}</p>
+            <div class="thinking-body markdown">{unsafeHtml(renderMarkdown(block.thinking))}</div>
           </details>
         ) : null
       ) : block.text.trim().length > 0 ? (
