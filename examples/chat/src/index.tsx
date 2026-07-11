@@ -186,6 +186,7 @@ app.post("/chat", async (c) => {
     yield event.patch(<p id="composer-error" role="alert" />)
 
     let finalContent: AssistantContentBlock[] | undefined
+    const completedToolContent: AssistantContentBlock[] = []
     try {
       const response = await streamChat(history, prompt, c.req.raw.signal)
       for await (const item of response) {
@@ -193,14 +194,19 @@ app.post("/chat", async (c) => {
           yield event.patch(
             <AssistantMessage
               id={assistantId}
-              content={visibleAssistantContent(item.partial.content)}
+              content={[...completedToolContent, ...visibleAssistantContent(item.partial.content)]}
               pending
             />,
           )
         }
 
         if (item.type === "done") {
-          finalContent = visibleAssistantContent(item.message.content)
+          const content = visibleAssistantContent(item.message.content)
+          if (item.reason === "toolUse") {
+            completedToolContent.push(...content)
+          } else {
+            finalContent = [...completedToolContent, ...content]
+          }
         }
 
         if (item.type === "error") {
