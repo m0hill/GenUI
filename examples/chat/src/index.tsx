@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url"
 import type { AssistantMessage as ProviderAssistantMessage } from "@earendil-works/pi-ai"
 import { serve } from "@hono/node-server"
 import { serveStatic } from "@hono/node-server/serve-static"
-import { event, local, mod, post, read, reply, state, unsafeHtml } from "datastar-kit"
+import { event, local, mod, post, preserve, read, reply, state, unsafeHtml } from "datastar-kit"
 import { Hono } from "hono"
 import { z } from "zod"
 import { modelId, streamChat } from "./ai/index.js"
@@ -37,7 +37,7 @@ const AssistantMessage = (props: {
     {props.content.map((block) =>
       block.type === "thinking" ? (
         block.thinking.trim().length > 0 ? (
-          <details class="thinking" open={props.pending === true}>
+          <details class="thinking" open data-preserve-attr={preserve("open")}>
             <summary>Reasoning</summary>
             <div class="thinking-body markdown">{unsafeHtml(renderMarkdown(block.thinking))}</div>
           </details>
