@@ -115,6 +115,14 @@ const updateModelContext = async (
   await Promise.resolve()
 }
 
+const openLink = async (url: string): Promise<void> => {
+  if (!window.confirm(`Generated interface wants to open this link:\n\n${url}`)) {
+    throw new Error("Link opening was cancelled.")
+  }
+  const opened = window.open(url, "_blank", "noopener,noreferrer")
+  if (opened === null) throw new Error("The browser blocked the new tab.")
+}
+
 const executeAction: Parameters<typeof mount>[2]["transport"] = async (call, options) => {
   const response = await fetch("/genui/execute", {
     method: "POST",
@@ -155,6 +163,7 @@ const mountSurface = (element: Element): void => {
     transport: executeAction,
     capabilities: {
       sendMessage: ({ content }) => sendMessage(content.text),
+      openLink: ({ url }) => openLink(url),
       updateModelContext: (context) => updateModelContext(surface.id, context),
     },
     hostContext: {
