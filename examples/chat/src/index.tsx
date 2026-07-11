@@ -5,29 +5,24 @@ import { serveStatic } from "@hono/node-server/serve-static"
 import { event, local, mod, post, read, reply, state } from "datastar-kit"
 import { Hono } from "hono"
 import { z } from "zod"
-import { type ChatMessage, modelId, streamChat } from "./ai/index.js"
+import { modelId, streamChat } from "./ai/index.js"
+import { JsonlChatSession } from "./session.js"
 
 const DATASTAR_RUNTIME =
   "https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js"
 
-const ChatMessageSchema = z.object({
-  role: z.enum(["user", "assistant"]),
-  content: z.string().min(1).max(16_000),
-})
-
 const ChatSignals = z.object({
   prompt: z.string().trim().min(1).max(8_000),
-  history: z.string().max(500_000),
 })
-
-const History = z.array(ChatMessageSchema).max(40)
 
 const chatState = state({
   prompt: "",
-  history: "[]",
 })
 
 const sending = local<boolean>("sending")
+const session = await JsonlChatSession.open(
+  fileURLToPath(new URL("../data/chat.jsonl", import.meta.url)),
+)
 
 const AssistantMessage = (props: {
   id: string
@@ -44,13 +39,22 @@ const AssistantMessage = (props: {
   </article>
 )
 
-const Turn = (props: { id: string; prompt: string; assistantId: string }) => (
+const Turn = (props: {
+  id: string
+  prompt: string
+  assistantId: string
+  assistantContent?: string
+}) => (
   <section id={props.id} class="turn">
     <article class="message user">
       <span class="message-label">You</span>
       <p class="message-body">{props.prompt}</p>
     </article>
-    <AssistantMessage id={props.assistantId} content="" pending />
+    <AssistantMessage
+      id={props.assistantId}
+      content={props.assistantContent ?? ""}
+      pending={props.assistantContent === undefined}
+    />
   </section>
 )
 
@@ -64,8 +68,9 @@ app.use(
   }),
 )
 
-app.get("/", () =>
-  reply.page(
+app.get("/", () => {
+  const turns = session.getTurns()
+  return reply.page(
     <main class="shell" data-signals={chatState.defaults}>
       <header class="masthead">
         <div class="brand">
@@ -77,15 +82,26 @@ app.get("/", () =>
             <p class="subtitle">OpenAI Codex · {modelId} · reasoning low</p>
           </div>
         </div>
-        <div class="status">Ready</div>
+        <div class="status">Saved locally</div>
       </header>
 
       <section id="messages" aria-live="polite" aria-label="Conversation">
-        <div id="empty-state" class="empty">
-          <p class="empty-kicker">No persistence · browser session only</p>
-          <h2>A quiet place to think out loud.</h2>
-          <p>Ask a question. The answer arrives as server-rendered HTML patches.</p>
-        </div>
+        {turns.length === 0 ? (
+          <div id="empty-state" class="empty">
+            <p class="empty-kicker">Persistent JSONL · local session</p>
+            <h2>A quiet place to think out loud.</h2>
+            <p>Ask a question. The answer arrives as server-rendered HTML patches.</p>
+          </div>
+        ) : (
+          turns.map((turn) => (
+            <Turn
+              id={`turn-${turn.userId}`}
+              prompt={turn.prompt}
+              assistantId={`assistant-${turn.assistantId}`}
+              assistantContent={turn.response}
+            />
+          ))
+        )}
       </section>
 
       <form
@@ -118,8 +134,8 @@ app.get("/", () =>
         <script type="module" src={DATASTAR_RUNTIME} />,
       ],
     },
-  ),
-)
+  )
+})
 
 app.post("/chat", async (c) => {
   const signals = await read.signals(c.req.raw).catch(() => null)
@@ -132,26 +148,12 @@ app.post("/chat", async (c) => {
     )
   }
 
-  let historyValue: unknown
-  try {
-    historyValue = JSON.parse(parsed.data.history)
-  } catch {
-    historyValue = null
-  }
-
-  const parsedHistory = History.safeParse(historyValue)
-  if (!parsedHistory.success) {
-    return reply.patch(
-      <p id="composer-error" role="alert">
-        The browser conversation state is invalid. Reload the page to start over.
-      </p>,
-    )
-  }
-
-  const history: ChatMessage[] = parsedHistory.data
+  const history = session.getHistory().slice(-40)
   const { prompt } = parsed.data
-  const turnId = `turn-${randomUUID()}`
-  const assistantId = `assistant-${randomUUID()}`
+  const userEntryId = randomUUID()
+  const assistantEntryId = randomUUID()
+  const turnId = `turn-${userEntryId}`
+  const assistantId = `assistant-${assistantEntryId}`
 
   async function* streamHtml() {
     if (history.length === 0) {
@@ -178,13 +180,30 @@ app.post("/chat", async (c) => {
         }
       }
 
-      const completedHistory = [...history, { role: "user", content: prompt } as const]
-      if (content.length > 0) {
-        completedHistory.push({ role: "assistant", content })
+      if (content.length === 0) {
+        yield event.patch(<AssistantMessage id={assistantId} content="No response." />)
+        return
       }
 
-      yield event.patch(<AssistantMessage id={assistantId} content={content || "No response."} />)
-      yield event.signals(chatState.patch({ history: JSON.stringify(completedHistory) }))
+      try {
+        await session.appendTurn({
+          userId: userEntryId,
+          assistantId: assistantEntryId,
+          prompt,
+          response: content,
+        })
+      } catch {
+        yield event.patch(
+          <AssistantMessage
+            id={assistantId}
+            content={`${content}\n\nThis response could not be saved.`}
+            error
+          />,
+        )
+        return
+      }
+
+      yield event.patch(<AssistantMessage id={assistantId} content={content} />)
     } catch (error) {
       const message = error instanceof Error ? error.message : "The model request failed"
       yield event.patch(<AssistantMessage id={assistantId} content={message} error />)

@@ -2,13 +2,14 @@
   "name": "chat",
   "type": "module",
   "scripts": {
-    "check": "nub run lint && nub run format:check && nub run typecheck",
+    "check": "nub run lint && nub run format:check && nub run typecheck && nub run test",
     "dev": "nub watch src/index.tsx",
     "build": "tsc",
     "format": "oxfmt src public package.json tsconfig.json",
     "format:check": "oxfmt --check src public package.json tsconfig.json",
     "lint": "oxlint src --type-aware",
     "start": "node dist/index.js",
+    "test": "nub --test $(find src -name '*.test.ts' -print)",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

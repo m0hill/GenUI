@@ -1,13 +1,9 @@
 import type { AssistantMessageEvent, Context, Message } from "@earendil-works/pi-ai"
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex"
 import { getCodexApiKey } from "./auth.js"
+import type { ChatMessage } from "../session.js"
 
 export const modelId = "gpt-5.6-terra"
-
-export interface ChatMessage {
-  role: "user" | "assistant"
-  content: string
-}
 
 const provider = openaiCodexProvider()
 const findModel = () => {
