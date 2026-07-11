@@ -164,6 +164,7 @@ h1 { margin: 0; font-size: 15px; letter-spacing: 0.01em; }
 
 .message.error::before { background: #a13232; }
 .message.error .error-detail { color: #8a2929; }
+.message.assistant:has(.genui-surface) { width: 100%; max-width: 100%; }
 
 .thinking {
   margin: 0 0 14px;
@@ -217,6 +218,18 @@ h1 { margin: 0; font-size: 15px; letter-spacing: 0.01em; }
 .tool-query {
   color: #77736b;
   overflow-wrap: anywhere;
+}
+
+.genui-surface {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 0 14px;
+  overflow: hidden;
+  border: 1px solid #d1cdc3;
+  background: rgba(255, 255, 255, 0.58);
+  color: #77736b;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
 }
 
 .message-body + .message-body { margin-top: 14px; }

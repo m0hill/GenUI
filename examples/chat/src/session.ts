@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto"
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname } from "node:path"
+import { codeDialect, parseSurface, type Surface } from "genui/protocol"
 import { z } from "zod"
+
+const StoredSurface = z.custom<Surface>(
+  (value) => parseSurface(value)?.dialect === codeDialect,
+  "Invalid generated UI surface",
+)
 
 const SessionHeader = z
   .object({
@@ -33,6 +39,12 @@ const AssistantContentBlock = z.discriminatedUnion("type", [
       tool: z.literal("web_search"),
       query: z.string().min(1).max(8_000),
       status: z.enum(["complete", "error"]),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("surface"),
+      surface: StoredSurface,
     })
     .strict(),
 ])

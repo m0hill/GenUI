@@ -22,6 +22,15 @@ void test("JSONL session persists and restores completed turns", async () => {
           thinkingSignature: "thinking-signature",
         },
         { type: "tool", tool: "web_search", query: "friendly greetings", status: "complete" },
+        {
+          type: "surface",
+          surface: {
+            id: "surface-1",
+            content: "<button>Hello</button>",
+            dialect: "code/0",
+            grant: { surfaceId: "surface-1", actions: [], subscriptions: [] },
+          },
+        },
         { type: "text", text: "Hi there", textSignature: "text-signature" },
       ],
     })
@@ -44,6 +53,15 @@ void test("JSONL session persists and restores completed turns", async () => {
             tool: "web_search",
             query: "friendly greetings",
             status: "complete",
+          },
+          {
+            type: "surface",
+            surface: {
+              id: "surface-1",
+              content: "<button>Hello</button>",
+              dialect: "code/0",
+              grant: { surfaceId: "surface-1", actions: [], subscriptions: [] },
+            },
           },
           { type: "text", text: "Hi there", textSignature: "text-signature" },
         ],

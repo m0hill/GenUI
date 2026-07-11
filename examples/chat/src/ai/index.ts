@@ -6,7 +6,9 @@ import type {
   ToolCall,
 } from "@earendil-works/pi-ai"
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex"
+import type { Surface } from "genui/protocol"
 import { getCodexApiKey } from "./auth.js"
+import { createGeneratedSurface, generatedUiInstructions, renderUiTool } from "./genui.js"
 import { searchWeb, webSearchTool } from "./web-search.js"
 import type { ChatMessage } from "../session.js"
 
@@ -19,6 +21,10 @@ export type ChatStreamEvent =
       toolCallId: string
       query: string
       status: "complete" | "error"
+    }
+  | {
+      type: "surface_result"
+      surface: Surface
     }
 
 const provider = openaiCodexProvider()
@@ -55,7 +61,9 @@ const toProviderMessages = (history: readonly ChatMessage[]): Message[] =>
       return { role: "user", content: message.content, timestamp }
     }
 
-    const content = message.content.filter((block) => block.type !== "tool")
+    const content = message.content.filter(
+      (block) => block.type === "text" || block.type === "thinking",
+    )
     return {
       role: "assistant",
       content,
@@ -75,31 +83,52 @@ export async function streamChat(
 ): Promise<AsyncIterable<ChatStreamEvent>> {
   const apiKey = await getCodexApiKey()
   const context: Context = {
-    systemPrompt:
-      "You are a concise, helpful assistant. Use web search when current information is needed.",
+    systemPrompt: `You are a concise, helpful assistant. Use web search when current information is needed. When the user asks for an interactive or visual interface, call render_ui. The render_ui content argument must follow these instructions:\n\n${generatedUiInstructions}`,
     messages: [
       ...toProviderMessages(history),
       { role: "user", content: prompt, timestamp: Date.now() },
     ],
-    tools: [webSearchTool],
+    tools: [webSearchTool, renderUiTool],
   }
 
   async function executeTool(
     toolCall: ToolCall,
-  ): Promise<{ query: string; status: "complete" | "error" }> {
-    const argument = toolCall.arguments.query
-    const query = typeof argument === "string" ? argument.trim() : ""
+  ): Promise<Exclude<ChatStreamEvent, AssistantMessageEvent> | undefined> {
     let text: string
     let isError = false
+    let event: Exclude<ChatStreamEvent, AssistantMessageEvent> | undefined
 
     try {
-      if (toolCall.name !== webSearchTool.name) throw new Error(`Unknown tool: ${toolCall.name}`)
-      if (query.length === 0) throw new Error("Web search requires a query")
-      text = await searchWeb(query, signal)
+      if (toolCall.name === webSearchTool.name) {
+        const argument = toolCall.arguments.query
+        const query = typeof argument === "string" ? argument.trim() : ""
+        if (query.length === 0) throw new Error("Web search requires a query")
+        text = await searchWeb(query, signal)
+        event = { type: "tool_result", toolCallId: toolCall.id, query, status: "complete" }
+      } else if (toolCall.name === renderUiTool.name) {
+        const argument = toolCall.arguments.content
+        const content = typeof argument === "string" ? argument.trim() : ""
+        if (content.length === 0) throw new Error("Generated UI requires HTML content")
+        const surface = await createGeneratedSurface(content)
+        text = "The generated interface was rendered in the conversation."
+        event = { type: "surface_result", surface }
+      } else {
+        throw new Error(`Unknown tool: ${toolCall.name}`)
+      }
     } catch (error) {
       if (signal.aborted) throw new Error("Request aborted")
       text = error instanceof Error ? error.message : "Web search failed"
       isError = true
+      if (toolCall.name === webSearchTool.name) {
+        const argument = toolCall.arguments.query
+        const query = typeof argument === "string" ? argument.trim() : "Invalid search query"
+        event = {
+          type: "tool_result",
+          toolCallId: toolCall.id,
+          query: query || "Invalid search query",
+          status: "error",
+        }
+      }
     }
 
     context.messages.push({
@@ -110,7 +139,7 @@ export async function streamChat(
       isError,
       timestamp: Date.now(),
     })
-    return { query: query || "Invalid search query", status: isError ? "error" : "complete" }
+    return event
   }
 
   async function* run(): AsyncGenerator<ChatStreamEvent> {
@@ -118,7 +147,7 @@ export async function streamChat(
       let completed: AssistantMessage | undefined
       const response = provider.stream(model, context, {
         apiKey,
-        maxTokens: 2_048,
+        maxTokens: 8_192,
         reasoningEffort: "low",
         signal,
       })
@@ -138,8 +167,8 @@ export async function streamChat(
 
       context.messages.push(completed)
       for (const toolCall of toolCalls) {
-        const result = await executeTool(toolCall)
-        yield { type: "tool_result", toolCallId: toolCall.id, ...result }
+        const event = await executeTool(toolCall)
+        if (event !== undefined) yield event
       }
     }
   }

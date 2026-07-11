@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { readFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import type { AssistantMessage as ProviderAssistantMessage } from "@earendil-works/pi-ai"
 import { serve } from "@hono/node-server"
@@ -44,6 +45,19 @@ const WebSearchActivity = (props: { query: string; status: "running" | "complete
   </div>
 )
 
+const GeneratedSurface = (props: {
+  surface: Extract<AssistantContentBlock, { type: "surface" }>["surface"]
+}) => (
+  <div
+    id={`surface-${props.surface.id}`}
+    class="genui-surface"
+    data-genui-surface={JSON.stringify(props.surface)}
+    data-ignore-morph
+  >
+    Loading generated interface…
+  </div>
+)
+
 const AssistantMessage = (props: {
   id: string
   content: readonly AssistantContentBlock[]
@@ -63,6 +77,8 @@ const AssistantMessage = (props: {
         ) : null
       ) : block.type === "tool" ? (
         <WebSearchActivity query={block.query} status={block.status} />
+      ) : block.type === "surface" ? (
+        <GeneratedSurface surface={block.surface} />
       ) : block.text.trim().length > 0 ? (
         <div class="message-body markdown">{unsafeHtml(renderMarkdown(block.text))}</div>
       ) : null,
@@ -176,10 +192,18 @@ app.get("/", () => {
         <meta name="viewport" content="width=device-width, initial-scale=1" />,
         <link rel="stylesheet" href="/assets/styles.css" />,
         <script type="module" src={DATASTAR_RUNTIME} />,
+        <script type="module" src="/client.js" />,
       ],
     },
   )
 })
+
+app.get("/client.js", async (c) =>
+  c.body(await readFile(new URL("../dist/client.js", import.meta.url), "utf8"), 200, {
+    "cache-control": "no-store",
+    "content-type": "text/javascript; charset=utf-8",
+  }),
+)
 
 app.post("/chat", async (c) => {
   const signals = await read.signals(c.req.raw).catch(() => null)
@@ -263,6 +287,18 @@ app.post("/chat", async (c) => {
             query: item.query,
             status: item.status,
           })
+          yield event.patch(
+            <AssistantMessage
+              id={assistantId}
+              content={completedToolContent}
+              activeSearches={activeSearches}
+              pending
+            />,
+          )
+        }
+
+        if (item.type === "surface_result") {
+          completedToolContent.push({ type: "surface", surface: item.surface })
           yield event.patch(
             <AssistantMessage
               id={assistantId}
