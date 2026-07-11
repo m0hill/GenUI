@@ -3,40 +3,74 @@ import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname } from "node:path"
 import { z } from "zod"
 
-const SessionHeader = z.object({
-  type: z.literal("session"),
-  version: z.literal(1),
-  id: z.string().min(1),
-  timestamp: z.iso.datetime(),
-})
+const SessionHeader = z
+  .object({
+    type: z.literal("session"),
+    id: z.string().min(1),
+    timestamp: z.iso.datetime(),
+  })
+  .strict()
 
-const MessageEntry = z.object({
-  type: z.literal("message"),
-  id: z.string().min(1),
-  parentId: z.string().min(1).nullable(),
-  timestamp: z.iso.datetime(),
-  message: z.object({
-    role: z.enum(["user", "assistant"]),
-    content: z.string().min(1).max(16_000),
-  }),
-})
+const AssistantContentBlock = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("text"),
+      text: z.string().max(64_000),
+      textSignature: z.string().optional(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("thinking"),
+      thinking: z.string().max(64_000),
+      thinkingSignature: z.string().optional(),
+      redacted: z.boolean().optional(),
+    })
+    .strict(),
+])
+
+const StoredMessage = z.discriminatedUnion("role", [
+  z
+    .object({
+      role: z.literal("user"),
+      content: z.string().min(1).max(16_000),
+    })
+    .strict(),
+  z
+    .object({
+      role: z.literal("assistant"),
+      content: z.array(AssistantContentBlock).min(1),
+    })
+    .strict(),
+])
+
+const MessageEntry = z
+  .object({
+    type: z.literal("message"),
+    id: z.string().min(1),
+    parentId: z.string().min(1).nullable(),
+    timestamp: z.iso.datetime(),
+    message: StoredMessage,
+  })
+  .strict()
 
 type MessageEntry = z.infer<typeof MessageEntry>
 
+export type AssistantContentBlock = z.infer<typeof AssistantContentBlock>
 export type ChatMessage = MessageEntry["message"]
 
 export interface PersistedTurn {
   readonly userId: string
   readonly assistantId: string
   readonly prompt: string
-  readonly response: string
+  readonly assistantContent: readonly AssistantContentBlock[]
 }
 
 export interface AppendTurnInput {
   readonly userId: string
   readonly assistantId: string
   readonly prompt: string
-  readonly response: string
+  readonly assistantContent: readonly AssistantContentBlock[]
 }
 
 const parseLine = (line: string): unknown => {
@@ -72,7 +106,6 @@ export class JsonlChatSession {
 
       const header = {
         type: "session",
-        version: 1,
         id: randomUUID(),
         timestamp: new Date().toISOString(),
       } as const
@@ -84,7 +117,6 @@ export class JsonlChatSession {
     if (content.length === 0) {
       const header = {
         type: "session",
-        version: 1,
         id: randomUUID(),
         timestamp: new Date().toISOString(),
       } as const
@@ -119,7 +151,7 @@ export class JsonlChatSession {
         userId: user.id,
         assistantId: assistant.id,
         prompt: user.message.content,
-        response: assistant.message.content,
+        assistantContent: assistant.message.content,
       })
       index += 1
     }
@@ -129,7 +161,7 @@ export class JsonlChatSession {
   getHistory(): ChatMessage[] {
     return this.getTurns().flatMap((turn) => [
       { role: "user", content: turn.prompt },
-      { role: "assistant", content: turn.response },
+      { role: "assistant", content: [...turn.assistantContent] },
     ])
   }
 
@@ -149,7 +181,7 @@ export class JsonlChatSession {
         id: input.assistantId,
         parentId: user.id,
         timestamp: new Date().toISOString(),
-        message: { role: "assistant", content: input.response },
+        message: { role: "assistant", content: [...input.assistantContent] },
       }
 
       await appendFile(

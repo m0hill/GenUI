@@ -163,7 +163,34 @@ h1 { margin: 0; font-size: 15px; letter-spacing: 0.01em; }
 }
 
 .message.error::before { background: #a13232; }
-.message.error .message-body { color: #8a2929; }
+.message.error .error-detail { color: #8a2929; }
+
+.thinking {
+  margin: 0 0 14px;
+  color: #77736b;
+  font-size: 13px;
+  font-style: italic;
+}
+
+.thinking summary {
+  width: fit-content;
+  margin-bottom: 7px;
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.thinking-body {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.message-body + .message-body { margin-top: 14px; }
 
 .cursor {
   display: inline-block;

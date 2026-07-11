@@ -13,14 +13,15 @@ const OAuthCredentials = z
     access: z.string().min(1),
     expires: z.number(),
     refresh: z.string().min(1),
+    accountId: z.string().min(1),
   })
-  .catchall(z.unknown())
+  .strict()
 
 const AuthFile = z
   .object({
     [openAICodexProviderId]: OAuthCredentials,
   })
-  .catchall(z.unknown())
+  .strict()
 
 type AuthStorage = z.infer<typeof AuthFile>
 
@@ -47,7 +48,10 @@ export async function getCodexApiKey(): Promise<string> {
   })
   if (result === null) throw new Error(missingCredentialsMessage)
 
-  auth[openAICodexProviderId] = { ...result.newCredentials, type: "oauth" }
+  auth[openAICodexProviderId] = OAuthCredentials.parse({
+    ...result.newCredentials,
+    type: "oauth",
+  })
   await saveAuthStorage(auth)
   return result.apiKey
 }

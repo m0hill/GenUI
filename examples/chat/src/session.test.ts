@@ -15,7 +15,14 @@ void test("JSONL session persists and restores completed turns", async () => {
       userId: "user-1",
       assistantId: "assistant-1",
       prompt: "Hello",
-      response: "Hi there",
+      assistantContent: [
+        {
+          type: "thinking",
+          thinking: "Consider the greeting.",
+          thinkingSignature: "thinking-signature",
+        },
+        { type: "text", text: "Hi there", textSignature: "text-signature" },
+      ],
     })
 
     const lines = (await readFile(filePath, "utf8")).trim().split("\n")
@@ -23,7 +30,17 @@ void test("JSONL session persists and restores completed turns", async () => {
     assert.equal(JSON.parse(lines[0] ?? "{}").type, "session")
     assert.deepEqual((await JsonlChatSession.open(filePath)).getHistory(), [
       { role: "user", content: "Hello" },
-      { role: "assistant", content: "Hi there" },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "thinking",
+            thinking: "Consider the greeting.",
+            thinkingSignature: "thinking-signature",
+          },
+          { type: "text", text: "Hi there", textSignature: "text-signature" },
+        ],
+      },
     ])
   } finally {
     await rm(directory, { recursive: true, force: true })
@@ -40,7 +57,7 @@ void test("JSONL session skips malformed trailing records", async () => {
       userId: "user-1",
       assistantId: "assistant-1",
       prompt: "Hello",
-      response: "Hi there",
+      assistantContent: [{ type: "text", text: "Hi there" }],
     })
     await appendFile(filePath, '{"type":"message"', "utf8")
 

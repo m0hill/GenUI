@@ -40,7 +40,7 @@ const toProviderMessages = (history: readonly ChatMessage[]): Message[] =>
 
     return {
       role: "assistant",
-      content: [{ type: "text", text: message.content }],
+      content: message.content,
       api: model.api,
       provider: model.provider,
       model: model.id,

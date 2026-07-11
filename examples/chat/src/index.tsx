@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto"
 import { fileURLToPath } from "node:url"
+import type { AssistantMessage as ProviderAssistantMessage } from "@earendil-works/pi-ai"
 import { serve } from "@hono/node-server"
 import { serveStatic } from "@hono/node-server/serve-static"
 import { event, local, mod, post, read, reply, state } from "datastar-kit"
 import { Hono } from "hono"
 import { z } from "zod"
 import { modelId, streamChat } from "./ai/index.js"
-import { JsonlChatSession } from "./session.js"
+import { type AssistantContentBlock, JsonlChatSession } from "./session.js"
 
 const DATASTAR_RUNTIME =
   "https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js"
@@ -26,16 +27,26 @@ const session = await JsonlChatSession.open(
 
 const AssistantMessage = (props: {
   id: string
-  content: string
+  content: readonly AssistantContentBlock[]
   pending?: boolean
-  error?: boolean
+  error?: string
 }) => (
-  <article id={props.id} class={`message assistant${props.error === true ? " error" : ""}`}>
+  <article id={props.id} class={`message assistant${props.error ? " error" : ""}`}>
     <span class="message-label">GPT-5.6</span>
-    <p class="message-body">
-      {props.content}
-      {props.pending === true ? <span class="cursor" aria-label="Generating" /> : null}
-    </p>
+    {props.content.map((block) =>
+      block.type === "thinking" ? (
+        block.thinking.trim().length > 0 ? (
+          <details class="thinking" open={props.pending === true}>
+            <summary>Reasoning</summary>
+            <p class="thinking-body">{block.thinking}</p>
+          </details>
+        ) : null
+      ) : block.text.trim().length > 0 ? (
+        <p class="message-body">{block.text}</p>
+      ) : null,
+    )}
+    {props.pending === true ? <span class="cursor" aria-label="Generating" /> : null}
+    {props.error ? <p class="message-body error-detail">{props.error}</p> : null}
   </article>
 )
 
@@ -43,7 +54,7 @@ const Turn = (props: {
   id: string
   prompt: string
   assistantId: string
-  assistantContent?: string
+  assistantContent?: readonly AssistantContentBlock[]
 }) => (
   <section id={props.id} class="turn">
     <article class="message user">
@@ -52,11 +63,18 @@ const Turn = (props: {
     </article>
     <AssistantMessage
       id={props.assistantId}
-      content={props.assistantContent ?? ""}
+      content={props.assistantContent ?? []}
       pending={props.assistantContent === undefined}
     />
   </section>
 )
+
+const visibleAssistantContent = (
+  content: ProviderAssistantMessage["content"],
+): AssistantContentBlock[] =>
+  content.filter(
+    (block): block is AssistantContentBlock => block.type === "text" || block.type === "thinking",
+  )
 
 const app = new Hono()
 
@@ -98,7 +116,7 @@ app.get("/", () => {
               id={`turn-${turn.userId}`}
               prompt={turn.prompt}
               assistantId={`assistant-${turn.assistantId}`}
-              assistantContent={turn.response}
+              assistantContent={turn.assistantContent}
             />
           ))
         )}
@@ -166,13 +184,22 @@ app.post("/chat", async (c) => {
     yield event.signals(chatState.patch({ prompt: "" }))
     yield event.patch(<p id="composer-error" role="alert" />)
 
-    let content = ""
+    let finalContent: AssistantContentBlock[] | undefined
     try {
       const response = await streamChat(history, prompt, c.req.raw.signal)
       for await (const item of response) {
-        if (item.type === "text_delta") {
-          content += item.delta
-          yield event.patch(<AssistantMessage id={assistantId} content={content} pending />)
+        if (item.type === "text_delta" || item.type === "thinking_delta") {
+          yield event.patch(
+            <AssistantMessage
+              id={assistantId}
+              content={visibleAssistantContent(item.partial.content)}
+              pending
+            />,
+          )
+        }
+
+        if (item.type === "done") {
+          finalContent = visibleAssistantContent(item.message.content)
         }
 
         if (item.type === "error") {
@@ -180,8 +207,14 @@ app.post("/chat", async (c) => {
         }
       }
 
-      if (content.length === 0) {
-        yield event.patch(<AssistantMessage id={assistantId} content="No response." />)
+      if (finalContent === undefined || finalContent.length === 0) {
+        yield event.patch(
+          <AssistantMessage
+            id={assistantId}
+            content={[]}
+            error="The model returned no response."
+          />,
+        )
         return
       }
 
@@ -190,23 +223,23 @@ app.post("/chat", async (c) => {
           userId: userEntryId,
           assistantId: assistantEntryId,
           prompt,
-          response: content,
+          assistantContent: finalContent,
         })
       } catch {
         yield event.patch(
           <AssistantMessage
             id={assistantId}
-            content={`${content}\n\nThis response could not be saved.`}
-            error
+            content={finalContent}
+            error="This response could not be saved."
           />,
         )
         return
       }
 
-      yield event.patch(<AssistantMessage id={assistantId} content={content} />)
+      yield event.patch(<AssistantMessage id={assistantId} content={finalContent} />)
     } catch (error) {
       const message = error instanceof Error ? error.message : "The model request failed"
-      yield event.patch(<AssistantMessage id={assistantId} content={message} error />)
+      yield event.patch(<AssistantMessage id={assistantId} content={[]} error={message} />)
     }
   }
 
