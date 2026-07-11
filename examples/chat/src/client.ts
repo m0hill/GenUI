@@ -4,7 +4,7 @@ import {
   type Mounted,
   type UpdateModelContextParams,
 } from "genui/dom"
-import { actionError, parseSurface } from "genui/protocol"
+import { actionError, parseActionResult, parseSurface } from "genui/protocol"
 
 const hostStyleVariables = {
   "--color-background-primary": "#faf9f6",
@@ -115,6 +115,17 @@ const updateModelContext = async (
   await Promise.resolve()
 }
 
+const executeAction: Parameters<typeof mount>[2]["transport"] = async (call, options) => {
+  const response = await fetch("/genui/execute", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(call),
+    signal: options.signal,
+  })
+  const result = parseActionResult(await response.json())
+  return result ?? actionError("execution_failed", "The GenUI action returned an invalid result.")
+}
+
 const surfaceElements = (node: Node): Element[] => {
   if (!(node instanceof Element)) return []
   const descendants = Array.from(node.querySelectorAll("[data-genui-surface]"))
@@ -141,8 +152,7 @@ const mountSurface = (element: Element): void => {
   }
 
   const instance = mount(element, surface, {
-    transport: () =>
-      Promise.resolve(actionError("not_granted", "This chat has no GenUI actions configured.")),
+    transport: executeAction,
     capabilities: {
       sendMessage: ({ content }) => sendMessage(content.text),
       updateModelContext: (context) => updateModelContext(surface.id, context),

@@ -5,7 +5,9 @@ import { serve } from "@hono/node-server"
 import { serveStatic } from "@hono/node-server/serve-static"
 import { event, local, mod, post, preserve, read, reply, state, unsafeHtml } from "datastar-kit"
 import { Hono } from "hono"
+import { actionError, parseActionCall } from "genui/protocol"
 import { z } from "zod"
+import { executeGeneratedUiAction } from "./ai/genui.js"
 import { type GeneratedUiModelContext, modelId, streamChat } from "./ai/index.js"
 import { renderMarkdown } from "./markdown.js"
 import { type AssistantContentBlock, JsonlChatSession } from "./session.js"
@@ -34,6 +36,14 @@ const chatState = state({
 const parseJson = (text: string): unknown => {
   try {
     return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
+const requestJson = async (request: Request): Promise<unknown> => {
+  try {
+    return await request.json()
   } catch {
     return null
   }
@@ -214,6 +224,14 @@ app.get("/", () => {
       ],
     },
   )
+})
+
+app.post("/genui/execute", async (c) => {
+  const call = parseActionCall(await requestJson(c.req.raw))
+  if (call === undefined) {
+    return c.json(actionError("invalid_input", "Malformed GenUI action call."), 400)
+  }
+  return c.json(await executeGeneratedUiAction(call))
 })
 
 app.post("/chat", async (c) => {
