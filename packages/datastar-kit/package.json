@@ -1,0 +1,74 @@
+{
+  "name": "datastar-kit",
+  "version": "0.4.0",
+  "description": "Datastar companion SDK for server-driven TypeScript applications",
+  "homepage": "https://datastar-kit.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/m0hill/datastar-kit.git",
+    "directory": "packages/datastar-kit"
+  },
+  "bugs": {
+    "url": "https://github.com/m0hill/datastar-kit/issues"
+  },
+  "author": "Mohil",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./jsx-runtime": {
+      "types": "./dist/jsx-runtime.d.ts",
+      "default": "./dist/jsx-runtime.js"
+    },
+    "./jsx-dev-runtime": {
+      "types": "./dist/jsx-dev-runtime.d.ts",
+      "default": "./dist/jsx-dev-runtime.js"
+    },
+    "./sse": {
+      "types": "./dist/sse.d.ts",
+      "default": "./dist/sse.js"
+    },
+    "./debugger": {
+      "types": "./dist/debugger.d.ts",
+      "default": "./dist/debugger.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "check": "pnpm run typecheck && pnpm run test && pnpm run build",
+    "pack:dry-run": "pnpm pack --dry-run",
+    "prepack": "pnpm run build",
+    "prepublishOnly": "pnpm run check",
+    "release:dry-run": "pnpm run check && pnpm pack --dry-run",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "keywords": [
+    "datastar",
+    "sse",
+    "hypermedia",
+    "web-standards"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.14",
+    "zod": "^4.4.3"
+  }
+}

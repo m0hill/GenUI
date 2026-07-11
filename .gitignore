@@ -1,0 +1,7 @@
+node_modules/
+/.pi-cache/
+.DS_Store
+dump.rdb
+auth.json
+*.env
+.claude/

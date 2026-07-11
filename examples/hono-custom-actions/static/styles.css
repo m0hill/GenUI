@@ -1,0 +1,114 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  line-height: 1.5;
+  color: #14213d;
+  background: #f6f8fb;
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  width: min(760px, calc(100vw - 32px));
+  margin: 0 auto;
+  padding: 56px 0;
+}
+
+h1 {
+  margin: 0 0 12px;
+  font-size: clamp(2rem, 5vw, 3rem);
+  line-height: 1;
+}
+
+p {
+  color: #53657d;
+}
+
+.card {
+  margin-top: 24px;
+  padding: 24px;
+  border: 1px solid #dfe7f3;
+  border-radius: 18px;
+  background: white;
+  box-shadow: 0 18px 60px rgb(20 33 61 / 8%);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+button {
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 16px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.primary {
+  color: white;
+  background: #2563eb;
+}
+
+.secondary {
+  color: #1f2a44;
+  background: #e9eef7;
+}
+
+.danger {
+  color: white;
+  background: #dc2626;
+}
+
+.result {
+  display: block;
+  min-height: 1.5em;
+  margin-top: 16px;
+  color: #0f766e;
+  font-weight: 700;
+}
+
+code {
+  border-radius: 6px;
+  padding: 2px 6px;
+  background: #eef2ff;
+  color: #3730a3;
+}
+
+dialog {
+  width: min(520px, calc(100vw - 32px));
+  border: 0;
+  border-radius: 20px;
+  padding: 0;
+  box-shadow: 0 24px 80px rgb(15 23 42 / 24%);
+}
+
+dialog::backdrop {
+  background: rgb(15 23 42 / 45%);
+}
+
+.dialog-body {
+  padding: 24px;
+}
+
+.dialog-body h2 {
+  margin-top: 0;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.plugin-list {
+  margin-top: 16px;
+  padding-left: 22px;
+}

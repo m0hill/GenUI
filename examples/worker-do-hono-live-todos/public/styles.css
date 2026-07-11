@@ -1,0 +1,113 @@
+:root {
+  color-scheme: light dark;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: Canvas;
+  color: CanvasText;
+}
+
+main {
+  width: min(42rem, calc(100vw - 2rem));
+  display: grid;
+  gap: 1.25rem;
+}
+
+h1,
+p {
+  margin: 0;
+}
+
+.panel {
+  border: 1px solid color-mix(in oklab, CanvasText 15%, transparent);
+  border-radius: 1rem;
+  padding: 1rem;
+  background: color-mix(in oklab, Canvas 92%, CanvasText);
+}
+
+form {
+  display: grid;
+  gap: 0.75rem;
+}
+
+label {
+  font-weight: 600;
+}
+
+.new-todo-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid color-mix(in oklab, CanvasText 20%, transparent);
+  border-radius: 0.65rem;
+  background: Canvas;
+  color: CanvasText;
+}
+
+button {
+  font: inherit;
+  border: 0;
+  border-radius: 0.65rem;
+  padding: 0.65rem 0.85rem;
+  background: Highlight;
+  color: HighlightText;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid color-mix(in oklab, CanvasText 12%, transparent);
+  border-radius: 0.75rem;
+}
+
+li.done span {
+  text-decoration: line-through;
+  opacity: 0.65;
+}
+
+.todo-title {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.secondary {
+  background: color-mix(in oklab, CanvasText 10%, transparent);
+  color: CanvasText;
+}
+
+.muted {
+  color: color-mix(in oklab, CanvasText 60%, Canvas);
+  font-size: 0.925rem;
+}
+
+.error {
+  color: #dc2626;
+  font-size: 0.925rem;
+}

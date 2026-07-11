@@ -1,0 +1,34 @@
+{
+  "name": "@datastar-kit/example-hono-linear-clone",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm run build:workspace-sdk && pnpm run build:only",
+    "build:only": "rm -rf dist && pnpm run css:build && tsc -p tsconfig.build.json",
+    "build:workspace-sdk": "if [ -f ../../packages/datastar-kit/package.json ]; then pnpm --filter datastar-kit build; fi",
+    "check": "pnpm run typecheck && pnpm run build",
+    "css:build": "tailwindcss -i ./src/styles.css -o ./public/styles.css",
+    "css:watch": "tailwindcss -i ./src/styles.css -o ./public/styles.css --watch",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "dev": "pnpm run css:watch & trap 'kill 0' EXIT; tsx src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.0.3",
+    "better-sqlite3": "^12.10.0",
+    "datastar-kit": "workspace:*",
+    "drizzle-orm": "1.0.0-rc.4-5d5b77c",
+    "hono": "^4.12.19",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.0.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.10.1",
+    "drizzle-kit": "1.0.0-rc.4-5d5b77c",
+    "tailwindcss": "^4.0.0",
+    "tsx": "^4.22.3",
+    "typescript": "^5.9.3"
+  }
+}
