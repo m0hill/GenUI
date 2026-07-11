@@ -178,8 +178,12 @@ Every method returns a Promise and may be denied; show rejection in the interfac
 
 ## Host styling
 
-The host may provide standardized MCP Apps CSS custom properties. Prefer these tokens over invented
-colors and fonts. Give every token use a sensible fallback, for example
+The host may provide standardized MCP Apps CSS custom properties. Use a standardized token for
+every visual property it covers: colors, font families, font weights, text and heading sizes, line
+heights, borders, radii, focus rings, and shadows. Do not hardcode those values directly. Hardcode
+only layout geometry, spacing, and behavior for which no standardized token exists.
+
+Reference every token through \`var(--token, fallback)\` with a sensible fallback, for example
 \`var(--color-background-primary, light-dark(#ffffff, #171717))\` and
 \`var(--font-sans, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif)\`.
 \`light-dark()\` values follow the host's light or dark color scheme. The standardized radius token

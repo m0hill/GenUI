@@ -42,10 +42,14 @@ must not treat a rendered confirmation or button state as authorization.
 ## Host theming
 
 Hosts may provide any subset of the MCP Apps SEP-1865 design tokens from the
-2026-01-26 specification below, or provide none. Prefer these tokens over
-invented colors, dimensions, shadows, and fonts. Use every token through
-`var(--name, fallback)` with a sensible fallback so the surface remains usable
-when a host omits it.
+2026-01-26 specification below, or provide none. Use a standardized token for
+every visual property it covers: colors, font families, font weights, text and
+heading sizes, line heights, borders, radii, focus rings, and shadows. Do not
+hardcode those values directly. Hardcode only layout geometry, spacing, and
+behavior for which no standardized token exists.
+
+Reference every token through `var(--name, fallback)` with a sensible fallback
+so the surface remains usable when a host omits it.
 
 - Background colors: `--color-background-primary`,
   `--color-background-secondary`, `--color-background-tertiary`,

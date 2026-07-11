@@ -92,6 +92,9 @@ void test("code instructions teach portable host styling", () => {
   const instructions = codeInstructions([])
 
   assert.match(instructions, /## Host styling/)
+  assert.match(instructions, /Use a standardized token for\s+every visual property it covers/)
+  assert.match(instructions, /Do not hardcode those values directly/)
+  assert.match(instructions, /layout geometry, spacing, and behavior/)
   assert.match(instructions, /var\(--color-background-primary, [^)]+\)/)
   assert.match(instructions, /light-dark\(/)
   assert.match(instructions, /system-ui/)
