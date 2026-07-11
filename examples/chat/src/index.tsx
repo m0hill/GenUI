@@ -3,10 +3,11 @@ import { fileURLToPath } from "node:url"
 import type { AssistantMessage as ProviderAssistantMessage } from "@earendil-works/pi-ai"
 import { serve } from "@hono/node-server"
 import { serveStatic } from "@hono/node-server/serve-static"
-import { event, local, mod, post, read, reply, state } from "datastar-kit"
+import { event, local, mod, post, read, reply, state, unsafeHtml } from "datastar-kit"
 import { Hono } from "hono"
 import { z } from "zod"
 import { modelId, streamChat } from "./ai/index.js"
+import { renderMarkdown } from "./markdown.js"
 import { type AssistantContentBlock, JsonlChatSession } from "./session.js"
 
 const DATASTAR_RUNTIME =
@@ -42,7 +43,7 @@ const AssistantMessage = (props: {
           </details>
         ) : null
       ) : block.text.trim().length > 0 ? (
-        <p class="message-body">{block.text}</p>
+        <div class="message-body markdown">{unsafeHtml(renderMarkdown(block.text))}</div>
       ) : null,
     )}
     {props.pending === true ? <span class="cursor" aria-label="Generating" /> : null}

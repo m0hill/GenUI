@@ -18,6 +18,7 @@
     "datastar-kit": "^0.4.0",
     "genui": "workspace:*",
     "hono": "^4.12.28",
+    "micromark": "^4.0.2",
     "zod": "^4.4.3"
   },
   "devDependencies": {
