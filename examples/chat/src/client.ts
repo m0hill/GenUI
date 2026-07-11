@@ -2,6 +2,22 @@ import { mount, type Mounted } from "genui/dom"
 import { actionError, parseSurface } from "genui/protocol"
 
 const mounted = new Map<Element, Mounted>()
+const composer = document.querySelector<HTMLFormElement>(".composer")
+const prompt = document.querySelector<HTMLTextAreaElement>('textarea[data-bind="prompt"]')
+
+const sendMessage = async (text: string): Promise<void> => {
+  const message = text.trim()
+  if (composer === null || prompt === null) throw new Error("The chat composer is unavailable.")
+  if (prompt.disabled) throw new Error("Wait for the current response to finish.")
+  if (message.length === 0 || message.length > 8_000) {
+    throw new Error("Generated messages must contain between 1 and 8,000 characters.")
+  }
+
+  prompt.value = message
+  prompt.dispatchEvent(new Event("input", { bubbles: true }))
+  await Promise.resolve()
+  composer.requestSubmit()
+}
 
 const surfaceElements = (node: Node): Element[] => {
   if (!(node instanceof Element)) return []
@@ -31,6 +47,9 @@ const mountSurface = (element: Element): void => {
   const instance = mount(element, surface, {
     transport: () =>
       Promise.resolve(actionError("not_granted", "This chat has no GenUI actions configured.")),
+    capabilities: {
+      sendMessage: ({ content }) => sendMessage(content.text),
+    },
     hostContext: {
       theme: window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
       containerDimensions: { maxHeight: 720 },
