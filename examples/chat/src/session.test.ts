@@ -21,6 +21,7 @@ void test("JSONL session persists and restores completed turns", async () => {
           thinking: "Consider the greeting.",
           thinkingSignature: "thinking-signature",
         },
+        { type: "tool", tool: "web_search", query: "friendly greetings", status: "complete" },
         { type: "text", text: "Hi there", textSignature: "text-signature" },
       ],
     })
@@ -37,6 +38,12 @@ void test("JSONL session persists and restores completed turns", async () => {
             type: "thinking",
             thinking: "Consider the greeting.",
             thinkingSignature: "thinking-signature",
+          },
+          {
+            type: "tool",
+            tool: "web_search",
+            query: "friendly greetings",
+            status: "complete",
           },
           { type: "text", text: "Hi there", textSignature: "text-signature" },
         ],

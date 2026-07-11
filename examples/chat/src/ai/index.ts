@@ -12,6 +12,15 @@ import type { ChatMessage } from "../session.js"
 
 export const modelId = "gpt-5.6-terra"
 
+export type ChatStreamEvent =
+  | AssistantMessageEvent
+  | {
+      type: "tool_result"
+      toolCallId: string
+      query: string
+      status: "complete" | "error"
+    }
+
 const provider = openaiCodexProvider()
 const findModel = () => {
   const found = provider.getModels().find((candidate) => candidate.id === modelId)
@@ -46,9 +55,10 @@ const toProviderMessages = (history: readonly ChatMessage[]): Message[] =>
       return { role: "user", content: message.content, timestamp }
     }
 
+    const content = message.content.filter((block) => block.type !== "tool")
     return {
       role: "assistant",
-      content: message.content,
+      content,
       api: model.api,
       provider: model.provider,
       model: model.id,
@@ -62,7 +72,7 @@ export async function streamChat(
   history: readonly ChatMessage[],
   prompt: string,
   signal: AbortSignal,
-): Promise<AsyncIterable<AssistantMessageEvent>> {
+): Promise<AsyncIterable<ChatStreamEvent>> {
   const apiKey = await getCodexApiKey()
   const context: Context = {
     systemPrompt:
@@ -74,17 +84,18 @@ export async function streamChat(
     tools: [webSearchTool],
   }
 
-  async function executeTool(toolCall: ToolCall): Promise<void> {
-    const query = toolCall.arguments.query
+  async function executeTool(
+    toolCall: ToolCall,
+  ): Promise<{ query: string; status: "complete" | "error" }> {
+    const argument = toolCall.arguments.query
+    const query = typeof argument === "string" ? argument.trim() : ""
     let text: string
     let isError = false
 
     try {
       if (toolCall.name !== webSearchTool.name) throw new Error(`Unknown tool: ${toolCall.name}`)
-      if (typeof query !== "string" || query.trim().length === 0) {
-        throw new Error("Web search requires a query")
-      }
-      text = await searchWeb(query.trim(), signal)
+      if (query.length === 0) throw new Error("Web search requires a query")
+      text = await searchWeb(query, signal)
     } catch (error) {
       if (signal.aborted) throw new Error("Request aborted")
       text = error instanceof Error ? error.message : "Web search failed"
@@ -99,9 +110,10 @@ export async function streamChat(
       isError,
       timestamp: Date.now(),
     })
+    return { query: query || "Invalid search query", status: isError ? "error" : "complete" }
   }
 
-  async function* run(): AsyncGenerator<AssistantMessageEvent> {
+  async function* run(): AsyncGenerator<ChatStreamEvent> {
     for (let round = 0; ; round += 1) {
       let completed: AssistantMessage | undefined
       const response = provider.stream(model, context, {
@@ -125,7 +137,10 @@ export async function streamChat(
       }
 
       context.messages.push(completed)
-      for (const toolCall of toolCalls) await executeTool(toolCall)
+      for (const toolCall of toolCalls) {
+        const result = await executeTool(toolCall)
+        yield { type: "tool_result", toolCallId: toolCall.id, ...result }
+      }
     }
   }
 

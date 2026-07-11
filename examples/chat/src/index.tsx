@@ -26,9 +26,28 @@ const session = await JsonlChatSession.open(
   fileURLToPath(new URL("../data/chat.jsonl", import.meta.url)),
 )
 
+interface ActiveWebSearch {
+  readonly id: string
+  readonly query: string
+}
+
+const WebSearchActivity = (props: { query: string; status: "running" | "complete" | "error" }) => (
+  <div class={`tool-activity ${props.status}`} role="status">
+    <span class="tool-status">
+      {props.status === "running"
+        ? "Searching the web"
+        : props.status === "complete"
+          ? "Searched the web"
+          : "Web search failed"}
+    </span>
+    <span class="tool-query">{props.query}</span>
+  </div>
+)
+
 const AssistantMessage = (props: {
   id: string
   content: readonly AssistantContentBlock[]
+  activeSearches?: readonly ActiveWebSearch[]
   pending?: boolean
   error?: string
 }) => (
@@ -42,10 +61,15 @@ const AssistantMessage = (props: {
             <div class="thinking-body markdown">{unsafeHtml(renderMarkdown(block.thinking))}</div>
           </details>
         ) : null
+      ) : block.type === "tool" ? (
+        <WebSearchActivity query={block.query} status={block.status} />
       ) : block.text.trim().length > 0 ? (
         <div class="message-body markdown">{unsafeHtml(renderMarkdown(block.text))}</div>
       ) : null,
     )}
+    {props.activeSearches?.map((search) => (
+      <WebSearchActivity query={search.query} status="running" />
+    ))}
     {props.pending === true ? <span class="cursor" aria-label="Generating" /> : null}
     {props.error ? <p class="message-body error-detail">{props.error}</p> : null}
   </article>
@@ -74,7 +98,8 @@ const visibleAssistantContent = (
   content: ProviderAssistantMessage["content"],
 ): AssistantContentBlock[] =>
   content.filter(
-    (block): block is AssistantContentBlock => block.type === "text" || block.type === "thinking",
+    (block): block is Extract<AssistantContentBlock, { type: "text" | "thinking" }> =>
+      block.type === "text" || block.type === "thinking",
   )
 
 const app = new Hono()
@@ -187,6 +212,7 @@ app.post("/chat", async (c) => {
 
     let finalContent: AssistantContentBlock[] | undefined
     const completedToolContent: AssistantContentBlock[] = []
+    const activeSearches: ActiveWebSearch[] = []
     try {
       const response = await streamChat(history, prompt, c.req.raw.signal)
       for await (const item of response) {
@@ -195,6 +221,7 @@ app.post("/chat", async (c) => {
             <AssistantMessage
               id={assistantId}
               content={[...completedToolContent, ...visibleAssistantContent(item.partial.content)]}
+              activeSearches={activeSearches}
               pending
             />,
           )
@@ -207,6 +234,43 @@ app.post("/chat", async (c) => {
           } else {
             finalContent = [...completedToolContent, ...content]
           }
+        }
+
+        if (item.type === "toolcall_end") {
+          const query = item.toolCall.arguments.query
+          if (typeof query === "string" && query.trim().length > 0) {
+            activeSearches.push({ id: item.toolCall.id, query: query.trim() })
+            yield event.patch(
+              <AssistantMessage
+                id={assistantId}
+                content={[
+                  ...completedToolContent,
+                  ...visibleAssistantContent(item.partial.content),
+                ]}
+                activeSearches={activeSearches}
+                pending
+              />,
+            )
+          }
+        }
+
+        if (item.type === "tool_result") {
+          const index = activeSearches.findIndex((search) => search.id === item.toolCallId)
+          if (index !== -1) activeSearches.splice(index, 1)
+          completedToolContent.push({
+            type: "tool",
+            tool: "web_search",
+            query: item.query,
+            status: item.status,
+          })
+          yield event.patch(
+            <AssistantMessage
+              id={assistantId}
+              content={completedToolContent}
+              activeSearches={activeSearches}
+              pending
+            />,
+          )
         }
 
         if (item.type === "error") {
@@ -246,7 +310,14 @@ app.post("/chat", async (c) => {
       yield event.patch(<AssistantMessage id={assistantId} content={finalContent} />)
     } catch (error) {
       const message = error instanceof Error ? error.message : "The model request failed"
-      yield event.patch(<AssistantMessage id={assistantId} content={[]} error={message} />)
+      yield event.patch(
+        <AssistantMessage
+          id={assistantId}
+          content={completedToolContent}
+          activeSearches={activeSearches}
+          error={message}
+        />,
+      )
     }
   }
 

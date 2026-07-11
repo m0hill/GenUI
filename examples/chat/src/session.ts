@@ -27,6 +27,14 @@ const AssistantContentBlock = z.discriminatedUnion("type", [
       redacted: z.boolean().optional(),
     })
     .strict(),
+  z
+    .object({
+      type: z.literal("tool"),
+      tool: z.literal("web_search"),
+      query: z.string().min(1).max(8_000),
+      status: z.enum(["complete", "error"]),
+    })
+    .strict(),
 ])
 
 const StoredMessage = z.discriminatedUnion("role", [
