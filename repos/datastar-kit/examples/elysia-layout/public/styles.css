@@ -1,0 +1,91 @@
+@view-transition {
+  navigation: auto;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  color: #172033;
+  background: #f6f7fb;
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 16rem 1fr;
+}
+
+.sidebar {
+  padding: 2rem;
+  background: #111827;
+  color: white;
+}
+
+.sidebar nav {
+  display: grid;
+  gap: .75rem;
+  margin-top: 2rem;
+}
+
+.content {
+  padding: 2rem;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.toolbar {
+  display: flex;
+  gap: .5rem;
+}
+
+.toolbar input {
+  min-width: 18rem;
+  padding: .65rem .75rem;
+  border: 1px solid #cfd6e4;
+  border-radius: .6rem;
+}
+
+.toolbar button {
+  padding: .65rem .9rem;
+  border: 0;
+  border-radius: .6rem;
+  background: #2563eb;
+  color: white;
+}
+
+.card {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border-radius: 1rem;
+  background: white;
+  box-shadow: 0 1px 2px rgb(15 23 42 / .08);
+}
+
+.project {
+  display: flex;
+  justify-content: space-between;
+  padding: .75rem 0;
+  border-top: 1px solid #e5e7eb;
+}
+
+.project:first-child {
+  border-top: 0;
+}
+
+.muted {
+  color: #64748b;
+}

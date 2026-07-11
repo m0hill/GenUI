@@ -1,0 +1,23 @@
+{
+  "name": "@datastar-kit/example-elysia-layout",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm run build:workspace-sdk && pnpm run build:only",
+    "build:only": "rm -rf dist && tsc -p tsconfig.build.json",
+    "build:workspace-sdk": "if [ -f ../../packages/datastar-kit/package.json ]; then pnpm --filter datastar-kit build; fi",
+    "check": "pnpm run typecheck && pnpm run build",
+    "dev": "pnpm run build:workspace-sdk && bun --hot src/index.tsx",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@elysia/static": "^1.4.11",
+    "datastar-kit": "workspace:*",
+    "elysia": "^1.4.28",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3"
+  }
+}

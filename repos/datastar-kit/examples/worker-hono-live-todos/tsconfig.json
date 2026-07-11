@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "datastar-kit",
+    "paths": {
+      "datastar-kit": ["../../packages/datastar-kit/src/index.ts"],
+      "datastar-kit/jsx-runtime": ["../../packages/datastar-kit/src/jsx-runtime.ts"],
+      "datastar-kit/jsx-dev-runtime": ["../../packages/datastar-kit/src/jsx-dev-runtime.ts"],
+      "datastar-kit/sse": ["../../packages/datastar-kit/src/sse.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "worker-configuration.d.ts"]
+}

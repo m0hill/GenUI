@@ -1,0 +1,552 @@
+@import "tailwindcss";
+
+@source "./**/*.{ts,tsx}";
+@source "./generated/docs.ts";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@view-transition {
+  navigation: auto;
+}
+
+@font-face {
+  font-family: "Geist Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("/fonts/geist-latin-wght-normal.woff2") format("woff2-variations");
+}
+
+@font-face {
+  font-family: "Geist Mono Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("/fonts/geist-mono-latin-wght-normal.woff2") format("woff2-variations");
+}
+
+@theme {
+  --color-bg: #f6f6f1;
+  --color-paper: #fbfbf7;
+  --color-paper-soft: #f0f1ea;
+  --color-surface: #ffffff;
+  --color-surface-raised: #f9faf4;
+  --color-border-subtle: #d8d8cd;
+  --color-border: #9f9f92;
+  --color-border-strong: #1e1f1a;
+  --color-fg: #171812;
+  --color-fg-secondary: #47483e;
+  --color-fg-muted: #7c7d70;
+  --color-accent: #1b55ff;
+  --color-accent-bright: #003ef5;
+  --color-accent-dim: #dbe5ff;
+  --color-blueprint: #86a4ff;
+  --color-danger: #b42318;
+  --font-sans: "Geist Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+:root {
+  color-scheme: light;
+  --paper-grid: rgba(27, 85, 255, 0.055);
+  --paper-grain: rgba(23, 24, 18, 0.035);
+  --paper-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.65), rgba(246, 246, 241, 0.86));
+  --panel-dots: rgba(27, 85, 255, 0.105);
+  --rule-ink: rgba(23, 24, 18, 0.24);
+  --rule-pattern: repeating-linear-gradient(90deg, var(--rule-ink) 0 2px, transparent 2px 10px);
+  --raise-top: rgba(255, 255, 255, 0.8);
+  --raise-bottom: rgba(23, 24, 18, 0.1);
+}
+
+.dark {
+  color-scheme: dark;
+  --color-bg: #0b0d13;
+  --color-paper: #11141d;
+  --color-paper-soft: #161a24;
+  --color-surface: #14171f;
+  --color-surface-raised: #191d27;
+  --color-border-subtle: #242838;
+  --color-border: #393f51;
+  --color-border-strong: #5b6175;
+  --color-fg: #e9eae2;
+  --color-fg-secondary: #aeb0a3;
+  --color-fg-muted: #797b6c;
+  --color-accent: #5c83ff;
+  --color-accent-bright: #84a1ff;
+  --color-accent-dim: #1a2542;
+  --color-blueprint: #5d79c9;
+  --color-danger: #f2776b;
+
+  --paper-grid: rgba(92, 131, 255, 0.05);
+  --paper-grain: rgba(255, 255, 255, 0.018);
+  --paper-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(0, 0, 0, 0.22));
+  --panel-dots: rgba(92, 131, 255, 0.09);
+  --rule-ink: rgba(233, 234, 226, 0.16);
+  --raise-top: rgba(255, 255, 255, 0.05);
+  --raise-bottom: rgba(0, 0, 0, 0.3);
+}
+
+html {
+  scroll-padding-top: 7rem;
+}
+
+@media (min-width: 48rem) {
+  html {
+    scroll-padding-top: 5.5rem;
+  }
+}
+
+body {
+  min-height: 100dvh;
+  background-color: var(--color-bg);
+  background-image:
+    radial-gradient(circle at 1px 1px, var(--paper-grid) 1px, transparent 0), var(--paper-sheen),
+    repeating-linear-gradient(0deg, transparent 0 34px, var(--paper-grain) 34px 35px);
+  background-position:
+    0 0,
+    0 0,
+    0 0;
+  background-size:
+    14px 14px,
+    auto,
+    auto;
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: var(--color-accent-dim);
+  color: var(--color-accent-bright);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--color-accent) 38%, var(--color-border)) transparent;
+}
+
+.site-shell {
+  @apply mx-auto w-full px-4 sm:px-6;
+  max-width: 88rem;
+}
+
+.paper-rule {
+  height: 13px;
+  background-image: var(--rule-pattern);
+  opacity: 0.46;
+}
+
+.wordmark {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  font-weight: 650;
+  letter-spacing: -0.075em;
+  line-height: 1;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  text-shadow: 1px 0 0 color-mix(in oklab, var(--color-accent) 70%, transparent);
+}
+
+.blueprint-panel {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 2px;
+  background-color: var(--color-surface);
+  background-image: radial-gradient(circle at 1px 1px, var(--panel-dots) 1px, transparent 0);
+  background-size: 10px 10px;
+}
+
+.blueprint-panel::before,
+.blueprint-panel::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  background: var(--color-blueprint);
+  opacity: 0.42;
+}
+
+.blueprint-panel::before {
+  inset-inline: 0;
+  top: 0;
+  height: 1px;
+}
+
+.blueprint-panel::after {
+  inset-block: 0;
+  left: 0;
+  width: 1px;
+}
+
+.frame-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: color-mix(in oklab, var(--color-fg-muted) 88%, transparent);
+}
+
+.manual-kicker {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: 0.09em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  color: var(--color-accent-bright);
+}
+
+/* Shared controls */
+
+.btn-primary {
+  @apply inline-flex items-center justify-center gap-2 bg-accent px-5 py-2.5 text-sm font-semibold text-white outline-none transition-[background-color,transform,box-shadow];
+  border: 1px solid color-mix(in oklab, var(--color-accent) 78%, #000);
+  border-radius: 3px;
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.38),
+    inset -1px -1px 0 rgba(0, 0, 0, 0.18);
+}
+
+.btn-primary:hover {
+  background: var(--color-accent-bright);
+}
+
+.btn-primary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+
+.btn-primary:active {
+  transform: translateY(1px);
+}
+
+.btn-secondary {
+  @apply inline-flex items-center justify-center gap-2 bg-paper px-5 py-2.5 text-sm font-medium text-fg outline-none transition-[border-color,color,background-color,transform,box-shadow];
+  border: 1px solid color-mix(in oklab, var(--color-border-strong) 58%, transparent);
+  border-radius: 3px;
+  box-shadow:
+    inset 1px 1px 0 var(--raise-top),
+    inset -1px -1px 0 var(--raise-bottom);
+}
+
+.btn-secondary:hover {
+  border-color: var(--color-border-strong);
+  color: var(--color-accent-bright);
+}
+
+.btn-secondary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+
+.btn-secondary:active {
+  transform: translateY(1px);
+}
+
+.field {
+  @apply w-full border bg-paper px-3.5 py-2.5 text-sm text-fg outline-none transition-colors placeholder:text-fg-muted;
+  border-color: color-mix(in oklab, var(--color-border-strong) 36%, transparent);
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 2px rgba(23, 24, 18, 0.05);
+}
+
+.field:focus,
+.field:focus-visible {
+  border-color: var(--color-accent);
+  box-shadow:
+    inset 0 0 0 1px var(--color-accent-dim),
+    0 0 0 3px rgba(27, 85, 255, 0.12);
+}
+
+/* Rendered markdown */
+
+.doc {
+  color: var(--color-fg-secondary);
+  font-family: var(--font-serif);
+  font-size: 17px;
+  line-height: 1.76;
+}
+
+.doc > h1 {
+  margin-bottom: 1.25rem;
+  color: var(--color-fg);
+  font-family: var(--font-serif);
+  font-size: clamp(2.45rem, 6vw, 4.75rem);
+  font-weight: 520;
+  letter-spacing: -0.055em;
+  line-height: 0.98;
+}
+
+.doc > h1::after {
+  content: "";
+  display: block;
+  height: 13px;
+  margin-top: 1.4rem;
+  background-image: var(--rule-pattern);
+  opacity: 0.42;
+}
+
+.doc h2 {
+  margin-top: 4rem;
+  margin-bottom: 1.1rem;
+  border-top: 1px solid var(--color-border-strong);
+  padding-top: 1.35rem;
+  color: var(--color-fg);
+  font-family: var(--font-serif);
+  font-size: clamp(1.7rem, 3vw, 2.5rem);
+  font-weight: 520;
+  letter-spacing: -0.035em;
+  line-height: 1.06;
+}
+
+.doc h3 {
+  margin-top: 2.15rem;
+  margin-bottom: 0.75rem;
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  font-size: 0.98rem;
+  font-weight: 680;
+  letter-spacing: -0.01em;
+}
+
+.doc h1:focus,
+.doc h2:focus,
+.doc h3:focus {
+  outline: none;
+}
+
+.doc h2 a,
+.doc h3 a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.doc h2 a:hover::after,
+.doc h3 a:hover::after {
+  content: " #";
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: 0.72em;
+}
+
+.doc p {
+  margin-block: 1rem;
+}
+
+.doc a {
+  color: var(--color-fg);
+  font-weight: 600;
+  text-decoration-line: underline;
+  text-decoration-color: color-mix(in oklab, var(--color-accent) 45%, transparent);
+  text-decoration-style: dotted;
+  text-underline-offset: 4px;
+  transition:
+    color 0.15s ease,
+    text-decoration-color 0.15s ease;
+}
+
+.doc a:hover {
+  color: var(--color-accent-bright);
+  text-decoration-color: var(--color-accent-bright);
+}
+
+.doc strong {
+  color: var(--color-fg);
+  font-weight: 700;
+}
+
+.doc ul,
+.doc ol {
+  margin-block: 1rem;
+  padding-left: 1.35rem;
+}
+
+.doc ul {
+  list-style: square;
+}
+
+.doc ol {
+  list-style: decimal-leading-zero;
+}
+
+.doc li {
+  padding-left: 0.15rem;
+}
+
+.doc li + li {
+  margin-top: 0.35rem;
+}
+
+.doc li::marker {
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: 0.78em;
+}
+
+.doc blockquote {
+  margin-block: 1.35rem;
+  border-left: 2px solid var(--color-accent);
+  background: color-mix(in oklab, var(--color-accent-dim) 38%, transparent);
+  padding: 0.8rem 1rem;
+  color: var(--color-fg-secondary);
+  font-style: italic;
+}
+
+.doc hr {
+  margin-block: 2.75rem;
+  border-color: var(--color-border-subtle);
+}
+
+.doc code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-variant-ligatures: none;
+  font-feature-settings:
+    "liga" 0,
+    "calt" 0;
+}
+
+.doc :not(pre) > code {
+  border: 1px solid color-mix(in oklab, var(--color-accent) 26%, var(--color-border-subtle));
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--color-accent-dim) 42%, var(--color-paper));
+  padding: 0.12rem 0.35rem;
+  color: var(--color-accent-bright);
+  white-space: nowrap;
+}
+
+.doc-table {
+  margin-block: 1.75rem;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.doc table {
+  width: 100%;
+  min-width: 34rem;
+  border-collapse: collapse;
+  font-family: var(--font-sans);
+  font-size: 0.91rem;
+}
+
+.doc-table table {
+  margin-block: 0;
+}
+
+.doc th {
+  border-bottom: 1px solid var(--color-border-strong);
+  padding: 0.65rem 0.75rem;
+  text-align: left;
+  color: var(--color-fg);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.doc td {
+  border-bottom: 1px solid var(--color-border-subtle);
+  padding: 0.75rem;
+  vertical-align: top;
+}
+
+/* Code blocks (shared by docs and landing) */
+
+.code-block {
+  margin-block: 1.35rem;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  background: var(--color-surface);
+  box-shadow:
+    inset 1px 1px 0 var(--raise-top),
+    0 1px 0 var(--raise-bottom);
+}
+
+.code-block-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-paper-soft);
+  padding: 0.45rem 0.75rem;
+  color: var(--color-fg-secondary);
+}
+
+.code-block-bar > span {
+  color: inherit;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.code-copy {
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0.3rem;
+  color: inherit;
+  transition: color 0.15s ease;
+}
+
+.code-copy:hover,
+.code-copy.copied {
+  color: var(--color-accent);
+}
+
+.code-copy svg {
+  grid-area: 1 / 1;
+  height: 15px;
+  width: 15px;
+}
+
+.code-copy .icon-check,
+.code-copy.copied .icon-copy {
+  display: none;
+}
+
+.code-copy.copied .icon-check {
+  display: block;
+}
+
+.code-block pre {
+  overflow-x: auto;
+  padding: 1rem;
+}
+
+.code-block .shiki,
+.code-block .shiki span {
+  background: transparent !important;
+}
+
+.dark .code-block .shiki,
+.dark .code-block .shiki span {
+  color: var(--shiki-dark) !important;
+}
+
+.code-block code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.7;
+  font-variant-ligatures: none;
+  font-feature-settings:
+    "liga" 0,
+    "calt" 0;
+}
+
+@media (max-width: 47.999rem) {
+  .doc {
+    font-size: 16px;
+  }
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
