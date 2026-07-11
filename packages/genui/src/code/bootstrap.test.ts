@@ -829,8 +829,10 @@ void test("code bootstrap freezes deeply nested subscription events without recu
   ] satisfies readonly Subscription[]
   const { genui, messages, window } = createHarness({ subscriptions })
   let handled = false
-  const opening = genui.subscribe("orders.changes", {}, () => {
+  let received: unknown
+  const opening = genui.subscribe("orders.changes", {}, (event) => {
     handled = true
+    received = event
   })
   dispatchInboundMessage(window, {
     channel,
@@ -840,8 +842,9 @@ void test("code bootstrap freezes deeply nested subscription events without recu
     subscriptionId: "document-code:subscription-1",
   })
   await opening
+  const eventDepth = 2_000
   let event: Readonly<Record<string, unknown>> = {}
-  for (let depth = 0; depth < 5_000; depth += 1) event = { nested: event }
+  for (let depth = 0; depth < eventDepth; depth += 1) event = { nested: event }
   dispatchInboundMessage(window, {
     channel,
     type: "subscription_event",
@@ -854,6 +857,13 @@ void test("code bootstrap freezes deeply nested subscription events without recu
   await flushAsync()
 
   assert.equal(handled, true)
+  let frozenDepth = 0
+  while (isRecord(received)) {
+    assert.equal(Object.isFrozen(received), true)
+    frozenDepth += 1
+    received = received.nested
+  }
+  assert.equal(frozenDepth, eventDepth + 1)
   assert.equal(
     messages.some((message) => isRecord(message) && message.type === "subscription_ack"),
     true,
