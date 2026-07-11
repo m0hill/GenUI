@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto"
-import { readFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import type { AssistantMessage as ProviderAssistantMessage } from "@earendil-works/pi-ai"
 import { serve } from "@hono/node-server"
@@ -192,18 +191,11 @@ app.get("/", () => {
         <meta name="viewport" content="width=device-width, initial-scale=1" />,
         <link rel="stylesheet" href="/assets/styles.css" />,
         <script type="module" src={DATASTAR_RUNTIME} />,
-        <script type="module" src="/client.js" />,
+        <script type="module" src="/assets/client.js" />,
       ],
     },
   )
 })
-
-app.get("/client.js", async (c) =>
-  c.body(await readFile(new URL("../dist/client.js", import.meta.url), "utf8"), 200, {
-    "cache-control": "no-store",
-    "content-type": "text/javascript; charset=utf-8",
-  }),
-)
 
 app.post("/chat", async (c) => {
   const signals = await read.signals(c.req.raw).catch(() => null)

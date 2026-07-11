@@ -5,8 +5,8 @@ await build({
   bundle: true,
   entryPoints: [fileURLToPath(new URL("../src/client.ts", import.meta.url))],
   format: "esm",
-  outfile: fileURLToPath(new URL("../dist/client.js", import.meta.url)),
+  outfile: fileURLToPath(new URL("../public/client.js", import.meta.url)),
+  minify: true,
   platform: "browser",
-  sourcemap: true,
   target: "es2022",
 })
