@@ -1,9 +1,10 @@
-import { mount, type Mounted } from "genui/dom"
+import { mount, type Mounted, type UpdateModelContextParams } from "genui/dom"
 import { actionError, parseSurface } from "genui/protocol"
 
 const mounted = new Map<Element, Mounted>()
 const composer = document.querySelector<HTMLFormElement>(".composer")
 const prompt = document.querySelector<HTMLTextAreaElement>('textarea[data-bind="prompt"]')
+const modelContext = document.querySelector<HTMLInputElement>('input[data-bind="modelContext"]')
 
 const sendMessage = async (text: string): Promise<void> => {
   const message = text.trim()
@@ -17,6 +18,19 @@ const sendMessage = async (text: string): Promise<void> => {
   prompt.dispatchEvent(new Event("input", { bubbles: true }))
   await Promise.resolve()
   composer.requestSubmit()
+}
+
+const updateModelContext = async (
+  surfaceId: string,
+  context: UpdateModelContextParams,
+): Promise<void> => {
+  if (modelContext === null) throw new Error("The chat model context is unavailable.")
+  modelContext.value =
+    context.content === undefined && context.structuredContent === undefined
+      ? ""
+      : JSON.stringify({ surfaceId, ...context })
+  modelContext.dispatchEvent(new Event("input", { bubbles: true }))
+  await Promise.resolve()
 }
 
 const surfaceElements = (node: Node): Element[] => {
@@ -49,6 +63,7 @@ const mountSurface = (element: Element): void => {
       Promise.resolve(actionError("not_granted", "This chat has no GenUI actions configured.")),
     capabilities: {
       sendMessage: ({ content }) => sendMessage(content.text),
+      updateModelContext: (context) => updateModelContext(surface.id, context),
     },
     hostContext: {
       theme: window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",

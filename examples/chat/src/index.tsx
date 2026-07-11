@@ -6,7 +6,7 @@ import { serveStatic } from "@hono/node-server/serve-static"
 import { event, local, mod, post, preserve, read, reply, state, unsafeHtml } from "datastar-kit"
 import { Hono } from "hono"
 import { z } from "zod"
-import { modelId, streamChat } from "./ai/index.js"
+import { type GeneratedUiModelContext, modelId, streamChat } from "./ai/index.js"
 import { renderMarkdown } from "./markdown.js"
 import { type AssistantContentBlock, JsonlChatSession } from "./session.js"
 
@@ -15,11 +15,29 @@ const DATASTAR_RUNTIME =
 
 const ChatSignals = z.object({
   prompt: z.string().trim().min(1).max(8_000),
+  modelContext: z.string().max(20_000).default(""),
 })
+
+const GeneratedUiModelContext = z
+  .object({
+    surfaceId: z.string().min(1).max(256),
+    content: z.string().max(16_384).optional(),
+    structuredContent: z.record(z.string(), z.unknown()).optional(),
+  })
+  .strict()
 
 const chatState = state({
   prompt: "",
+  modelContext: "",
 })
+
+const parseJson = (text: string): unknown => {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
 
 const sending = local<boolean>("sending")
 const session = await JsonlChatSession.open(
@@ -168,6 +186,7 @@ app.get("/", () => {
         data-indicator={sending}
         data-on:submit={mod(post("/chat"), { prevent: true })}
       >
+        <input type="hidden" data-bind={chatState.refs.modelContext} />
         <div class="composer-inner">
           <textarea
             aria-label="Message"
@@ -208,6 +227,19 @@ app.post("/chat", async (c) => {
     )
   }
 
+  const parsedModelContext =
+    parsed.data.modelContext.length === 0
+      ? undefined
+      : GeneratedUiModelContext.safeParse(parseJson(parsed.data.modelContext))
+  if (parsedModelContext !== undefined && !parsedModelContext.success) {
+    return reply.patch(
+      <p id="composer-error" role="alert">
+        The generated interface provided invalid model context.
+      </p>,
+    )
+  }
+  const modelContext: GeneratedUiModelContext | undefined = parsedModelContext?.data
+
   const history = session.getHistory().slice(-40)
   const { prompt } = parsed.data
   const userEntryId = randomUUID()
@@ -230,7 +262,7 @@ app.post("/chat", async (c) => {
     const completedToolContent: AssistantContentBlock[] = []
     const activeSearches: ActiveWebSearch[] = []
     try {
-      const response = await streamChat(history, prompt, c.req.raw.signal)
+      const response = await streamChat(history, prompt, modelContext, c.req.raw.signal)
       for await (const item of response) {
         if (item.type === "text_delta" || item.type === "thinking_delta") {
           yield event.patch(
