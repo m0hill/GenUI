@@ -215,20 +215,7 @@ const mountSurface = (element: Element): void => {
 
 for (const element of document.querySelectorAll("[data-genui-surface]")) mountSurface(element)
 
-document.addEventListener("datastar-fetch", (event) => {
-  if (!(event instanceof CustomEvent)) return
-  const detail: unknown = event.detail
-  if (
-    typeof detail !== "object" ||
-    detail === null ||
-    !("type" in detail) ||
-    detail.type !== "started" ||
-    !("el" in detail) ||
-    detail.el !== composer
-  ) {
-    return
-  }
-
+composer?.addEventListener("submit", () => {
   void persistSnapshots().catch((error: unknown) => {
     const message =
       error instanceof Error ? error.message : "Generated interface state could not be saved."
