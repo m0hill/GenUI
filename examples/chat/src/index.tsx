@@ -10,7 +10,7 @@ import { z } from "zod"
 import { executeGeneratedUiAction } from "./ai/genui.js"
 import { type GeneratedUiModelContext, modelId, streamChat } from "./ai/index.js"
 import { renderMarkdown } from "./markdown.js"
-import { type AssistantContentBlock, JsonlChatSession } from "./session.js"
+import { type AssistantContentBlock, JsonlChatSession, type SurfaceSnapshot } from "./session.js"
 
 const DATASTAR_RUNTIME =
   "https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js"
@@ -27,6 +27,17 @@ const GeneratedUiModelContext = z
     structuredContent: z.record(z.string(), z.unknown()).optional(),
   })
   .strict()
+
+const SurfaceSnapshots = z
+  .array(
+    z
+      .object({
+        surfaceId: z.string().min(1).max(256),
+        snapshot: z.json(),
+      })
+      .strict(),
+  )
+  .max(64)
 
 const chatState = state({
   prompt: "",
@@ -74,11 +85,13 @@ const WebSearchActivity = (props: { query: string; status: "running" | "complete
 
 const GeneratedSurface = (props: {
   surface: Extract<AssistantContentBlock, { type: "surface" }>["surface"]
+  snapshot?: SurfaceSnapshot
 }) => (
   <div
     id={`surface-${props.surface.id}`}
     class="genui-surface"
     data-genui-surface={JSON.stringify(props.surface)}
+    data-genui-snapshot={props.snapshot === undefined ? undefined : JSON.stringify(props.snapshot)}
     data-ignore-morph
   >
     Loading generated interface…
@@ -105,7 +118,10 @@ const AssistantMessage = (props: {
       ) : block.type === "tool" ? (
         <WebSearchActivity query={block.query} status={block.status} />
       ) : block.type === "surface" ? (
-        <GeneratedSurface surface={block.surface} />
+        <GeneratedSurface
+          surface={block.surface}
+          snapshot={session.getSurfaceSnapshot(block.surface.id)}
+        />
       ) : block.text.trim().length > 0 ? (
         <div class="message-body markdown">{unsafeHtml(renderMarkdown(block.text))}</div>
       ) : null,
@@ -232,6 +248,13 @@ app.post("/genui/execute", async (c) => {
     return c.json(actionError("invalid_input", "Malformed GenUI action call."), 400)
   }
   return c.json(await executeGeneratedUiAction(call))
+})
+
+app.post("/genui/snapshots", async (c) => {
+  const snapshots = SurfaceSnapshots.safeParse(await requestJson(c.req.raw))
+  if (!snapshots.success) return c.json({ error: "Invalid generated UI snapshots." }, 400)
+  await session.appendSurfaceSnapshots(snapshots.data)
+  return c.body(null, 204)
 })
 
 app.post("/chat", async (c) => {

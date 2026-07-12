@@ -88,6 +88,29 @@ const composer = document.querySelector<HTMLFormElement>(".composer")
 const prompt = document.querySelector<HTMLTextAreaElement>('textarea[data-bind="prompt"]')
 const modelContext = document.querySelector<HTMLInputElement>('input[data-bind="modelContext"]')
 
+type CapturedSnapshot = {
+  readonly surfaceId: string
+  readonly snapshot: Exclude<Awaited<ReturnType<Mounted["snapshot"]>>, undefined>
+}
+
+const persistSnapshots = async (): Promise<void> => {
+  const captures = await Promise.all(
+    Array.from(mounted.values(), async (instance): Promise<CapturedSnapshot | undefined> => {
+      const snapshot = await instance.snapshot()
+      return snapshot === undefined ? undefined : { surfaceId: instance.surface.id, snapshot }
+    }),
+  )
+  const snapshots = captures.filter((capture) => capture !== undefined)
+  if (snapshots.length === 0) return
+
+  const response = await fetch("/genui/snapshots", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(snapshots),
+  })
+  if (!response.ok) throw new Error("Generated interface state could not be saved.")
+}
+
 const sendMessage = async (text: string): Promise<void> => {
   const message = text.trim()
   if (composer === null || prompt === null) throw new Error("The chat composer is unavailable.")
@@ -159,6 +182,17 @@ const mountSurface = (element: Element): void => {
     return
   }
 
+  const serializedSnapshot = element.getAttribute("data-genui-snapshot")
+  let snapshot: Parameters<typeof mount>[2]["snapshot"]
+  if (serializedSnapshot !== null) {
+    try {
+      snapshot = JSON.parse(serializedSnapshot)
+    } catch {
+      element.textContent = "This generated interface has invalid saved state."
+      return
+    }
+  }
+
   const instance = mount(element, surface, {
     transport: executeAction,
     capabilities: {
@@ -174,11 +208,44 @@ const mountSurface = (element: Element): void => {
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       platform: "web",
     },
+    ...(snapshot === undefined ? {} : { snapshot }),
   })
   mounted.set(element, instance)
 }
 
 for (const element of document.querySelectorAll("[data-genui-surface]")) mountSurface(element)
+
+let submitAfterSnapshots = false
+let snapshotCapturePending = false
+composer?.addEventListener(
+  "submit",
+  (event) => {
+    if (submitAfterSnapshots) {
+      submitAfterSnapshots = false
+      return
+    }
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    if (snapshotCapturePending) return
+    snapshotCapturePending = true
+
+    void persistSnapshots()
+      .then(() => {
+        submitAfterSnapshots = true
+        composer.requestSubmit()
+      })
+      .catch((error: unknown) => {
+        const message =
+          error instanceof Error ? error.message : "Generated interface state could not be saved."
+        const errorElement = document.querySelector("#composer-error")
+        if (errorElement !== null) errorElement.textContent = message
+      })
+      .finally(() => {
+        snapshotCapturePending = false
+      })
+  },
+  { capture: true },
+)
 
 new MutationObserver((records) => {
   for (const record of records) {

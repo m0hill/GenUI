@@ -92,6 +92,75 @@ void test("JSONL session skips malformed trailing records", async () => {
   }
 })
 
+void test("JSONL session persists the latest snapshot for a known surface", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "genui-chat-"))
+  const filePath = join(directory, "chat.jsonl")
+
+  try {
+    const session = await JsonlChatSession.open(filePath)
+    await session.appendTurn({
+      userId: "user-1",
+      assistantId: "assistant-1",
+      prompt: "Make a counter",
+      assistantContent: [
+        {
+          type: "surface",
+          surface: {
+            id: "surface-1",
+            content: "<button>Increment</button>",
+            dialect: "code/0",
+            grant: { surfaceId: "surface-1", actions: [], subscriptions: [] },
+          },
+        },
+      ],
+    })
+
+    await session.appendSurfaceSnapshots([
+      { surfaceId: "surface-1", snapshot: { count: 1 } },
+      { surfaceId: "unknown-surface", snapshot: { count: 99 } },
+    ])
+    await session.appendSurfaceSnapshots([{ surfaceId: "surface-1", snapshot: { count: 2 } }])
+
+    const restored = await JsonlChatSession.open(filePath)
+    assert.deepEqual(restored.getSurfaceSnapshot("surface-1"), { count: 2 })
+    assert.equal(restored.getSurfaceSnapshot("unknown-surface"), undefined)
+    assert.equal(restored.getTurns().length, 1)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+void test("JSONL session does not append an unchanged surface snapshot", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "genui-chat-"))
+  const filePath = join(directory, "chat.jsonl")
+
+  try {
+    const session = await JsonlChatSession.open(filePath)
+    await session.appendTurn({
+      userId: "user-1",
+      assistantId: "assistant-1",
+      prompt: "Make a selector",
+      assistantContent: [
+        {
+          type: "surface",
+          surface: {
+            id: "surface-1",
+            content: "<select></select>",
+            dialect: "code/0",
+            grant: { surfaceId: "surface-1", actions: [], subscriptions: [] },
+          },
+        },
+      ],
+    })
+    await session.appendSurfaceSnapshots([{ surfaceId: "surface-1", snapshot: ["a", "b"] }])
+    await session.appendSurfaceSnapshots([{ surfaceId: "surface-1", snapshot: ["a", "b"] }])
+
+    assert.equal((await readFile(filePath, "utf8")).trim().split("\n").length, 4)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 void test("JSONL session refuses a non-empty file without a valid header", async () => {
   const directory = await mkdtemp(join(tmpdir(), "genui-chat-"))
   const filePath = join(directory, "chat.jsonl")

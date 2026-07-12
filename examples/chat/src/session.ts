@@ -76,6 +76,21 @@ const MessageEntry = z
 
 type MessageEntry = z.infer<typeof MessageEntry>
 
+const SurfaceSnapshot = z.json()
+
+const SurfaceSnapshotEntry = z
+  .object({
+    type: z.literal("surface_snapshot"),
+    surfaceId: z.string().min(1).max(256),
+    timestamp: z.iso.datetime(),
+    snapshot: SurfaceSnapshot,
+  })
+  .strict()
+
+const SessionEntry = z.discriminatedUnion("type", [MessageEntry, SurfaceSnapshotEntry])
+
+export type SurfaceSnapshot = z.infer<typeof SurfaceSnapshot>
+
 export type AssistantContentBlock = z.infer<typeof AssistantContentBlock>
 export type ChatMessage = MessageEntry["message"]
 
@@ -93,6 +108,11 @@ export interface AppendTurnInput {
   readonly assistantContent: readonly AssistantContentBlock[]
 }
 
+export interface SurfaceSnapshotInput {
+  readonly surfaceId: string
+  readonly snapshot: SurfaceSnapshot
+}
+
 const parseLine = (line: string): unknown => {
   try {
     return JSON.parse(line)
@@ -108,6 +128,7 @@ export class JsonlChatSession {
   private constructor(
     private readonly filePath: string,
     private readonly entries: MessageEntry[],
+    private readonly surfaceSnapshots: Map<string, SurfaceSnapshot>,
   ) {}
 
   static async open(filePath: string): Promise<JsonlChatSession> {
@@ -131,7 +152,7 @@ export class JsonlChatSession {
       } as const
       await mkdir(dirname(filePath), { recursive: true })
       await writeFile(filePath, `${JSON.stringify(header)}\n`, { encoding: "utf8", mode: 0o600 })
-      return new JsonlChatSession(filePath, [])
+      return new JsonlChatSession(filePath, [], new Map())
     }
 
     if (content.length === 0) {
@@ -141,7 +162,7 @@ export class JsonlChatSession {
         timestamp: new Date().toISOString(),
       } as const
       await writeFile(filePath, `${JSON.stringify(header)}\n`, { encoding: "utf8", mode: 0o600 })
-      return new JsonlChatSession(filePath, [])
+      return new JsonlChatSession(filePath, [], new Map())
     }
 
     const lines = content.split("\n")
@@ -151,13 +172,16 @@ export class JsonlChatSession {
     }
 
     const entries: MessageEntry[] = []
+    const surfaceSnapshots = new Map<string, SurfaceSnapshot>()
     for (const line of lines.slice(1)) {
       if (line.trim().length === 0) continue
-      const entry = MessageEntry.safeParse(parseLine(line))
-      if (entry.success) entries.push(entry.data)
+      const entry = SessionEntry.safeParse(parseLine(line))
+      if (!entry.success) continue
+      if (entry.data.type === "message") entries.push(entry.data)
+      else surfaceSnapshots.set(entry.data.surfaceId, entry.data.snapshot)
     }
 
-    return new JsonlChatSession(filePath, entries)
+    return new JsonlChatSession(filePath, entries, surfaceSnapshots)
   }
 
   getTurns(): PersistedTurn[] {
@@ -185,6 +209,10 @@ export class JsonlChatSession {
     ])
   }
 
+  getSurfaceSnapshot(surfaceId: string): SurfaceSnapshot | undefined {
+    return this.surfaceSnapshots.get(surfaceId)
+  }
+
   appendTurn(input: AppendTurnInput): Promise<void> {
     const write = this.writeQueue.then(async () => {
       const timestamp = new Date().toISOString()
@@ -210,6 +238,48 @@ export class JsonlChatSession {
         "utf8",
       )
       this.entries.push(user, assistant)
+    })
+
+    this.writeQueue = write.catch(() => undefined)
+    return write
+  }
+
+  appendSurfaceSnapshots(inputs: readonly SurfaceSnapshotInput[]): Promise<void> {
+    const write = this.writeQueue.then(async () => {
+      const knownSurfaceIds = new Set(
+        this.entries.flatMap((entry) =>
+          entry.message.role === "assistant"
+            ? entry.message.content.flatMap((block) =>
+                block.type === "surface" ? [block.surface.id] : [],
+              )
+            : [],
+        ),
+      )
+      const entries = inputs.flatMap((input) => {
+        if (!knownSurfaceIds.has(input.surfaceId)) return []
+        if (
+          JSON.stringify(this.surfaceSnapshots.get(input.surfaceId)) ===
+          JSON.stringify(input.snapshot)
+        ) {
+          return []
+        }
+        return [
+          {
+            type: "surface_snapshot",
+            surfaceId: input.surfaceId,
+            timestamp: new Date().toISOString(),
+            snapshot: input.snapshot,
+          } as const,
+        ]
+      })
+      if (entries.length === 0) return
+
+      await appendFile(
+        this.filePath,
+        entries.map((entry) => `${JSON.stringify(entry)}\n`).join(""),
+        "utf8",
+      )
+      for (const entry of entries) this.surfaceSnapshots.set(entry.surfaceId, entry.snapshot)
     })
 
     this.writeQueue = write.catch(() => undefined)
