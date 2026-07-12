@@ -3,7 +3,7 @@ import { appendFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
-import { JsonlChatSession } from "./session.js"
+import { JsonlChatSession, maxSurfaceSnapshotBytes } from "./session.js"
 
 void test("JSONL session persists and restores completed turns", async () => {
   const directory = await mkdtemp(join(tmpdir(), "genui-chat-"))
@@ -156,6 +156,39 @@ void test("JSONL session does not append an unchanged surface snapshot", async (
     await session.appendSurfaceSnapshots([{ surfaceId: "surface-1", snapshot: ["a", "b"] }])
 
     assert.equal((await readFile(filePath, "utf8")).trim().split("\n").length, 4)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+void test("JSONL session does not append an oversized surface snapshot", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "genui-chat-"))
+  const filePath = join(directory, "chat.jsonl")
+
+  try {
+    const session = await JsonlChatSession.open(filePath)
+    await session.appendTurn({
+      userId: "user-1",
+      assistantId: "assistant-1",
+      prompt: "Make a text editor",
+      assistantContent: [
+        {
+          type: "surface",
+          surface: {
+            id: "surface-1",
+            content: "<textarea></textarea>",
+            dialect: "code/0",
+            grant: { surfaceId: "surface-1", actions: [], subscriptions: [] },
+          },
+        },
+      ],
+    })
+    await session.appendSurfaceSnapshots([
+      { surfaceId: "surface-1", snapshot: "x".repeat(maxSurfaceSnapshotBytes) },
+    ])
+
+    assert.equal((await readFile(filePath, "utf8")).trim().split("\n").length, 3)
+    assert.equal(session.getSurfaceSnapshot("surface-1"), undefined)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

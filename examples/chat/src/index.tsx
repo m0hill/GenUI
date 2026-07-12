@@ -10,7 +10,7 @@ import { z } from "zod"
 import { executeGeneratedUiAction } from "./ai/genui.js"
 import { type GeneratedUiModelContext, modelId, streamChat } from "./ai/index.js"
 import { renderMarkdown } from "./markdown.js"
-import { type AssistantContentBlock, JsonlChatSession, type SurfaceSnapshot } from "./session.js"
+import { type AssistantContentBlock, JsonlChatSession, SurfaceSnapshot } from "./session.js"
 
 const DATASTAR_RUNTIME =
   "https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js"
@@ -33,7 +33,7 @@ const SurfaceSnapshots = z
     z
       .object({
         surfaceId: z.string().min(1).max(256),
-        snapshot: z.json(),
+        snapshot: SurfaceSnapshot,
       })
       .strict(),
   )

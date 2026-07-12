@@ -76,7 +76,15 @@ const MessageEntry = z
 
 type MessageEntry = z.infer<typeof MessageEntry>
 
-const SurfaceSnapshot = z.json()
+/** Maximum UTF-8 JSON size persisted for one generated surface snapshot. */
+export const maxSurfaceSnapshotBytes = 64 * 1024
+
+export const SurfaceSnapshot = z
+  .json()
+  .refine(
+    (snapshot) => Buffer.byteLength(JSON.stringify(snapshot), "utf8") <= maxSurfaceSnapshotBytes,
+    "Generated UI snapshot is too large.",
+  )
 
 const SurfaceSnapshotEntry = z
   .object({
@@ -257,6 +265,7 @@ export class JsonlChatSession {
       )
       const entries = inputs.flatMap((input) => {
         if (!knownSurfaceIds.has(input.surfaceId)) return []
+        if (!SurfaceSnapshot.safeParse(input.snapshot).success) return []
         if (
           JSON.stringify(this.surfaceSnapshots.get(input.surfaceId)) ===
           JSON.stringify(input.snapshot)

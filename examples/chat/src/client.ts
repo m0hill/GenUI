@@ -215,37 +215,27 @@ const mountSurface = (element: Element): void => {
 
 for (const element of document.querySelectorAll("[data-genui-surface]")) mountSurface(element)
 
-let submitAfterSnapshots = false
-let snapshotCapturePending = false
-composer?.addEventListener(
-  "submit",
-  (event) => {
-    if (submitAfterSnapshots) {
-      submitAfterSnapshots = false
-      return
-    }
-    event.preventDefault()
-    event.stopImmediatePropagation()
-    if (snapshotCapturePending) return
-    snapshotCapturePending = true
+document.addEventListener("datastar-fetch", (event) => {
+  if (!(event instanceof CustomEvent)) return
+  const detail: unknown = event.detail
+  if (
+    typeof detail !== "object" ||
+    detail === null ||
+    !("type" in detail) ||
+    detail.type !== "started" ||
+    !("el" in detail) ||
+    detail.el !== composer
+  ) {
+    return
+  }
 
-    void persistSnapshots()
-      .then(() => {
-        submitAfterSnapshots = true
-        composer.requestSubmit()
-      })
-      .catch((error: unknown) => {
-        const message =
-          error instanceof Error ? error.message : "Generated interface state could not be saved."
-        const errorElement = document.querySelector("#composer-error")
-        if (errorElement !== null) errorElement.textContent = message
-      })
-      .finally(() => {
-        snapshotCapturePending = false
-      })
-  },
-  { capture: true },
-)
+  void persistSnapshots().catch((error: unknown) => {
+    const message =
+      error instanceof Error ? error.message : "Generated interface state could not be saved."
+    const errorElement = document.querySelector("#composer-error")
+    if (errorElement !== null) errorElement.textContent = message
+  })
+})
 
 new MutationObserver((records) => {
   for (const record of records) {
