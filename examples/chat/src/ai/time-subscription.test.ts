@@ -1,5 +1,8 @@
 import assert from "node:assert/strict"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import test from "node:test"
+import { JsonPreferenceStore } from "../preferences.js"
 import { createGeneratedSurface, openGeneratedUiSubscription } from "./genui.js"
 
 void test("time.tick emits immediately and stops when its transport is cancelled", async () => {
@@ -16,6 +19,7 @@ void test("time.tick emits immediately and stops when its transport is cancelled
       subscription: "time.tick",
       input: {},
     },
+    new JsonPreferenceStore(join(tmpdir(), "unused-preferences.json")),
     controller.signal,
   )
 

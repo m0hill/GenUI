@@ -12,6 +12,7 @@ import { executeGeneratedUiAction, openGeneratedUiSubscription } from "./ai/genu
 import { type GeneratedUiModelContext, modelId, streamChat } from "./ai/index.js"
 import { parseExecuteRequest, pendingApprovals, type ExecuteEnvelope } from "./approval.js"
 import { renderMarkdown } from "./markdown.js"
+import { JsonPreferenceStore } from "./preferences.js"
 import {
   type AssistantContentBlock,
   JsonlChatSession,
@@ -72,6 +73,9 @@ const resetting = local<boolean>("resetting")
 const session = await JsonlChatSession.open(
   fileURLToPath(new URL("../data/chat.jsonl", import.meta.url)),
 )
+const preferences = new JsonPreferenceStore(
+  fileURLToPath(new URL("../data/preferences.json", import.meta.url)),
+)
 
 interface ActiveWebSearch {
   readonly id: string
@@ -88,6 +92,14 @@ const WebSearchActivity = (props: { query: string; status: "running" | "complete
           : "Web search failed"}
     </span>
     <span class="tool-query">{props.query}</span>
+  </div>
+)
+
+const PreferenceActivity = (props: { status: "complete" | "error" }) => (
+  <div class={`tool-activity ${props.status}`} role="status">
+    <span class="tool-status">
+      {props.status === "complete" ? "Read saved preference" : "Could not read saved preference"}
+    </span>
   </div>
 )
 
@@ -124,7 +136,11 @@ const AssistantMessage = (props: {
           </details>
         ) : null
       ) : block.type === "tool" ? (
-        <WebSearchActivity query={block.query} status={block.status} />
+        block.tool === "web_search" ? (
+          <WebSearchActivity query={block.query} status={block.status} />
+        ) : (
+          <PreferenceActivity status={block.status} />
+        )
       ) : block.type === "surface" ? (
         <GeneratedSurface
           surface={block.surface}
@@ -275,7 +291,7 @@ app.post("/genui/execute", async (c) => {
       400,
     )
   }
-  const result = await executeGeneratedUiAction(request.call, (_action, input) =>
+  const result = await executeGeneratedUiAction(request.call, preferences, (_action, input) =>
     pendingApprovals.check({
       call: request.call,
       input,
@@ -311,7 +327,7 @@ app.post("/genui/subscribe", async (c) => {
     sourceController.abort()
   }
 
-  const opened = await openGeneratedUiSubscription(request, sourceController.signal)
+  const opened = await openGeneratedUiSubscription(request, preferences, sourceController.signal)
   if (!opened.ok) {
     stopSource()
     return c.json(opened, 400)
@@ -395,7 +411,13 @@ app.post("/chat", async (c) => {
     const completedToolContent: AssistantContentBlock[] = []
     const activeSearches: ActiveWebSearch[] = []
     try {
-      const response = await streamChat(history, prompt, modelContext, c.req.raw.signal)
+      const response = await streamChat({
+        history,
+        prompt,
+        modelContext,
+        preferences,
+        signal: c.req.raw.signal,
+      })
       for await (const item of response) {
         if (item.type === "text_delta" || item.type === "thinking_delta") {
           yield event.patch(
@@ -438,12 +460,16 @@ app.post("/chat", async (c) => {
         if (item.type === "tool_result") {
           const index = activeSearches.findIndex((search) => search.id === item.toolCallId)
           if (index !== -1) activeSearches.splice(index, 1)
-          completedToolContent.push({
-            type: "tool",
-            tool: "web_search",
-            query: item.query,
-            status: item.status,
-          })
+          completedToolContent.push(
+            item.tool === "web_search"
+              ? {
+                  type: "tool",
+                  tool: "web_search",
+                  query: item.query,
+                  status: item.status,
+                }
+              : { type: "tool", tool: "preferences_get", status: item.status },
+          )
           yield event.patch(
             <AssistantMessage
               id={assistantId}

@@ -9,7 +9,12 @@ import {
 } from "genui/protocol"
 import { Type, type Tool } from "@earendil-works/pi-ai"
 import { z } from "zod"
+import { type JsonPreferenceStore, PreferredTripName } from "../preferences.js"
 import { searchWeb } from "./web-search.js"
+
+interface GenuiContext {
+  readonly preferences: JsonPreferenceStore
+}
 
 const WebSearchInput = z.strictObject({
   query: z.string().trim().min(1).max(500),
@@ -27,16 +32,15 @@ const webSearchAction = action({
   inputJsonSchema: z.toJSONSchema(WebSearchInput, { io: "input" }),
   output: WebSearchOutput,
   outputJsonSchema: z.toJSONSchema(WebSearchOutput),
-  execute: async (_context: Readonly<Record<string, never>>, input) => ({
+  execute: async (_context: GenuiContext, input) => ({
     content: await searchWeb(input.query, new AbortController().signal),
   }),
 })
 
 const SavePreferenceInput = z.strictObject({
-  preference: z.string().trim().min(1).max(100),
+  preference: PreferredTripName,
 })
-const SavePreferenceOutput = z.strictObject({ preference: z.string().min(1).max(100) })
-let preferredTrip: string | undefined
+const SavePreferenceOutput = z.strictObject({ preference: PreferredTripName })
 
 const savePreferenceAction = action({
   name: "preferences.save",
@@ -47,9 +51,9 @@ const savePreferenceAction = action({
   inputJsonSchema: z.toJSONSchema(SavePreferenceInput, { io: "input" }),
   output: SavePreferenceOutput,
   outputJsonSchema: z.toJSONSchema(SavePreferenceOutput),
-  execute: (_context: Readonly<Record<string, never>>, input) => {
-    preferredTrip = input.preference
-    return { preference: preferredTrip }
+  execute: async (context: GenuiContext, input) => {
+    const saved = await context.preferences.save(input.preference)
+    return { preference: saved.preferredTrip }
   },
 })
 
@@ -63,7 +67,7 @@ const timeTickSubscription = subscription({
   inputJsonSchema: z.toJSONSchema(TimeTickInput, { io: "input" }),
   event: TimeTickEvent,
   eventJsonSchema: z.toJSONSchema(TimeTickEvent),
-  async *subscribe(_context: Readonly<Record<string, never>>, _input, { signal }) {
+  async *subscribe(_context: GenuiContext, _input, { signal }) {
     while (!signal.aborted) {
       yield { timestamp: new Date().toISOString() }
       try {
@@ -75,11 +79,10 @@ const timeTickSubscription = subscription({
   },
 })
 
-const runtime = new Genui<Readonly<Record<string, never>>>({
+const runtime = new Genui<GenuiContext>({
   actions: [webSearchAction, savePreferenceAction],
   subscriptions: [timeTickSubscription],
 })
-const context = Object.freeze({})
 
 export const renderUiTool: Tool = {
   name: "render_ui",
@@ -107,8 +110,12 @@ export const createGeneratedSurface = (content: string): Promise<Surface> =>
 
 export const executeGeneratedUiAction = (
   call: ActionCall,
+  preferences: JsonPreferenceStore,
   approve?: ExecuteOptions["approve"],
-): Promise<ActionResult> => runtime.execute(call, context, { approve })
+): Promise<ActionResult> => runtime.execute(call, { preferences }, { approve })
 
-export const openGeneratedUiSubscription = (request: SubscriptionRequest, signal: AbortSignal) =>
-  runtime.subscribe(request, context, { signal })
+export const openGeneratedUiSubscription = (
+  request: SubscriptionRequest,
+  preferences: JsonPreferenceStore,
+  signal: AbortSignal,
+) => runtime.subscribe(request, { preferences }, { signal })

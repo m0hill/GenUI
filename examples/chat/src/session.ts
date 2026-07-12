@@ -17,7 +17,7 @@ const SessionHeader = z
   })
   .strict()
 
-const AssistantContentBlock = z.discriminatedUnion("type", [
+const AssistantContentBlock = z.union([
   z
     .object({
       type: z.literal("text"),
@@ -38,6 +38,13 @@ const AssistantContentBlock = z.discriminatedUnion("type", [
       type: z.literal("tool"),
       tool: z.literal("web_search"),
       query: z.string().min(1).max(8_000),
+      status: z.enum(["complete", "error"]),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("tool"),
+      tool: z.literal("preferences_get"),
       status: z.enum(["complete", "error"]),
     })
     .strict(),
