@@ -38,6 +38,8 @@ button, textarea { font: inherit; }
   border-bottom: 1px solid #cbc7bd;
 }
 
+.masthead-actions { display: flex; align-items: center; gap: 18px; }
+
 .brand { display: flex; align-items: center; gap: 12px; }
 
 .mark {
@@ -79,6 +81,22 @@ h1 { margin: 0; font-size: 15px; letter-spacing: 0.01em; }
   background: #3f7652;
   box-shadow: 0 0 0 3px rgba(63, 118, 82, 0.12);
 }
+
+.new-chat {
+  padding: 7px 10px;
+  border: 1px solid #aaa69c;
+  background: transparent;
+  color: #5e5b55;
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.new-chat:hover { border-color: #b45135; color: #b45135; }
+.new-chat:disabled { cursor: wait; opacity: 0.55; }
 
 #messages {
   min-height: 0;

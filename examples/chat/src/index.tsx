@@ -10,7 +10,12 @@ import { z } from "zod"
 import { executeGeneratedUiAction } from "./ai/genui.js"
 import { type GeneratedUiModelContext, modelId, streamChat } from "./ai/index.js"
 import { renderMarkdown } from "./markdown.js"
-import { type AssistantContentBlock, JsonlChatSession, SurfaceSnapshot } from "./session.js"
+import {
+  type AssistantContentBlock,
+  JsonlChatSession,
+  type PersistedTurn,
+  SurfaceSnapshot,
+} from "./session.js"
 
 const DATASTAR_RUNTIME =
   "https://cdn.jsdelivr.net/gh/starfederation/datastar@v1.0.2/bundles/datastar.js"
@@ -61,6 +66,7 @@ const requestJson = async (request: Request): Promise<unknown> => {
 }
 
 const sending = local<boolean>("sending")
+const resetting = local<boolean>("resetting")
 const session = await JsonlChatSession.open(
   fileURLToPath(new URL("../data/chat.jsonl", import.meta.url)),
 )
@@ -153,6 +159,27 @@ const Turn = (props: {
   </section>
 )
 
+const Conversation = (props: { turns: readonly PersistedTurn[] }) => (
+  <section id="messages" aria-live="polite" aria-label="Conversation">
+    {props.turns.length === 0 ? (
+      <div id="empty-state" class="empty">
+        <p class="empty-kicker">Persistent JSONL · local session</p>
+        <h2>A quiet place to think out loud.</h2>
+        <p>Ask a question. The answer arrives as server-rendered HTML patches.</p>
+      </div>
+    ) : (
+      props.turns.map((turn) => (
+        <Turn
+          id={`turn-${turn.userId}`}
+          prompt={turn.prompt}
+          assistantId={`assistant-${turn.assistantId}`}
+          assistantContent={turn.assistantContent}
+        />
+      ))
+    )}
+  </section>
+)
+
 const visibleAssistantContent = (
   content: ProviderAssistantMessage["content"],
 ): AssistantContentBlock[] =>
@@ -185,27 +212,21 @@ app.get("/", () => {
             <p class="subtitle">OpenAI Codex · {modelId} · reasoning low</p>
           </div>
         </div>
-        <div class="status">Saved locally</div>
+        <div class="masthead-actions">
+          <div class="status">Saved locally</div>
+          <button
+            class="new-chat"
+            type="button"
+            data-indicator={resetting}
+            data-attr:disabled={resetting}
+            data-on:click={post("/chat/new")}
+          >
+            New chat
+          </button>
+        </div>
       </header>
 
-      <section id="messages" aria-live="polite" aria-label="Conversation">
-        {turns.length === 0 ? (
-          <div id="empty-state" class="empty">
-            <p class="empty-kicker">Persistent JSONL · local session</p>
-            <h2>A quiet place to think out loud.</h2>
-            <p>Ask a question. The answer arrives as server-rendered HTML patches.</p>
-          </div>
-        ) : (
-          turns.map((turn) => (
-            <Turn
-              id={`turn-${turn.userId}`}
-              prompt={turn.prompt}
-              assistantId={`assistant-${turn.assistantId}`}
-              assistantContent={turn.assistantContent}
-            />
-          ))
-        )}
-      </section>
+      <Conversation turns={turns} />
 
       <form
         class="composer"
@@ -255,6 +276,15 @@ app.post("/genui/snapshots", async (c) => {
   if (!snapshots.success) return c.json({ error: "Invalid generated UI snapshots." }, 400)
   await session.appendSurfaceSnapshots(snapshots.data)
   return c.body(null, 204)
+})
+
+app.post("/chat/new", async () => {
+  await session.reset()
+  return reply.stream([
+    event.patch(<Conversation turns={[]} />),
+    event.signals(chatState.patch({ prompt: "", modelContext: "" })),
+    event.patch(<p id="composer-error" role="alert" />),
+  ])
 })
 
 app.post("/chat", async (c) => {

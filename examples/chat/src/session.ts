@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises"
+import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname } from "node:path"
 import { codeDialect, parseSurface, type Surface } from "genui/protocol"
 import { z } from "zod"
@@ -129,6 +129,16 @@ const parseLine = (line: string): unknown => {
   }
 }
 
+const createSessionFile = async (filePath: string): Promise<void> => {
+  const header = {
+    type: "session",
+    id: randomUUID(),
+    timestamp: new Date().toISOString(),
+  } as const
+  await mkdir(dirname(filePath), { recursive: true })
+  await writeFile(filePath, `${JSON.stringify(header)}\n`, { encoding: "utf8", mode: 0o600 })
+}
+
 /** Append-only JSONL storage for the chat's single local session. */
 export class JsonlChatSession {
   private writeQueue: Promise<void> = Promise.resolve()
@@ -153,23 +163,12 @@ export class JsonlChatSession {
         throw error
       }
 
-      const header = {
-        type: "session",
-        id: randomUUID(),
-        timestamp: new Date().toISOString(),
-      } as const
-      await mkdir(dirname(filePath), { recursive: true })
-      await writeFile(filePath, `${JSON.stringify(header)}\n`, { encoding: "utf8", mode: 0o600 })
+      await createSessionFile(filePath)
       return new JsonlChatSession(filePath, [], new Map())
     }
 
     if (content.length === 0) {
-      const header = {
-        type: "session",
-        id: randomUUID(),
-        timestamp: new Date().toISOString(),
-      } as const
-      await writeFile(filePath, `${JSON.stringify(header)}\n`, { encoding: "utf8", mode: 0o600 })
+      await createSessionFile(filePath)
       return new JsonlChatSession(filePath, [], new Map())
     }
 
@@ -219,6 +218,18 @@ export class JsonlChatSession {
 
   getSurfaceSnapshot(surfaceId: string): SurfaceSnapshot | undefined {
     return this.surfaceSnapshots.get(surfaceId)
+  }
+
+  reset(): Promise<void> {
+    const write = this.writeQueue.then(async () => {
+      await rm(this.filePath, { force: true })
+      await createSessionFile(this.filePath)
+      this.entries.splice(0)
+      this.surfaceSnapshots.clear()
+    })
+
+    this.writeQueue = write.catch(() => undefined)
+    return write
   }
 
   appendTurn(input: AppendTurnInput): Promise<void> {

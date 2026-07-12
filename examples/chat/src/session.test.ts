@@ -194,6 +194,33 @@ void test("JSONL session does not append an oversized surface snapshot", async (
   }
 })
 
+void test("JSONL session reset deletes the conversation and starts a new session", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "genui-chat-"))
+  const filePath = join(directory, "chat.jsonl")
+
+  try {
+    const session = await JsonlChatSession.open(filePath)
+    const originalHeader = JSON.parse((await readFile(filePath, "utf8")).trim())
+    await session.appendTurn({
+      userId: "user-1",
+      assistantId: "assistant-1",
+      prompt: "Hello",
+      assistantContent: [{ type: "text", text: "Hi there" }],
+    })
+
+    await session.reset()
+
+    const lines = (await readFile(filePath, "utf8")).trim().split("\n")
+    const newHeader = JSON.parse(lines[0] ?? "{}")
+    assert.equal(lines.length, 1)
+    assert.equal(newHeader.type, "session")
+    assert.notEqual(newHeader.id, originalHeader.id)
+    assert.deepEqual(session.getTurns(), [])
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 void test("JSONL session refuses a non-empty file without a valid header", async () => {
   const directory = await mkdtemp(join(tmpdir(), "genui-chat-"))
   const filePath = join(directory, "chat.jsonl")
