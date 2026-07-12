@@ -5,9 +5,15 @@ import { serve } from "@hono/node-server"
 import { serveStatic } from "@hono/node-server/serve-static"
 import { event, local, mod, post, preserve, read, reply, state, unsafeHtml } from "datastar-kit"
 import { Hono } from "hono"
-import { actionError, parseActionCall } from "genui/protocol"
+import { stream } from "hono/streaming"
+import {
+  actionError,
+  parseActionCall,
+  parseSubscriptionRequest,
+  subscriptionOpenError,
+} from "genui/protocol"
 import { z } from "zod"
-import { executeGeneratedUiAction } from "./ai/genui.js"
+import { executeGeneratedUiAction, openGeneratedUiSubscription } from "./ai/genui.js"
 import { type GeneratedUiModelContext, modelId, streamChat } from "./ai/index.js"
 import { renderMarkdown } from "./markdown.js"
 import {
@@ -269,6 +275,46 @@ app.post("/genui/execute", async (c) => {
     return c.json(actionError("invalid_input", "Malformed GenUI action call."), 400)
   }
   return c.json(await executeGeneratedUiAction(call))
+})
+
+app.post("/genui/subscribe", async (c) => {
+  const request = parseSubscriptionRequest(await requestJson(c.req.raw))
+  if (request === undefined) {
+    return c.json(subscriptionOpenError("invalid_input", "Malformed subscription request."), 400)
+  }
+
+  const requestSignal = c.req.raw.signal
+  const sourceController = new AbortController()
+  const abortSource = (): void => sourceController.abort()
+  if (requestSignal.aborted) abortSource()
+  else requestSignal.addEventListener("abort", abortSource, { once: true })
+  const detachRequestSignal = (): void => {
+    requestSignal.removeEventListener("abort", abortSource)
+  }
+  const stopSource = (): void => {
+    detachRequestSignal()
+    sourceController.abort()
+  }
+
+  const opened = await openGeneratedUiSubscription(request, sourceController.signal)
+  if (!opened.ok) {
+    stopSource()
+    return c.json(opened, 400)
+  }
+
+  c.header("cache-control", "no-store")
+  c.header("content-type", "application/x-ndjson; charset=utf-8")
+  c.header("x-content-type-options", "nosniff")
+  return stream(c, async (output) => {
+    output.onAbort(stopSource)
+    try {
+      for await (const delivery of opened.events) {
+        await output.writeln(JSON.stringify(delivery))
+      }
+    } finally {
+      stopSource()
+    }
+  })
 })
 
 app.post("/genui/snapshots", async (c) => {

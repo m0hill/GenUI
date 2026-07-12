@@ -2,9 +2,16 @@ import {
   mount,
   type McpUiStyleVariableKey,
   type Mounted,
+  SubscriptionTransportError,
   type UpdateModelContextParams,
 } from "genui/dom"
-import { actionError, parseActionResult, parseSurface } from "genui/protocol"
+import {
+  actionError,
+  parseActionResult,
+  parseSubscriptionError,
+  parseSurface,
+} from "genui/protocol"
+import { subscriptionDeliveries } from "./subscription-stream.js"
 
 const hostStyleVariables = {
   "--color-background-primary": "#faf9f6",
@@ -157,6 +164,41 @@ const executeAction: Parameters<typeof mount>[2]["transport"] = async (call, opt
   return result ?? actionError("execution_failed", "The GenUI action returned an invalid result.")
 }
 
+const subscribe: NonNullable<Parameters<typeof mount>[2]["subscriptionTransport"]> = async (
+  request,
+  options,
+) => {
+  const response = await fetch("/genui/subscribe", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(request),
+    signal: options.signal,
+  })
+  if (!response.ok) {
+    const body: unknown = await response.json().catch(() => null)
+    const error =
+      typeof body === "object" && body !== null && "error" in body
+        ? parseSubscriptionError(body.error)
+        : undefined
+    if (error === undefined) {
+      throw new SubscriptionTransportError(
+        "transport_failed",
+        "The GenUI subscription returned an invalid error.",
+      )
+    }
+    throw new SubscriptionTransportError(error.code, error.message)
+  }
+  try {
+    return { events: subscriptionDeliveries(response) }
+  } catch {
+    await response.body?.cancel().catch(() => undefined)
+    throw new SubscriptionTransportError(
+      "transport_failed",
+      "The GenUI subscription returned an invalid stream.",
+    )
+  }
+}
+
 const surfaceElements = (node: Node): Element[] => {
   if (!(node instanceof Element)) return []
   const descendants = Array.from(node.querySelectorAll("[data-genui-surface]"))
@@ -195,6 +237,7 @@ const mountSurface = (element: Element): void => {
 
   const instance = mount(element, surface, {
     transport: executeAction,
+    subscriptionTransport: subscribe,
     capabilities: {
       sendMessage: ({ content }) => sendMessage(content.text),
       openLink: ({ url }) => openLink(url),
