@@ -17,5 +17,7 @@
 - [stores.md](stores.md) — implement and verify shared surface persistence,
   subscription reauthorization, idempotency, revocation, and distributed
   coordination.
+- [roadmap.md](roadmap.md) — track remaining GenUI platform work, ownership
+  boundaries, hardening, and the recommended implementation order.
 - [playground README](../examples/playground/README.md) — run the reference host
   and evaluate model output through the real sandbox and action pipeline.
