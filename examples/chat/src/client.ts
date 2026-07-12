@@ -5,12 +5,8 @@ import {
   SubscriptionTransportError,
   type UpdateModelContextParams,
 } from "genui/dom"
-import {
-  actionError,
-  parseActionResult,
-  parseSubscriptionError,
-  parseSurface,
-} from "genui/protocol"
+import { actionError, parseSubscriptionError, parseSurface } from "genui/protocol"
+import { parseExecuteEnvelope } from "./approval.js"
 import { subscriptionDeliveries } from "./subscription-stream.js"
 
 const hostStyleVariables = {
@@ -94,6 +90,8 @@ const mounted = new Map<Element, Mounted>()
 const composer = document.querySelector<HTMLFormElement>(".composer")
 const prompt = document.querySelector<HTMLTextAreaElement>('textarea[data-bind="prompt"]')
 const modelContext = document.querySelector<HTMLInputElement>('input[data-bind="modelContext"]')
+const approvals = new Map<string, { readonly token: string; approved: boolean }>()
+const callKey = (surfaceId: string, callId: string): string => JSON.stringify([surfaceId, callId])
 
 type CapturedSnapshot = {
   readonly surfaceId: string
@@ -154,14 +152,38 @@ const openLink = async (url: string): Promise<void> => {
 }
 
 const executeAction: Parameters<typeof mount>[2]["transport"] = async (call, options) => {
+  const key = callKey(call.surfaceId, call.callId)
+  const approval = approvals.get(key)
+  if (approval?.approved) approvals.delete(key)
   const response = await fetch("/genui/execute", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(call),
+    body: JSON.stringify({
+      call,
+      ...(approval?.approved === true ? { approvalToken: approval.token } : {}),
+    }),
     signal: options.signal,
   })
-  const result = parseActionResult(await response.json())
-  return result ?? actionError("execution_failed", "The GenUI action returned an invalid result.")
+  const envelope = parseExecuteEnvelope(await response.json())
+  if (envelope === undefined) {
+    return actionError("execution_failed", "The GenUI action returned an invalid result.")
+  }
+  if (envelope.approvalToken === undefined) approvals.delete(key)
+  else approvals.set(key, { token: envelope.approvalToken, approved: false })
+  return envelope.result
+}
+
+const confirmAction: NonNullable<Parameters<typeof mount>[2]["confirm"]> = async (
+  _action,
+  call,
+  intent,
+) => {
+  const key = callKey(call.surfaceId, call.callId)
+  const approval = approvals.get(key)
+  if (approval === undefined) throw new Error("The host did not issue an approval token.")
+  approval.approved = window.confirm(intent)
+  if (!approval.approved) approvals.delete(key)
+  return approval.approved
 }
 
 const subscribe: NonNullable<Parameters<typeof mount>[2]["subscriptionTransport"]> = async (
@@ -237,6 +259,7 @@ const mountSurface = (element: Element): void => {
 
   const instance = mount(element, surface, {
     transport: executeAction,
+    confirm: confirmAction,
     subscriptionTransport: subscribe,
     capabilities: {
       sendMessage: ({ content }) => sendMessage(content.text),

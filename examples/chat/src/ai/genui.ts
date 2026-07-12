@@ -1,5 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises"
-import { action, Genui, subscription } from "genui"
+import { action, type ExecuteOptions, Genui, subscription } from "genui"
 import {
   codeDialect,
   type ActionCall,
@@ -32,6 +32,27 @@ const webSearchAction = action({
   }),
 })
 
+const SavePreferenceInput = z.strictObject({
+  preference: z.string().trim().min(1).max(100),
+})
+const SavePreferenceOutput = z.strictObject({ preference: z.string().min(1).max(100) })
+let preferredTrip: string | undefined
+
+const savePreferenceAction = action({
+  name: "preferences.save",
+  description: "Save the user's preferred trip for this local app process.",
+  intent: 'Save "{input.preference}" as your preferred trip',
+  effect: "write",
+  input: SavePreferenceInput,
+  inputJsonSchema: z.toJSONSchema(SavePreferenceInput, { io: "input" }),
+  output: SavePreferenceOutput,
+  outputJsonSchema: z.toJSONSchema(SavePreferenceOutput),
+  execute: (_context: Readonly<Record<string, never>>, input) => {
+    preferredTrip = input.preference
+    return { preference: preferredTrip }
+  },
+})
+
 const TimeTickInput = z.strictObject({})
 const TimeTickEvent = z.strictObject({ timestamp: z.iso.datetime() })
 
@@ -55,7 +76,7 @@ const timeTickSubscription = subscription({
 })
 
 const runtime = new Genui<Readonly<Record<string, never>>>({
-  actions: [webSearchAction],
+  actions: [webSearchAction, savePreferenceAction],
   subscriptions: [timeTickSubscription],
 })
 const context = Object.freeze({})
@@ -80,12 +101,14 @@ export const createGeneratedSurface = (content: string): Promise<Surface> =>
   runtime.surface({
     dialect: codeDialect,
     content,
-    actions: [webSearchAction.name],
+    actions: [webSearchAction.name, savePreferenceAction.name],
     subscriptions: [timeTickSubscription.name],
   })
 
-export const executeGeneratedUiAction = (call: ActionCall): Promise<ActionResult> =>
-  runtime.execute(call, context)
+export const executeGeneratedUiAction = (
+  call: ActionCall,
+  approve?: ExecuteOptions["approve"],
+): Promise<ActionResult> => runtime.execute(call, context, { approve })
 
 export const openGeneratedUiSubscription = (request: SubscriptionRequest, signal: AbortSignal) =>
   runtime.subscribe(request, context, { signal })

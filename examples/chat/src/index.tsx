@@ -6,15 +6,11 @@ import { serveStatic } from "@hono/node-server/serve-static"
 import { event, local, mod, post, preserve, read, reply, state, unsafeHtml } from "datastar-kit"
 import { Hono } from "hono"
 import { stream } from "hono/streaming"
-import {
-  actionError,
-  parseActionCall,
-  parseSubscriptionRequest,
-  subscriptionOpenError,
-} from "genui/protocol"
+import { actionError, parseSubscriptionRequest, subscriptionOpenError } from "genui/protocol"
 import { z } from "zod"
 import { executeGeneratedUiAction, openGeneratedUiSubscription } from "./ai/genui.js"
 import { type GeneratedUiModelContext, modelId, streamChat } from "./ai/index.js"
+import { parseExecuteRequest, pendingApprovals, type ExecuteEnvelope } from "./approval.js"
 import { renderMarkdown } from "./markdown.js"
 import {
   type AssistantContentBlock,
@@ -270,11 +266,30 @@ app.get("/", () => {
 })
 
 app.post("/genui/execute", async (c) => {
-  const call = parseActionCall(await requestJson(c.req.raw))
-  if (call === undefined) {
-    return c.json(actionError("invalid_input", "Malformed GenUI action call."), 400)
+  const request = parseExecuteRequest(await requestJson(c.req.raw))
+  if (request === undefined) {
+    return c.json(
+      {
+        result: actionError("invalid_input", "Malformed GenUI action call."),
+      } satisfies ExecuteEnvelope,
+      400,
+    )
   }
-  return c.json(await executeGeneratedUiAction(call))
+  const result = await executeGeneratedUiAction(request.call, (_action, input) =>
+    pendingApprovals.check({
+      call: request.call,
+      input,
+      token: request.approvalToken,
+    }),
+  )
+  const approvalToken =
+    !result.ok && result.error.code === "approval_required"
+      ? pendingApprovals.token(request.call)
+      : undefined
+  return c.json({
+    result,
+    ...(approvalToken === undefined ? {} : { approvalToken }),
+  } satisfies ExecuteEnvelope)
 })
 
 app.post("/genui/subscribe", async (c) => {
@@ -326,6 +341,7 @@ app.post("/genui/snapshots", async (c) => {
 
 app.post("/chat/new", async () => {
   await session.reset()
+  pendingApprovals.clear()
   return reply.stream([
     event.patch(<Conversation turns={[]} />),
     event.signals(chatState.patch({ prompt: "", modelContext: "" })),
