@@ -14,8 +14,12 @@ export type {
   SubscriptionErrorPhase,
 } from "./subscription-runtime.js"
 export type {
+  ActionDefinition,
   ExecuteOptions,
+  SurfaceStoreIdempotencyRequest,
+  SurfaceStoreIdempotencyResult,
   SubscribeOptions,
   SubscriptionDefinition,
   SurfaceStore,
 } from "./types.js"
+export type { StandardSchemaV1 } from "./schema.js"

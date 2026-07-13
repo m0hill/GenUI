@@ -26,12 +26,19 @@ export const defaultMaxSurfaceHeight = 1_200
 // Host capabilities use a tighter boundary than the kernel's 64 KiB action-input limit.
 const maxCapabilityPayloadBytes = 16 * 1_024
 
-export interface TransportOptions {
+/** Trusted cancellation supplied while carrying an action call. */
+export interface ActionTransportOptions {
   readonly signal: AbortSignal
 }
 
+/** Carries one action call through trusted host transport for strict result parsing. */
+export type ActionTransport = (
+  call: ActionCall,
+  options: ActionTransportOptions,
+) => Promise<unknown>
+
 interface SurfaceBrokerOptions {
-  readonly transport: (call: ActionCall, options: TransportOptions) => Promise<unknown>
+  readonly transport: ActionTransport
   readonly capabilities?: HostCapabilities
   readonly confirm?: (
     action: Action,

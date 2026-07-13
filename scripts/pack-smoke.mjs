@@ -158,14 +158,36 @@ assert.equal((await events.next()).done, true)
 
   await writeFile(
     join(project, "smoke.ts"),
-    `import { Genui, memoryStore, subscription } from "genui"
+    `import {
+  Genui,
+  action,
+  memoryStore,
+  subscription,
+  type ActionDefinition,
+  type GenuiOptions,
+  type StandardSchemaV1,
+  type SubscriptionDefinition,
+  type SurfaceStore,
+  type SurfaceStoreIdempotencyRequest,
+  type SurfaceStoreIdempotencyResult,
+} from "genui"
 import {
   mount,
   SubscriptionTransportError,
+  type ActionConfirmationHandler,
+  type ActionTransport,
+  type ActionTransportOptions,
+  type SubscriptionCloseReason as BrowserSubscriptionCloseReason,
   type ContainerDimensions,
   type HostContext,
+  type ImagePolicy,
+  type MountOptions,
   type Mounted,
+  type ReplaceOptions,
+  type SnapshotValue,
   type SubscriptionTransport,
+  type SurfaceViolationReason,
+  type TeardownOptions,
 } from "genui/dom"
 import {
   parseActionCall,
@@ -173,38 +195,91 @@ import {
   parseSubscriptionRequest,
   parseSurface,
   type ActionCall,
+  type ActionResult,
   type SubscriptionDelivery,
   type SubscriptionRequest,
   type Surface,
+  type SurfaceRecord,
 } from "genui/protocol"
 import { assertSurfaceStoreConformance, type SurfaceStoreFactory } from "genui/testing"
+
+interface PackContext {
+  readonly prefix: string
+}
+
+const topicSchema: StandardSchemaV1<unknown, { readonly topic: string }> = {
+  "~standard": {
+    version: 1,
+    vendor: "pack-smoke",
+    validate: (_value) => ({ value: { topic: "all" } }),
+  },
+}
+const messageSchema: StandardSchemaV1<unknown, { readonly message: string }> = {
+  "~standard": {
+    version: 1,
+    vendor: "pack-smoke",
+    validate: (_value) => ({ value: { message: "ready" } }),
+  },
+}
+
+const readTopic = action({
+  name: "pack.read_topic",
+  description: "Read one pack-smoke topic.",
+  effect: "read",
+  input: topicSchema,
+  output: messageSchema,
+  execute: (context: PackContext, input) => ({ message: context.prefix + input.topic }),
+})
+const actionDefinition: ActionDefinition<
+  PackContext,
+  { readonly topic: string },
+  { readonly message: string }
+> = readTopic
 
 const updates = subscription({
   name: "pack.events",
   description: "Emit pack-smoke events.",
-  input: {
-    "~standard": {
-      version: 1 as const,
-      vendor: "pack-smoke",
-      validate: (_value: unknown) => ({ value: { topic: "all" } }),
-    },
-  },
-  event: {
-    "~standard": {
-      version: 1 as const,
-      vendor: "pack-smoke",
-      validate: (_value: unknown) => ({ value: { message: "ready" } }),
-    },
-  },
-  async *subscribe(_context: undefined, input, { signal }) {
-    if (!signal.aborted) yield { message: input.topic }
+  input: topicSchema,
+  event: messageSchema,
+  async *subscribe(context: PackContext, input, { signal }) {
+    if (!signal.aborted) yield { message: context.prefix + input.topic }
   },
 })
-const genui = new Genui<undefined>({
-  actions: [],
+const subscriptionDefinition: SubscriptionDefinition<
+  PackContext,
+  { readonly topic: string },
+  { readonly message: string }
+> = updates
+
+class PackSurfaceStore implements SurfaceStore {
+  readonly #backing = memoryStore()
+
+  get(id: string): Promise<SurfaceRecord | undefined> {
+    return Promise.resolve(this.#backing.get(id))
+  }
+
+  set(record: SurfaceRecord): Promise<void> {
+    return Promise.resolve(this.#backing.set(record))
+  }
+
+  revoke(id: string): Promise<void> {
+    return Promise.resolve(this.#backing.revoke(id))
+  }
+
+  runIdempotent(
+    request: SurfaceStoreIdempotencyRequest,
+    operation: () => Promise<ActionResult>,
+  ): Promise<SurfaceStoreIdempotencyResult> {
+    return Promise.resolve(this.#backing.runIdempotent(request, operation))
+  }
+}
+
+const genuiOptions: GenuiOptions<PackContext> = {
+  actions: [readTopic],
   subscriptions: [updates],
-  store: memoryStore(),
-})
+  store: new PackSurfaceStore(),
+}
+const genui = new Genui(genuiOptions)
 const call: ActionCall = {
   surfaceId: "surface",
   callId: "call",
@@ -229,6 +304,13 @@ const subscriptionDelivery: SubscriptionDelivery = {
 }
 const parsedSubscriptionDelivery: SubscriptionDelivery | undefined =
   parseSubscriptionDelivery(subscriptionDelivery)
+const actionTransport: ActionTransport = async (_call, { signal }) =>
+  signal.aborted ? { ok: false } : { ok: true, value: null }
+const actionTransportOptions: ActionTransportOptions = {
+  signal: new AbortController().signal,
+}
+const confirmAction: ActionConfirmationHandler = async (_action, _call, intent) =>
+  intent.length > 0
 const subscriptionTransport: SubscriptionTransport = async (_request, { signal }) => ({
   events: (async function* () {
     if (!signal.aborted) yield subscriptionDelivery
@@ -240,10 +322,19 @@ const subscriptionTransportError = new SubscriptionTransportError(
 )
 const parsedSurface: Surface | undefined = parseSurface({})
 const mountFunction: typeof mount = mount
-const mountOptions: Parameters<typeof mount>[2] = {
-  transport: async () => ({ ok: true, value: null }),
+const snapshot: SnapshotValue = { selected: "pack" }
+const imagePolicy: ImagePolicy = "none"
+const mountOptions: MountOptions = {
+  transport: actionTransport,
   subscriptionTransport,
+  confirm: confirmAction,
+  imagePolicy,
+  snapshot,
 }
+const replaceOptions: ReplaceOptions = { snapshot }
+const teardownOptions: TeardownOptions = { reason: "pack-smoke", timeoutMs: 1_000 }
+const violationReason: SurfaceViolationReason = "bad_message"
+const closeReason: BrowserSubscriptionCloseReason = "completed"
 const mounted: Mounted | undefined = undefined
 const unboundedDimensions: ContainerDimensions = {}
 const constrainedDimensions: ContainerDimensions = { width: 400, maxHeight: 720 }
@@ -255,20 +346,30 @@ const hostContext: HostContext = {
 }
 const storeFactory: SurfaceStoreFactory = memoryStore
 const conformanceCheck: typeof assertSurfaceStoreConformance = assertSurfaceStoreConformance
+const resultOutcome = (result: ActionResult): string =>
+  result.ok ? "ok" : result.error.code
 
 void genui
+void actionDefinition
+void subscriptionDefinition
 void parsedCall
 void parsedSubscriptionRequest
 void parsedSubscriptionDelivery
 void subscriptionTransportError
 void parsedSurface
 void mountFunction
+void actionTransportOptions
 void mountOptions
+void replaceOptions
+void teardownOptions
+void violationReason
+void closeReason
 void mounted
 void unboundedDimensions
 void hostContext
 void storeFactory
 void conformanceCheck
+void resultOutcome
 `,
   )
 

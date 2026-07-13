@@ -1,4 +1,10 @@
-import { mount, SubscriptionTransportError, type Mounted } from "genui/dom"
+import {
+  type ActionTransport,
+  mount,
+  type Mounted,
+  type SubscriptionTransport,
+  SubscriptionTransportError,
+} from "genui/dom"
 import { actionError, parseSurface } from "genui/protocol"
 import { guestErrorFixture, ordersDashboardFixture } from "./fixtures.js"
 import {
@@ -51,7 +57,7 @@ const waitForSurfaceReadiness = (iframe: HTMLIFrameElement): Promise<void> =>
     timeout = window.setTimeout(finish, surfaceReadinessWaitMs)
   })
 
-const transport: Parameters<typeof mount>[2]["transport"] = async (call, options) => {
+const transport: ActionTransport = async (call, options) => {
   const key = callKey(call.surfaceId, call.callId)
   const retryToken = retryTokens.get(key)
   retryTokens.delete(key)
@@ -74,9 +80,7 @@ const transport: Parameters<typeof mount>[2]["transport"] = async (call, options
   return envelope.result
 }
 
-const subscriptionTransport: NonNullable<
-  Parameters<typeof mount>[2]["subscriptionTransport"]
-> = async (request, options) => {
+const subscriptionTransport: SubscriptionTransport = async (request, options) => {
   const response = await fetch("/genui/subscribe", {
     method: "POST",
     headers: { "content-type": "application/json" },

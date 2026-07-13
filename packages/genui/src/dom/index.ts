@@ -20,19 +20,25 @@ import { createSubscriptionBroker, type SubscriptionTransport } from "./subscrip
 import {
   createSurfaceBroker,
   defaultMaxSurfaceHeight,
+  type ActionTransport,
   type SurfaceBrokerEffect,
   type SurfaceBrokerTask,
-  type TransportOptions,
 } from "./surface-broker.js"
 import type { SurfaceEvent } from "./surface-events.js"
 
-export type { SurfaceEvent } from "./surface-events.js"
+export type {
+  SubscriptionCloseReason,
+  SurfaceEvent,
+  SurfaceViolationReason,
+} from "./surface-events.js"
 export { SubscriptionTransportError } from "./subscription-broker.js"
 export type {
   SubscriptionTransport,
   SubscriptionTransportOptions,
   SubscriptionTransportResult,
 } from "./subscription-broker.js"
+export type { SnapshotValue } from "./sandbox-message-schema.js"
+export type { ActionTransport, ActionTransportOptions } from "./surface-broker.js"
 export type { ContainerDimensions, HostContext, McpUiStyleVariableKey } from "../host-context.js"
 export type {
   HostCapabilities,
@@ -43,16 +49,20 @@ export type {
   UpdateModelContextParams,
 } from "./host-capabilities.js"
 
-interface MountOptions {
-  readonly transport: (call: ActionCall, options: TransportOptions) => Promise<unknown>
+/** Trusted host confirmation using the kernel-rendered canonical action intent. */
+export type ActionConfirmationHandler = (
+  action: Action,
+  call: ActionCall,
+  intent: string,
+) => boolean | Promise<boolean>
+
+/** Trusted browser integrations and policy for mounting one generated surface. */
+export interface MountOptions {
+  readonly transport: ActionTransport
   /** Opens trusted, kernel-authorized read-only subscription streams for this surface. */
   readonly subscriptionTransport?: SubscriptionTransport
   /** Trusted consent UI using the kernel-rendered canonical action intent. */
-  readonly confirm?: (
-    action: Action,
-    call: ActionCall,
-    intent: string,
-  ) => boolean | Promise<boolean>
+  readonly confirm?: ActionConfirmationHandler
   /** HTTPS policies permit outbound image requests and can exfiltrate sandbox-visible data. */
   readonly imagePolicy?: ImagePolicy
   /** MCP Apps-compatible runtime context and standardized CSS variables from trusted host code. */
@@ -64,13 +74,16 @@ interface MountOptions {
   readonly snapshotTimeoutMs?: number
 }
 
-type ImagePolicy = "none" | "data" | "https" | "https-and-data"
+/** CSP image sources granted to generated content; HTTPS modes permit data exfiltration. */
+export type ImagePolicy = "none" | "data" | "https" | "https-and-data"
 
-interface ReplaceOptions {
+/** State explicitly supplied while replacing a mounted surface document. */
+export interface ReplaceOptions {
   readonly snapshot?: SnapshotValue
 }
 
-interface TeardownOptions {
+/** Graceful guest-cleanup reason and deadline. */
+export interface TeardownOptions {
   readonly reason?: string
   readonly timeoutMs?: number
 }

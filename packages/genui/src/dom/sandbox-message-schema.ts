@@ -14,6 +14,7 @@ export interface ActionSandboxMessage extends ActionCall {
   readonly type?: undefined
 }
 
+/** JSON value captured from or restored into untrusted generated content. */
 export type SnapshotValue =
   | null
   | boolean

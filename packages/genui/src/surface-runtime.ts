@@ -17,8 +17,8 @@ import { projectGrantedSubscriptions } from "./subscription-projections.js"
 import type {
   AnyActionDefinition,
   AnySubscriptionDefinition,
-  IdempotencyRequest,
-  IdempotencyResult,
+  SurfaceStoreIdempotencyRequest,
+  SurfaceStoreIdempotencyResult,
   SurfaceStore,
 } from "./types.js"
 
@@ -52,9 +52,9 @@ export interface SurfaceRuntime {
   diagnostics(id: string): Promise<SurfaceProjectionDiagnostics | undefined>
   instructions(actions: readonly Action[], subscriptions: readonly Subscription[]): string
   runIdempotent(
-    request: IdempotencyRequest,
+    request: SurfaceStoreIdempotencyRequest,
     operation: () => Promise<ActionResult>,
-  ): Promise<IdempotencyResult>
+  ): Promise<SurfaceStoreIdempotencyResult>
 }
 
 const copyDropped = (dropped: readonly DroppedAction[]): readonly DroppedAction[] =>

@@ -4,7 +4,11 @@ import {
   type MaybePromise,
   type SurfaceRecord,
 } from "../protocol/index.js"
-import type { IdempotencyRequest, IdempotencyResult, SurfaceStore } from "../types.js"
+import type {
+  SurfaceStore,
+  SurfaceStoreIdempotencyRequest,
+  SurfaceStoreIdempotencyResult,
+} from "../types.js"
 
 export type SurfaceStoreFactory = () => MaybePromise<SurfaceStore>
 
@@ -26,9 +30,9 @@ const assertEqual = (actual: unknown, expected: unknown, message: string): void 
 
 const runIdempotent = async (
   store: SurfaceStore,
-  request: IdempotencyRequest,
+  request: SurfaceStoreIdempotencyRequest,
   operation: () => Promise<ActionResult>,
-): Promise<IdempotencyResult> => await store.runIdempotent(request, operation)
+): Promise<SurfaceStoreIdempotencyResult> => await store.runIdempotent(request, operation)
 
 /**
  * Assert the persistence and atomic idempotency contract required of a SurfaceStore.

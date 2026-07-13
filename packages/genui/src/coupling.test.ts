@@ -56,10 +56,11 @@ void test("non-DOM source stays decoupled from the browser host", async () => {
   }
 })
 
-void test("package root does not re-export protocol or schema internals", async () => {
+void test("package root exposes the Standard Schema contract without schema internals", async () => {
   const source = await readFile("src/index.ts", "utf8")
 
   assert.doesNotMatch(source, /\bprotocol\b/)
-  assert.doesNotMatch(source, /\bStandardSchema/)
-  assert.doesNotMatch(source, /\bStandardTyped/)
+  assert.match(source, /export type \{ StandardSchemaV1 \} from "\.\/schema\.js"/)
+  assert.doesNotMatch(source, /\bSchemaParseResult\b/)
+  assert.doesNotMatch(source, /\bparseWithSchema\b/)
 })

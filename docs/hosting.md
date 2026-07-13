@@ -377,7 +377,11 @@ an app-owned `parseExecuteEnvelope()` that requires an approval token exactly
 when its nested result is `approval_required`.
 
 ```ts
-import { mount, SubscriptionTransportError } from "genui/dom"
+import {
+  mount,
+  type SubscriptionTransport,
+  SubscriptionTransportError,
+} from "genui/dom"
 import { actionError, parseSurface, type ActionCall } from "genui/protocol"
 import {
   decodeSubscriptionStream,
@@ -394,7 +398,7 @@ const retryTokens = new Map<string, string>()
 const callKey = (call: Pick<ActionCall, "surfaceId" | "callId">): string =>
   JSON.stringify([call.surfaceId, call.callId])
 
-const subscriptionTransport: Parameters<typeof mount>[2]["subscriptionTransport"] =
+const subscriptionTransport: SubscriptionTransport =
   async (request, { signal }) => {
     const response = await fetch("/genui/subscribe", {
       method: "POST",

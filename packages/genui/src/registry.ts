@@ -58,8 +58,8 @@ const serializeActionInput = (input: unknown): string | undefined => {
 }
 
 export interface GenuiOptions<Ctx> {
-  readonly actions: readonly AnyActionDefinition<Ctx>[]
-  readonly subscriptions?: readonly AnySubscriptionDefinition<Ctx>[]
+  readonly actions: readonly ActionDefinition<Ctx, unknown, unknown>[]
+  readonly subscriptions?: readonly SubscriptionDefinition<Ctx, unknown, unknown>[]
   readonly store?: SurfaceStore
   readonly onCall?: (entry: CallAuditEntry) => MaybePromise<void>
   readonly onSubscription?: (entry: SubscriptionAuditEntry) => MaybePromise<void>

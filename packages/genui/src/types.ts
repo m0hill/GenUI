@@ -49,14 +49,16 @@ export interface SubscriptionDefinition<Ctx, Input = unknown, Event = unknown> {
 /** Erased subscription definition retained after its schema boundary is recorded. */
 export type AnySubscriptionDefinition<Ctx> = SubscriptionDefinition<Ctx, unknown, unknown>
 
-export interface IdempotencyRequest {
+/** One effectful action call coordinated atomically by a SurfaceStore. */
+export interface SurfaceStoreIdempotencyRequest {
   readonly surfaceId: string
   readonly callId: string
   readonly fingerprint: string
   readonly windowMs: number
 }
 
-export type IdempotencyResult =
+/** Stored or newly completed action result, or a conflicting call fingerprint. */
+export type SurfaceStoreIdempotencyResult =
   | { readonly status: "result"; readonly result: ActionResult }
   | { readonly status: "conflict" }
 
@@ -67,9 +69,9 @@ export interface SurfaceStore {
   revoke(id: string): MaybePromise<void>
   /** Atomically join matching calls; never retain provisional approval_required results. */
   runIdempotent(
-    request: IdempotencyRequest,
+    request: SurfaceStoreIdempotencyRequest,
     operation: () => Promise<ActionResult>,
-  ): MaybePromise<IdempotencyResult>
+  ): MaybePromise<SurfaceStoreIdempotencyResult>
 }
 
 export interface ExecuteOptions {

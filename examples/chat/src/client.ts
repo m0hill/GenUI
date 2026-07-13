@@ -1,7 +1,11 @@
 import {
+  type ActionConfirmationHandler,
+  type ActionTransport,
   mount,
   type McpUiStyleVariableKey,
   type Mounted,
+  type SnapshotValue,
+  type SubscriptionTransport,
   SubscriptionTransportError,
   type UpdateModelContextParams,
 } from "genui/dom"
@@ -151,7 +155,7 @@ const openLink = async (url: string): Promise<void> => {
   if (opened === null) throw new Error("The browser blocked the new tab.")
 }
 
-const executeAction: Parameters<typeof mount>[2]["transport"] = async (call, options) => {
+const executeAction: ActionTransport = async (call, options) => {
   const key = callKey(call.surfaceId, call.callId)
   const approval = approvals.get(key)
   if (approval?.approved) approvals.delete(key)
@@ -173,11 +177,7 @@ const executeAction: Parameters<typeof mount>[2]["transport"] = async (call, opt
   return envelope.result
 }
 
-const confirmAction: NonNullable<Parameters<typeof mount>[2]["confirm"]> = async (
-  _action,
-  call,
-  intent,
-) => {
+const confirmAction: ActionConfirmationHandler = async (_action, call, intent) => {
   const key = callKey(call.surfaceId, call.callId)
   const approval = approvals.get(key)
   if (approval === undefined) throw new Error("The host did not issue an approval token.")
@@ -186,10 +186,7 @@ const confirmAction: NonNullable<Parameters<typeof mount>[2]["confirm"]> = async
   return approval.approved
 }
 
-const subscribe: NonNullable<Parameters<typeof mount>[2]["subscriptionTransport"]> = async (
-  request,
-  options,
-) => {
+const subscribe: SubscriptionTransport = async (request, options) => {
   const response = await fetch("/genui/subscribe", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -247,7 +244,7 @@ const mountSurface = (element: Element): void => {
   }
 
   const serializedSnapshot = element.getAttribute("data-genui-snapshot")
-  let snapshot: Parameters<typeof mount>[2]["snapshot"]
+  let snapshot: SnapshotValue | undefined
   if (serializedSnapshot !== null) {
     try {
       snapshot = JSON.parse(serializedSnapshot)
