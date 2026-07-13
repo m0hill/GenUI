@@ -412,7 +412,7 @@ void test("descriptors expose only the public capability projection", () => {
   assert.doesNotMatch(registry.instructions(), /demo\.blocked/)
 })
 
-void test("action descriptors carry declared input JSON Schema", async () => {
+void test("action descriptors and instructions carry declared JSON Schemas", async () => {
   const inputJsonSchema = {
     type: "object",
     properties: { sides: { type: "number", minimum: 2 } },
@@ -441,12 +441,16 @@ void test("action descriptors carry declared input JSON Schema", async () => {
   })
 
   assert.deepEqual(registry.actions()[0]?.inputSchema, inputJsonSchema)
+  assert.deepEqual(registry.actions()[0]?.outputSchema, outputJsonSchema)
+  assert.match(registry.instructions(), /Output JSON Schema:/)
+  assert.equal(registry.instructions().includes(JSON.stringify(outputJsonSchema, null, 2)), true)
 
   const surface = await registry.surface({
     content: `<button>Roll</button>`,
     actions: ["dice.roll"],
   })
   assert.deepEqual(surface.grant.actions[0]?.inputSchema, inputJsonSchema)
+  assert.deepEqual(surface.grant.actions[0]?.outputSchema, outputJsonSchema)
 })
 
 void test("registry projects separate read-only subscriptions", async () => {
@@ -1000,5 +1004,22 @@ void test("registry rejects invalid and duplicate capability names at constructi
           }),
         ],
       }),
+  )
+
+  const missingOutputValidator = {
+    name: "dice.describe",
+    description: "Describe a die roll.",
+    effect: "read",
+    input: emptyInput,
+    outputJsonSchema: { type: "object" },
+    execute: () => ({}),
+  }
+  assert.throws(
+    () =>
+      new Genui<TestCtx>({
+        // Runtime validation protects JavaScript and untyped callers as well as TypeScript callers.
+        actions: [missingOutputValidator as never],
+      }),
+    /output JSON Schema requires output validation: dice\.describe/,
   )
 })

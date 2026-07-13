@@ -1,5 +1,6 @@
 import type { DroppedSubscription, Subscription } from "./protocol/index.js"
 import { subscriptionEventByteLimit } from "./protocol/index.js"
+import { copyJsonSchema } from "./schema.js"
 import type { AnySubscriptionDefinition } from "./types.js"
 
 interface ProjectGrantedSubscriptionsInput<Ctx> {
@@ -18,12 +19,6 @@ export const subscriptionPolicy = (
 
 export const subscriptionConfidentiality = (definition: AnySubscriptionDefinition<unknown>) =>
   definition.confidentiality ?? "normal"
-
-const copyJsonSchema = (schema: Subscription["inputSchema"]): Subscription["inputSchema"] => {
-  if (schema === undefined) return undefined
-  // SAFETY: JsonSchema is a JSON object by contract; the round trip severs caller references.
-  return JSON.parse(JSON.stringify(schema)) as Subscription["inputSchema"]
-}
 
 const subscriptionFor = (definition: AnySubscriptionDefinition<unknown>): Subscription => ({
   name: definition.name,

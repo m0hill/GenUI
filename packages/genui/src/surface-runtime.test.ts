@@ -16,6 +16,9 @@ const actionDefinition = (name: string, policy?: Policy): AnyActionDefinition<un
   effect: policy === "block" ? "dangerous" : "read",
   policy,
   input: emptyInput,
+  inputJsonSchema: { type: "object", properties: { sides: { type: "number" } } },
+  output: emptyInput,
+  outputJsonSchema: { type: "object", properties: { total: { type: "number" } } },
   execute: () => ({}),
 })
 
@@ -66,6 +69,15 @@ void test("surface runtime preserves code and owns grant records and diagnostics
     grantedSubscriptions: [],
     droppedSubscriptions: [],
   })
+
+  const returnedAction = surface.grant.actions[0]
+  assert.notEqual(returnedAction, undefined)
+  if (returnedAction === undefined) return
+  Reflect.set(returnedAction.inputSchema ?? {}, "forged", true)
+  Reflect.set(returnedAction.outputSchema ?? {}, "forged", true)
+  const stored = await runtime.getRecord(surface.id)
+  assert.equal(stored?.surface.grant.actions[0]?.inputSchema?.forged, undefined)
+  assert.equal(stored?.surface.grant.actions[0]?.outputSchema?.forged, undefined)
 })
 
 void test("surface runtime reprojects authority without rewriting source", async () => {

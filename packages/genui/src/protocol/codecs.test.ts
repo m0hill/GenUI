@@ -31,6 +31,11 @@ const validSurface = {
           properties: { sides: { type: "number" } },
           required: ["sides"],
         },
+        outputSchema: {
+          type: "object",
+          properties: { total: { type: "number" } },
+          required: ["total"],
+        },
       },
     ],
     subscriptions: [
@@ -107,10 +112,17 @@ void test("parseSurface accepts a JSON round trip and rejects malformed fields",
       { ...validSurface, grant: { ...validSurface.grant, actions: [{ ...action, intent: 1 }] } },
     ],
     [
-      "action schema",
+      "action input schema",
       {
         ...validSurface,
         grant: { ...validSurface.grant, actions: [{ ...action, inputSchema: [] }] },
+      },
+    ],
+    [
+      "action output schema",
+      {
+        ...validSurface,
+        grant: { ...validSurface.grant, actions: [{ ...action, outputSchema: [] }] },
       },
     ],
     ["meta", { ...validSurface, meta: [] }],

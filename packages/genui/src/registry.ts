@@ -131,6 +131,12 @@ export class Genui<Ctx> {
       if (byName.has(action.name)) {
         throw new Error(`Duplicate action name: ${action.name}`)
       }
+      if (
+        Reflect.get(action, "output") === undefined &&
+        Reflect.get(action, "outputJsonSchema") !== undefined
+      ) {
+        throw new Error(`Action output JSON Schema requires output validation: ${action.name}`)
+      }
       byName.set(action.name, action)
     }
 

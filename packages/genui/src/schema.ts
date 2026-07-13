@@ -1,3 +1,5 @@
+import type { JsonSchema } from "./protocol/index.js"
+
 interface StandardSchemaIssue {
   readonly message: string
 }
@@ -21,6 +23,20 @@ export interface StandardSchemaV1<Input = unknown, Output = Input> {
 export type SchemaParseResult<Value> =
   | { readonly ok: true; readonly value: Value }
   | { readonly ok: false; readonly message: string; readonly cause?: unknown }
+
+/** Sever app-owned references before a model-facing schema crosses a runtime boundary. */
+export const copyJsonSchema = (schema: JsonSchema): JsonSchema => {
+  const serialized = JSON.stringify(schema)
+  if (serialized === undefined) throw new TypeError("JSON Schema must be JSON-serializable.")
+
+  const value: unknown = JSON.parse(serialized)
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new TypeError("JSON Schema must serialize to an object.")
+  }
+
+  // SAFETY: the input contract is a JSON object and the round trip preserves that shape.
+  return value as JsonSchema
+}
 
 const issueMessage = (issue: StandardSchemaIssue | undefined): string =>
   issue?.message && issue.message.trim().length > 0 ? issue.message : "Value is invalid."

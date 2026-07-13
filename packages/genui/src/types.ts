@@ -10,8 +10,7 @@ import type {
 } from "./protocol/index.js"
 import type { StandardSchemaV1 } from "./schema.js"
 
-/** App-owned unit of authority that generated UI may request but never execute directly. */
-export interface ActionDefinition<Ctx, Input = unknown, Output = unknown> {
+interface ActionDefinitionBase<Ctx, Input, Output> {
   readonly name: string
   readonly description: string
   /** Hosts render this template as plain text; interpolated input remains untrusted display data. */
@@ -21,10 +20,26 @@ export interface ActionDefinition<Ctx, Input = unknown, Output = unknown> {
   readonly policy?: Policy
   readonly input: StandardSchemaV1<unknown, Input>
   readonly inputJsonSchema?: JsonSchema
-  readonly output?: StandardSchemaV1<unknown, Output>
-  readonly outputJsonSchema?: JsonSchema
   execute(ctx: Ctx, input: Input): Output | Promise<Output>
 }
+
+type ActionOutputContract<Output> =
+  | {
+      readonly output?: undefined
+      readonly outputJsonSchema?: never
+    }
+  | {
+      readonly output: StandardSchemaV1<unknown, Output>
+      readonly outputJsonSchema?: JsonSchema
+    }
+
+/** App-owned unit of authority that generated UI may request but never execute directly. */
+export type ActionDefinition<Ctx, Input = unknown, Output = unknown> = ActionDefinitionBase<
+  Ctx,
+  Input,
+  Output
+> &
+  ActionOutputContract<Output>
 
 /** Erased action shape stored by a GenUI instance after the schema boundary is recorded. */
 export type AnyActionDefinition<Ctx> = ActionDefinition<Ctx, unknown, unknown>

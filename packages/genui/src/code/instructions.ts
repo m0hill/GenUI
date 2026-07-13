@@ -17,6 +17,14 @@ const actionInstructions = (action: Action): string => {
     JSON.stringify(action.inputSchema ?? {}, null, 2),
     "```",
   )
+  if (action.outputSchema !== undefined) {
+    details.push(
+      "Output JSON Schema:",
+      "```json",
+      JSON.stringify(action.outputSchema, null, 2),
+      "```",
+    )
+  }
   return details.join("\n")
 }
 

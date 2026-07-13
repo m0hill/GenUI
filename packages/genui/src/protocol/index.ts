@@ -38,6 +38,8 @@ export interface Action {
   readonly confidentiality?: Confidentiality
   readonly requiresApproval: boolean
   readonly inputSchema?: JsonSchema
+  /** Descriptive model-facing output contract; runtime validation remains authoritative. */
+  readonly outputSchema?: JsonSchema
   /** Optional confirmation template; hosts must render interpolated values as untrusted text. */
   readonly intent?: string
 }
@@ -257,7 +259,8 @@ const isAction = (value: unknown): value is Action =>
     confidentialities.some((confidentiality) => confidentiality === value.confidentiality)) &&
   typeof value.requiresApproval === "boolean" &&
   (value.intent === undefined || typeof value.intent === "string") &&
-  (value.inputSchema === undefined || isRecord(value.inputSchema))
+  (value.inputSchema === undefined || isRecord(value.inputSchema)) &&
+  (value.outputSchema === undefined || isRecord(value.outputSchema))
 
 const isSubscription = (value: unknown): value is Subscription =>
   isRecord(value) &&

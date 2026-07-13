@@ -193,7 +193,8 @@ genui.teardown(handler)
 snapshot embedded by the trusted host before generated content. It is
 available to top-level guest scripts without waiting for an event. Each
 descriptor contains `name`, `description`, `effect`, `confidentiality`, and
-`requiresApproval`, plus optional `intent` and `inputSchema` fields.
+`requiresApproval`, plus optional `intent`, `inputSchema`, and `outputSchema`
+fields.
 
 `genui.subscriptions` is the frozen read-only subscription grant available at
 the same time. Each descriptor contains `name`, `description`,

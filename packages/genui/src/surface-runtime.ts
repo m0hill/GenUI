@@ -14,6 +14,7 @@ import {
 import { projectGrantedActions } from "./action-projections.js"
 import { codeInstructions } from "./code/instructions.js"
 import { projectGrantedSubscriptions } from "./subscription-projections.js"
+import { copyJsonSchema } from "./schema.js"
 import type {
   AnyActionDefinition,
   AnySubscriptionDefinition,
@@ -76,25 +77,25 @@ const copyDiagnostics = (
 })
 
 const copyActions = (actions: readonly Action[]): readonly Action[] =>
-  actions.map((action) => ({ ...action }))
-
-const copySubscriptionSchema = (
-  schema: Subscription["inputSchema"],
-): Subscription["inputSchema"] => {
-  if (schema === undefined) return undefined
-  // SAFETY: JsonSchema is a JSON object by contract; the round trip severs caller references.
-  return JSON.parse(JSON.stringify(schema)) as Subscription["inputSchema"]
-}
+  actions.map((action) => ({
+    ...action,
+    ...(action.inputSchema === undefined
+      ? {}
+      : { inputSchema: copyJsonSchema(action.inputSchema) }),
+    ...(action.outputSchema === undefined
+      ? {}
+      : { outputSchema: copyJsonSchema(action.outputSchema) }),
+  }))
 
 const copySubscriptions = (subscriptions: readonly Subscription[]): readonly Subscription[] =>
   subscriptions.map((subscription) => ({
     ...subscription,
     ...(subscription.inputSchema === undefined
       ? {}
-      : { inputSchema: copySubscriptionSchema(subscription.inputSchema) }),
+      : { inputSchema: copyJsonSchema(subscription.inputSchema) }),
     ...(subscription.eventSchema === undefined
       ? {}
-      : { eventSchema: copySubscriptionSchema(subscription.eventSchema) }),
+      : { eventSchema: copyJsonSchema(subscription.eventSchema) }),
   }))
 
 const copyMeta = (

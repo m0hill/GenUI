@@ -71,7 +71,7 @@ try {
   await writeFile(
     join(project, "smoke.mjs"),
     `import assert from "node:assert/strict"
-import { Genui, memoryStore, subscription } from "genui"
+import { action, Genui, memoryStore, subscription } from "genui"
 import { mount, SubscriptionTransportError } from "genui/dom"
 import {
   codeDialect,
@@ -83,6 +83,7 @@ import {
 import { assertSurfaceStoreConformance } from "genui/testing"
 
 assert.equal(typeof Genui, "function")
+assert.equal(typeof action, "function")
 assert.equal(typeof memoryStore, "function")
 assert.equal(typeof subscription, "function")
 assert.equal(typeof mount, "function")
@@ -117,13 +118,40 @@ const updates = subscription({
     if (!signal.aborted) yield { message: "ready" }
   },
 })
-const genui = new Genui({ actions: [], subscriptions: [updates], store: memoryStore() })
+const readTopic = action({
+  name: "pack.read_topic",
+  description: "Read one pack-smoke topic.",
+  effect: "read",
+  input: {
+    "~standard": {
+      version: 1,
+      vendor: "pack-smoke",
+      validate: () => ({ value: {} }),
+    },
+  },
+  inputJsonSchema: { type: "object" },
+  output: {
+    "~standard": {
+      version: 1,
+      vendor: "pack-smoke",
+      validate: (value) => ({ value }),
+    },
+  },
+  outputJsonSchema: {
+    type: "object",
+    properties: { message: { type: "string" } },
+    required: ["message"],
+  },
+  execute: () => ({ message: "ready" }),
+})
+const genui = new Genui({ actions: [readTopic], subscriptions: [updates], store: memoryStore() })
 const surface = await genui.surface({
   content: "<p>pack smoke</p>",
-  actions: [],
+  actions: [readTopic.name],
   subscriptions: [updates.name],
 })
 assert.equal(parseSurface(JSON.parse(JSON.stringify(surface)))?.id, surface.id)
+assert.deepEqual(surface.grant.actions[0]?.outputSchema, readTopic.outputJsonSchema)
 assert.equal(surface.grant.subscriptions[0]?.name, updates.name)
 assert.equal(
   parseActionCall({
@@ -227,7 +255,17 @@ const readTopic = action({
   description: "Read one pack-smoke topic.",
   effect: "read",
   input: topicSchema,
+  inputJsonSchema: {
+    type: "object",
+    properties: { topic: { type: "string" } },
+    required: ["topic"],
+  },
   output: messageSchema,
+  outputJsonSchema: {
+    type: "object",
+    properties: { message: { type: "string" } },
+    required: ["message"],
+  },
   execute: (context: PackContext, input) => ({ message: context.prefix + input.topic }),
 })
 const actionDefinition: ActionDefinition<
@@ -235,6 +273,19 @@ const actionDefinition: ActionDefinition<
   { readonly topic: string },
   { readonly message: string }
 > = readTopic
+const projectedOutputSchema = new Genui({ actions: [readTopic] }).actions()[0]?.outputSchema
+
+const invalidOutputContract = action(
+  // @ts-expect-error output JSON Schema requires a runtime output validator.
+  {
+    name: "pack.invalid_output",
+    description: "Invalid compile-time contract fixture.",
+    effect: "read",
+    input: topicSchema,
+    outputJsonSchema: { type: "object" },
+    execute: (_context: PackContext, input) => ({ message: input.topic }),
+  },
+)
 
 const updates = subscription({
   name: "pack.events",
@@ -351,6 +402,8 @@ const resultOutcome = (result: ActionResult): string =>
 
 void genui
 void actionDefinition
+void projectedOutputSchema
+void invalidOutputContract
 void subscriptionDefinition
 void parsedCall
 void parsedSubscriptionRequest

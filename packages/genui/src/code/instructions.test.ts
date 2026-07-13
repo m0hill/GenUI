@@ -5,7 +5,7 @@ import { subscriptionEventByteLimit } from "../protocol/index.js"
 import type { Action, Subscription } from "../protocol/index.js"
 import { codeInstructions } from "./instructions.js"
 
-void test("code instructions include every granted action name and input schema", () => {
+void test("code instructions include every granted action name and declared schema", () => {
   const actions = [
     {
       name: "orders.search",
@@ -16,6 +16,10 @@ void test("code instructions include every granted action name and input schema"
         type: "object",
         properties: { status: { enum: ["open", "shipped"] } },
         additionalProperties: false,
+      },
+      outputSchema: {
+        type: "array",
+        items: { type: "object", properties: { id: { type: "string" } } },
       },
     },
     {
@@ -41,6 +45,8 @@ void test("code instructions include every granted action name and input schema"
     assert.equal(instructions.includes(action.name), true)
     assert.equal(instructions.includes(JSON.stringify(action.inputSchema, null, 2)), true)
   }
+  assert.equal(instructions.includes(JSON.stringify(actions[0]?.outputSchema, null, 2)), true)
+  assert.match(instructions, /Output JSON Schema:/)
 })
 
 void test("code instructions include granted subscription input and event schemas", () => {

@@ -1,4 +1,5 @@
 import type { Action, DroppedAction, Policy } from "./protocol/index.js"
+import { copyJsonSchema } from "./schema.js"
 import type { AnyActionDefinition } from "./types.js"
 
 interface ProjectGrantedActionsInput<Ctx> {
@@ -25,7 +26,12 @@ const actionFor = (definition: AnyActionDefinition<unknown>): Action => ({
   confidentiality: actionConfidentiality(definition),
   requiresApproval: actionPolicy(definition) === "ask",
   ...(definition.intent === undefined ? {} : { intent: definition.intent }),
-  ...(definition.inputJsonSchema === undefined ? {} : { inputSchema: definition.inputJsonSchema }),
+  ...(definition.inputJsonSchema === undefined
+    ? {}
+    : { inputSchema: copyJsonSchema(definition.inputJsonSchema) }),
+  ...(definition.outputJsonSchema === undefined
+    ? {}
+    : { outputSchema: copyJsonSchema(definition.outputJsonSchema) }),
 })
 
 export const publicActions = <Ctx>(actions: Iterable<AnyActionDefinition<Ctx>>): Action[] => {

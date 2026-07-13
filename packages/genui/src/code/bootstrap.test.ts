@@ -255,6 +255,10 @@ void test("code bootstrap installs the pinned API with its embedded grant", () =
         type: "object",
         properties: { status: { type: "string" } },
       },
+      outputSchema: {
+        type: "array",
+        items: { type: "object", properties: { id: { type: "string" } } },
+      },
     },
   ] satisfies readonly Action[]
   const { genui } = createHarness({ actions })
