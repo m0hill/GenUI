@@ -71,7 +71,10 @@ void test("package root exposes the Standard Schema contract without schema inte
   const source = await readFile("src/index.ts", "utf8")
 
   assert.doesNotMatch(source, /\bprotocol\b/)
-  assert.match(source, /export type \{ StandardSchemaV1 \} from "\.\/schema\.js"/)
+  assert.match(
+    source,
+    /export type \{ StandardJSONSchemaV1, StandardSchemaV1 \} from "\.\/schema\.js"/,
+  )
   assert.doesNotMatch(source, /\bSchemaParseResult\b/)
   assert.doesNotMatch(source, /\bparseWithSchema\b/)
 })

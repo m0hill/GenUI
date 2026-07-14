@@ -1,15 +1,13 @@
 import { codeDialect, type Surface } from "./protocol/index.js"
-import { projectGrantedActions } from "./action-projections.js"
+import { projectGrantedActions, type RegisteredAction } from "./action-projections.js"
 import { codeCapabilityArtifacts } from "./code/capability-contract.js"
 import { codeEnvironmentInstructions } from "./code/instructions.js"
-import { projectGrantedSubscriptions } from "./subscription-projections.js"
+import {
+  projectGrantedSubscriptions,
+  type RegisteredSubscription,
+} from "./subscription-projections.js"
 import type { SurfaceRuntime } from "./surface-runtime.js"
-import type {
-  ActionDefinition,
-  AnyActionDefinition,
-  AnySubscriptionDefinition,
-  SubscriptionDefinition,
-} from "./types.js"
+import type { ActionDefinition, SubscriptionDefinition } from "./types.js"
 
 export interface GenerationOptions<Ctx> {
   readonly actions: readonly ActionDefinition<Ctx, unknown, unknown>[]
@@ -38,8 +36,8 @@ export interface Generation {
 
 interface CreateGenerationOptions<Ctx> {
   readonly selection: GenerationOptions<Ctx>
-  readonly byName: ReadonlyMap<string, AnyActionDefinition<Ctx>>
-  readonly subscriptionsByName: ReadonlyMap<string, AnySubscriptionDefinition<Ctx>>
+  readonly byName: ReadonlyMap<string, RegisteredAction<Ctx>>
+  readonly subscriptionsByName: ReadonlyMap<string, RegisteredSubscription<Ctx>>
   readonly surfaceRuntime: SurfaceRuntime
 }
 
@@ -70,7 +68,7 @@ export const createGeneration = <Ctx>({
     if (seenActions.has(definition.name)) {
       throw new Error(`Duplicate generation action: ${definition.name}`)
     }
-    if (byName.get(definition.name) !== definition) {
+    if (byName.get(definition.name)?.definition !== definition) {
       throw new Error(`Generation action is not registered: ${definition.name}`)
     }
     seenActions.add(definition.name)
@@ -83,7 +81,7 @@ export const createGeneration = <Ctx>({
     if (seenSubscriptions.has(definition.name)) {
       throw new Error(`Duplicate generation subscription: ${definition.name}`)
     }
-    if (subscriptionsByName.get(definition.name) !== definition) {
+    if (subscriptionsByName.get(definition.name)?.definition !== definition) {
       throw new Error(`Generation subscription is not registered: ${definition.name}`)
     }
     seenSubscriptions.add(definition.name)

@@ -104,6 +104,10 @@ const updates = subscription({
       version: 1,
       vendor: "pack-smoke",
       validate: () => ({ value: {} }),
+      jsonSchema: {
+        input: () => ({ type: "object", additionalProperties: false }),
+        output: () => ({ type: "object", additionalProperties: false }),
+      },
     },
   },
   event: {
@@ -114,6 +118,14 @@ const updates = subscription({
         typeof value === "object" && value !== null && value.message === "ready"
           ? { value: { message: "ready" } }
           : { issues: [{ message: "Expected the ready event." }] },
+      jsonSchema: {
+        input: () => ({ type: "object" }),
+        output: () => ({
+          type: "object",
+          properties: { message: { type: "string" } },
+          required: ["message"],
+        }),
+      },
     },
   },
   async *subscribe(_context, _input, { signal }) {
@@ -129,6 +141,10 @@ const readTopic = action({
       version: 1,
       vendor: "pack-smoke",
       validate: () => ({ value: {} }),
+      jsonSchema: {
+        input: () => ({ type: "object", title: "derived input must be bypassed" }),
+        output: () => ({ type: "object" }),
+      },
     },
   },
   inputJsonSchema: { type: "object" },
@@ -137,12 +153,15 @@ const readTopic = action({
       version: 1,
       vendor: "pack-smoke",
       validate: (value) => ({ value }),
+      jsonSchema: {
+        input: () => ({ type: "object" }),
+        output: () => ({
+          type: "object",
+          properties: { message: { type: "string" } },
+          required: ["message"],
+        }),
+      },
     },
-  },
-  outputJsonSchema: {
-    type: "object",
-    properties: { message: { type: "string" } },
-    required: ["message"],
   },
   execute: () => ({ message: "ready" }),
 })
@@ -161,8 +180,22 @@ const rejected = await checkGeneratedInterface(generation, {
 assert.equal(rejected.ok, false)
 const surface = await generation.createSurface({ content: "<p>pack smoke</p>" })
 assert.equal(parseSurface(JSON.parse(JSON.stringify(surface)))?.id, surface.id)
-assert.deepEqual(surface.grant.actions[0]?.outputSchema, readTopic.outputJsonSchema)
+assert.deepEqual(surface.grant.actions[0]?.inputSchema, { type: "object" })
+assert.deepEqual(surface.grant.actions[0]?.outputSchema, {
+  type: "object",
+  properties: { message: { type: "string" } },
+  required: ["message"],
+})
 assert.equal(surface.grant.subscriptions[0]?.name, updates.name)
+assert.deepEqual(surface.grant.subscriptions[0]?.inputSchema, {
+  type: "object",
+  additionalProperties: false,
+})
+assert.deepEqual(surface.grant.subscriptions[0]?.eventSchema, {
+  type: "object",
+  properties: { message: { type: "string" } },
+  required: ["message"],
+})
 assert.equal(
   parseActionCall({
     surfaceId: surface.id,
@@ -207,6 +240,7 @@ assert.equal((await events.next()).done, true)
   type GenerationGuidance,
   type GenerationOptions,
   type GenuiOptions,
+  type StandardJSONSchemaV1,
   type StandardSchemaV1,
   type SubscriptionDefinition,
   type SurfaceStore,
@@ -255,20 +289,38 @@ interface PackContext {
   readonly prefix: string
 }
 
-const topicSchema: StandardSchemaV1<unknown, { readonly topic: string }> = {
+const topicSchema = {
   "~standard": {
-    version: 1,
+    version: 1 as const,
     vendor: "pack-smoke",
-    validate: (_value) => ({ value: { topic: "all" } }),
+    validate: (_value: unknown) => ({ value: { topic: "all" } }),
+    jsonSchema: {
+      input: (_options: { readonly target: string }) => ({
+        type: "object",
+        properties: { topic: { type: "string" } },
+        required: ["topic"],
+      }),
+      output: (_options: { readonly target: string }) => ({ type: "object" }),
+    },
   },
 }
-const messageSchema: StandardSchemaV1<unknown, { readonly message: string }> = {
+const messageSchema = {
   "~standard": {
-    version: 1,
+    version: 1 as const,
     vendor: "pack-smoke",
-    validate: (_value) => ({ value: { message: "ready" } }),
+    validate: (_value: unknown) => ({ value: { message: "ready" } }),
+    jsonSchema: {
+      input: (_options: { readonly target: string }) => ({ type: "object" }),
+      output: (_options: { readonly target: string }) => ({
+        type: "object",
+        properties: { message: { type: "string" } },
+        required: ["message"],
+      }),
+    },
   },
 }
+const runtimeTopicSchema: StandardSchemaV1<unknown, { readonly topic: string }> = topicSchema
+const modelTopicSchema: StandardJSONSchemaV1<unknown, { readonly topic: string }> = topicSchema
 
 const readTopic = action({
   name: "pack.read_topic",
@@ -281,11 +333,6 @@ const readTopic = action({
     required: ["topic"],
   },
   output: messageSchema,
-  outputJsonSchema: {
-    type: "object",
-    properties: { message: { type: "string" } },
-    required: ["message"],
-  },
   execute: (context: PackContext, input) => ({ message: context.prefix + input.topic }),
 })
 const actionDefinition: ActionDefinition<
@@ -448,6 +495,8 @@ void generatedInterfaceCheck
 void diagnostic
 void generatedSurface
 void actionDefinition
+void runtimeTopicSchema
+void modelTopicSchema
 void projectedOutputSchema
 void invalidOutputContract
 void subscriptionDefinition

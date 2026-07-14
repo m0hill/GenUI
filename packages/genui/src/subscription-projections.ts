@@ -1,11 +1,17 @@
-import type { DroppedSubscription, Subscription } from "./protocol/index.js"
+import type { DroppedSubscription, JsonSchema, Subscription } from "./protocol/index.js"
 import { subscriptionEventByteLimit } from "./protocol/index.js"
-import { copyJsonSchema } from "./schema.js"
+import { copyJsonSchema, resolveModelJsonSchema } from "./schema.js"
 import type { AnySubscriptionDefinition } from "./types.js"
+
+export interface RegisteredSubscription<Ctx> {
+  readonly definition: AnySubscriptionDefinition<Ctx>
+  readonly inputSchema?: JsonSchema
+  readonly eventSchema?: JsonSchema
+}
 
 interface ProjectGrantedSubscriptionsInput<Ctx> {
   readonly subscriptions: readonly string[]
-  readonly byName: ReadonlyMap<string, AnySubscriptionDefinition<Ctx>>
+  readonly byName: ReadonlyMap<string, RegisteredSubscription<Ctx>>
 }
 
 interface ProjectedSubscriptionGrant {
@@ -20,25 +26,53 @@ export const subscriptionPolicy = (
 export const subscriptionConfidentiality = (definition: AnySubscriptionDefinition<unknown>) =>
   definition.confidentiality ?? "normal"
 
-const subscriptionFor = (definition: AnySubscriptionDefinition<unknown>): Subscription => ({
-  name: definition.name,
-  description: definition.description,
-  confidentiality: subscriptionConfidentiality(definition),
-  maxEventBytes: subscriptionEventByteLimit,
-  ...(definition.inputJsonSchema === undefined
-    ? {}
-    : { inputSchema: copyJsonSchema(definition.inputJsonSchema) }),
-  ...(definition.eventJsonSchema === undefined
-    ? {}
-    : { eventSchema: copyJsonSchema(definition.eventJsonSchema) }),
-})
+/** Resolve stable model schemas while retaining the app-owned definition for live policy checks. */
+export const registerSubscription = <Ctx>(
+  definition: AnySubscriptionDefinition<Ctx>,
+): RegisteredSubscription<Ctx> => {
+  const inputSchema = resolveModelJsonSchema({
+    validator: definition.input,
+    explicit: definition.inputJsonSchema,
+    direction: "input",
+    description: `subscription ${definition.name} input JSON Schema`,
+  })
+  const eventSchema = resolveModelJsonSchema({
+    validator: definition.event,
+    explicit: definition.eventJsonSchema,
+    direction: "output",
+    description: `subscription ${definition.name} event JSON Schema`,
+  })
+  return {
+    definition,
+    ...(inputSchema === undefined ? {} : { inputSchema }),
+    ...(eventSchema === undefined ? {} : { eventSchema }),
+  }
+}
+
+const subscriptionFor = (registered: RegisteredSubscription<unknown>): Subscription => {
+  const { definition } = registered
+  return {
+    name: definition.name,
+    description: definition.description,
+    confidentiality: subscriptionConfidentiality(definition),
+    maxEventBytes: subscriptionEventByteLimit,
+    ...(registered.inputSchema === undefined
+      ? {}
+      : { inputSchema: copyJsonSchema(registered.inputSchema) }),
+    ...(registered.eventSchema === undefined
+      ? {}
+      : { eventSchema: copyJsonSchema(registered.eventSchema) }),
+  }
+}
 
 export const publicSubscriptions = <Ctx>(
-  subscriptions: Iterable<AnySubscriptionDefinition<Ctx>>,
+  subscriptions: Iterable<RegisteredSubscription<Ctx>>,
 ): Subscription[] => {
   const projected: Subscription[] = []
-  for (const definition of subscriptions) {
-    if (subscriptionPolicy(definition) !== "block") projected.push(subscriptionFor(definition))
+  for (const registered of subscriptions) {
+    if (subscriptionPolicy(registered.definition) !== "block") {
+      projected.push(subscriptionFor(registered))
+    }
   }
   return projected
 }
@@ -58,11 +92,12 @@ export const projectGrantedSubscriptions = <Ctx>({
     }
     seen.add(name)
 
-    const definition = byName.get(name)
-    if (definition === undefined) {
+    const registered = byName.get(name)
+    if (registered === undefined) {
       dropped.push({ name, reason: "unknown" })
       continue
     }
+    const { definition } = registered
     if (subscriptionPolicy(definition) === "block") {
       dropped.push({ name, reason: "blocked" })
       continue
@@ -71,7 +106,7 @@ export const projectGrantedSubscriptions = <Ctx>({
       dropped.push({ name, reason: "confidential" })
       continue
     }
-    granted.push(subscriptionFor(definition))
+    granted.push(subscriptionFor(registered))
   }
 
   return { subscriptions: granted, dropped }

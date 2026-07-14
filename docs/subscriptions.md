@@ -21,9 +21,7 @@ const orderChanges = subscription({
   name: "orders.changes",
   description: "Receive order status changes matching an optional status filter.",
   input: OrderChangesInput,
-  inputJsonSchema: z.toJSONSchema(OrderChangesInput, { io: "input" }),
   event: OrderChangeEvent,
-  eventJsonSchema: z.toJSONSchema(OrderChangeEvent),
   policy: "allow",
   async *subscribe(context, input, { signal }) {
     for await (const event of context.orders.watch(input, { signal })) {
@@ -43,8 +41,14 @@ choice, not a runtime dependency.
 - `input` validates and canonicalizes the requested filter.
 - `event` validates and canonicalizes every source event.
 - `subscribe(context, input, { signal })` returns an `AsyncIterable`.
-- `inputJsonSchema` and `eventJsonSchema` describe the same validators to the
-  model. Standard Schema remains authoritative.
+- Standard JSON Schema V1 validators automatically describe their input and
+  canonical event output to the model.
+
+Genui requests draft 2020-12 using the input direction for `input` and the
+output direction for `event`. Use `inputJsonSchema` or `eventJsonSchema` as an
+explicit override when a validator cannot derive its model contract. Explicit
+schemas bypass conversion. Conversion failures reject `new Genui(...)` as
+configuration errors. Standard Schema remains authoritative at runtime.
 
 Subscription and action names are globally unique within one `Genui` instance.
 Subscriptions have an implicit `read` effect. Their policy is `allow` or

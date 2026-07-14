@@ -437,6 +437,172 @@ void test("action descriptors and generation guidance carry declared JSON Schema
   assert.deepEqual(surface.grant.actions[0]?.outputSchema, outputJsonSchema)
 })
 
+void test("registry derives model schemas using each contract position's direction", async () => {
+  const requested: string[] = []
+  const actionInput = {
+    "~standard": {
+      version: 1 as const,
+      vendor: "genui-runtime-test",
+      validate: () => ({ value: { sides: 6 } }),
+      jsonSchema: {
+        input: ({ target }: { readonly target: string }) => {
+          requested.push(`action input ${target}`)
+          return { type: "object", title: "derived action input" }
+        },
+        output: () => ({ type: "object", title: "wrong action input direction" }),
+      },
+    },
+  }
+  const actionOutput = {
+    "~standard": {
+      version: 1 as const,
+      vendor: "genui-runtime-test",
+      validate: () => ({ value: { total: 6 } }),
+      jsonSchema: {
+        input: () => ({ type: "object", title: "wrong action output direction" }),
+        output: ({ target }: { readonly target: string }) => {
+          requested.push(`action output ${target}`)
+          return { type: "object", title: "derived action output" }
+        },
+      },
+    },
+  }
+  const subscriptionInput = {
+    "~standard": {
+      version: 1 as const,
+      vendor: "genui-runtime-test",
+      validate: () => ({ value: {} }),
+      jsonSchema: {
+        input: ({ target }: { readonly target: string }) => {
+          requested.push(`subscription input ${target}`)
+          return { type: "object", title: "derived subscription input" }
+        },
+        output: () => ({ type: "object", title: "wrong subscription input direction" }),
+      },
+    },
+  }
+  const subscriptionEvent = {
+    "~standard": {
+      version: 1 as const,
+      vendor: "genui-runtime-test",
+      validate: () => ({ value: { id: "order-1" } }),
+      jsonSchema: {
+        input: () => ({ type: "object", title: "wrong subscription event direction" }),
+        output: ({ target }: { readonly target: string }) => {
+          requested.push(`subscription event ${target}`)
+          return { type: "object", title: "derived subscription event" }
+        },
+      },
+    },
+  }
+  const rollDice = action({
+    name: "dice.roll",
+    description: "Roll a die.",
+    effect: "read",
+    input: actionInput,
+    output: actionOutput,
+    execute: (_ctx: TestCtx, input) => ({ total: input.sides }),
+  })
+  const changes = subscription({
+    name: "orders.changes",
+    description: "Receive order changes.",
+    input: subscriptionInput,
+    event: subscriptionEvent,
+    subscribe: async function* () {},
+  })
+
+  const registry = new Genui({ actions: [rollDice], subscriptions: [changes] })
+
+  assert.deepEqual(requested, [
+    "action input draft-2020-12",
+    "action output draft-2020-12",
+    "subscription input draft-2020-12",
+    "subscription event draft-2020-12",
+  ])
+  assert.equal(registry.actions()[0]?.inputSchema?.title, "derived action input")
+  assert.equal(registry.actions()[0]?.outputSchema?.title, "derived action output")
+  assert.equal(registry.subscriptions()[0]?.inputSchema?.title, "derived subscription input")
+  assert.equal(registry.subscriptions()[0]?.eventSchema?.title, "derived subscription event")
+})
+
+void test("explicit model schemas take precedence without invoking derivation", () => {
+  const derivationError = (): never => {
+    throw new Error("explicit schemas must bypass derivation")
+  }
+  const schema = {
+    "~standard": {
+      version: 1 as const,
+      vendor: "genui-runtime-test",
+      validate: () => ({ value: {} }),
+      jsonSchema: { input: derivationError, output: derivationError },
+    },
+  }
+  const explicit = { type: "object", title: "explicit schema" } as const
+  const configuredAction = action({
+    name: "demo.explicit",
+    description: "Use explicit schemas.",
+    effect: "read",
+    input: schema,
+    inputJsonSchema: explicit,
+    output: schema,
+    outputJsonSchema: explicit,
+    execute: () => ({}),
+  })
+  const configuredSubscription = subscription({
+    name: "demo.events",
+    description: "Use explicit schemas.",
+    input: schema,
+    inputJsonSchema: explicit,
+    event: schema,
+    eventJsonSchema: explicit,
+    subscribe: async function* () {},
+  })
+
+  const registry = new Genui({
+    actions: [configuredAction],
+    subscriptions: [configuredSubscription],
+  })
+
+  assert.deepEqual(registry.actions()[0]?.inputSchema, explicit)
+  assert.deepEqual(registry.actions()[0]?.outputSchema, explicit)
+  assert.deepEqual(registry.subscriptions()[0]?.inputSchema, explicit)
+  assert.deepEqual(registry.subscriptions()[0]?.eventSchema, explicit)
+})
+
+void test("model schema derivation failures reject Genui configuration", () => {
+  const cause = new Error("schema cannot be represented")
+  const schema = {
+    "~standard": {
+      version: 1 as const,
+      vendor: "genui-runtime-test",
+      validate: () => ({ value: {} }),
+      jsonSchema: {
+        input: (): never => {
+          throw cause
+        },
+        output: () => ({ type: "object" }),
+      },
+    },
+  }
+  const configuredAction = action({
+    name: "demo.invalid_schema",
+    description: "Fail schema derivation.",
+    effect: "read",
+    input: schema,
+    execute: () => ({}),
+  })
+
+  assert.throws(
+    () => new Genui({ actions: [configuredAction] }),
+    (error: unknown) => {
+      assert(error instanceof TypeError)
+      assert.match(error.message, /action demo\.invalid_schema input JSON Schema/)
+      assert.equal(error.cause, cause)
+      return true
+    },
+  )
+})
+
 void test("registry projects separate read-only subscriptions", async () => {
   const inputJsonSchema = { type: "object", properties: { status: { type: "string" } } }
   const eventJsonSchema = { type: "object", properties: { id: { type: "string" } } }

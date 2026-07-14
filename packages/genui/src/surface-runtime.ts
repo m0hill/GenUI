@@ -11,20 +11,21 @@ import {
   type SurfaceProjectionDiagnostics,
   type SurfaceRecord,
 } from "./protocol/index.js"
-import { projectGrantedActions } from "./action-projections.js"
-import { projectGrantedSubscriptions } from "./subscription-projections.js"
+import { projectGrantedActions, type RegisteredAction } from "./action-projections.js"
+import {
+  projectGrantedSubscriptions,
+  type RegisteredSubscription,
+} from "./subscription-projections.js"
 import { copyJsonSchema } from "./schema.js"
 import type {
-  AnyActionDefinition,
-  AnySubscriptionDefinition,
   SurfaceStoreIdempotencyRequest,
   SurfaceStoreIdempotencyResult,
   SurfaceStore,
 } from "./types.js"
 
 interface CreateSurfaceRuntimeOptions<Ctx> {
-  readonly byName: ReadonlyMap<string, AnyActionDefinition<Ctx>>
-  readonly subscriptionsByName?: ReadonlyMap<string, AnySubscriptionDefinition<Ctx>>
+  readonly byName: ReadonlyMap<string, RegisteredAction<Ctx>>
+  readonly subscriptionsByName?: ReadonlyMap<string, RegisteredSubscription<Ctx>>
   readonly store?: SurfaceStore
 }
 

@@ -19,6 +19,7 @@ interface ActionDefinitionBase<Ctx, Input, Output> {
   readonly confidentiality?: Confidentiality
   readonly policy?: Policy
   readonly input: StandardSchemaV1<unknown, Input>
+  /** Overrides model-schema derivation from `input` when supplied. */
   readonly inputJsonSchema?: JsonSchema
   execute(ctx: Ctx, input: Input): Output | Promise<Output>
 }
@@ -30,6 +31,7 @@ type ActionOutputContract<Output> =
     }
   | {
       readonly output: StandardSchemaV1<unknown, Output>
+      /** Overrides model-schema derivation from `output` when supplied. */
       readonly outputJsonSchema?: JsonSchema
     }
 
@@ -51,8 +53,10 @@ export interface SubscriptionDefinition<Ctx, Input = unknown, Event = unknown> {
   readonly confidentiality?: Confidentiality
   readonly policy?: Exclude<Policy, "ask">
   readonly input: StandardSchemaV1<unknown, Input>
+  /** Overrides model-schema derivation from `input` when supplied. */
   readonly inputJsonSchema?: JsonSchema
   readonly event: StandardSchemaV1<unknown, Event>
+  /** Overrides model-schema derivation from the canonical `event` output when supplied. */
   readonly eventJsonSchema?: JsonSchema
   subscribe(
     ctx: Ctx,

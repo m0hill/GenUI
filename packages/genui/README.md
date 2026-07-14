@@ -13,6 +13,10 @@ Define one-shot authority with `action()` and read-only event authority with
 persist authoritative surface records, validate calls and every subscription
 event, apply policy and approval, and run app-owned code.
 
+Validators that implement Standard JSON Schema V1 automatically provide their
+model-facing input and output contracts. Explicit JSON Schema remains available
+as an override for validators that cannot derive it.
+
 Select definitions once with `genui.generation()`. The resulting generation
 produces the model's stable environment guidance and selected capability
 contract, then creates surfaces from that same selection while reapplying

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
+import { registerAction, type RegisteredAction } from "./action-projections.js"
 import type { Policy } from "./protocol/index.js"
+import { registerSubscription, type RegisteredSubscription } from "./subscription-projections.js"
 import { createSurfaceRuntime } from "./surface-runtime.js"
 import { isRecord, testSchema } from "./test-schema.test-support.js"
 import type { AnyActionDefinition } from "./types.js"
@@ -39,8 +41,8 @@ const subscriptionDefinition = (
 void test("surface runtime preserves code and owns grant records and diagnostics", async () => {
   const runtime = createSurfaceRuntime({
     byName: new Map([
-      ["dice.roll", actionDefinition("dice.roll")],
-      ["demo.blocked", actionDefinition("demo.blocked", "block")],
+      ["dice.roll", registerAction(actionDefinition("dice.roll"))],
+      ["demo.blocked", registerAction(actionDefinition("demo.blocked", "block"))],
     ]),
   })
   const source = {
@@ -81,8 +83,8 @@ void test("surface runtime preserves code and owns grant records and diagnostics
 })
 
 void test("surface runtime reprojects authority without rewriting source", async () => {
-  const byName = new Map<string, AnyActionDefinition<unknown>>([
-    ["dice.roll", actionDefinition("dice.roll")],
+  const byName = new Map<string, RegisteredAction<unknown>>([
+    ["dice.roll", registerAction(actionDefinition("dice.roll"))],
   ])
   const runtime = createSurfaceRuntime({ byName })
   const source = {
@@ -92,7 +94,7 @@ void test("surface runtime reprojects authority without rewriting source", async
   }
   const created = await runtime.surface(source)
 
-  byName.set("dice.roll", actionDefinition("dice.roll", "block"))
+  byName.set("dice.roll", registerAction(actionDefinition("dice.roll", "block")))
   const reprojected = await runtime.reprojectSurface(created.id)
 
   assert.equal(reprojected?.id, created.id)
@@ -113,9 +115,9 @@ void test("surface runtime reprojects authority without rewriting source", async
 void test("surface runtime persists and reprojects separate subscription authority", async () => {
   const allowed = subscriptionDefinition("orders.changes")
   const blocked = subscriptionDefinition("orders.blocked", "block")
-  const byName = new Map<string, AnySubscriptionDefinition<unknown>>([
-    [allowed.name, allowed],
-    [blocked.name, blocked],
+  const byName = new Map<string, RegisteredSubscription<unknown>>([
+    [allowed.name, registerSubscription(allowed)],
+    [blocked.name, registerSubscription(blocked)],
   ])
   const runtime = createSurfaceRuntime({
     byName: new Map(),
@@ -153,7 +155,7 @@ void test("surface runtime persists and reprojects separate subscription authori
   assert.equal(stored?.surface.grant.subscriptions[0]?.inputSchema?.forged, undefined)
   assert.equal(stored?.surface.grant.subscriptions[0]?.eventSchema?.forged, undefined)
 
-  byName.set(allowed.name, subscriptionDefinition(allowed.name, "block"))
+  byName.set(allowed.name, registerSubscription(subscriptionDefinition(allowed.name, "block")))
   const reprojected = await runtime.reprojectSurface(created.id)
   assert.deepEqual(reprojected?.grant.subscriptions, [])
 })

@@ -29,9 +29,7 @@ const searchOrders = action({
   description: "Search orders by customer or order number.",
   effect: "read",
   input: SearchOrdersInput,
-  inputJsonSchema: z.toJSONSchema(SearchOrdersInput),
   output: SearchOrdersOutput,
-  outputJsonSchema: z.toJSONSchema(SearchOrdersOutput),
   execute: async (context, input) => context.orders.search(input.query),
 })
 ```
@@ -53,19 +51,22 @@ Action names must contain at least two segments. Separate segments with `.`,
 
 ## JSON Schema projection
 
-Use `inputJsonSchema` when an action is available to generated UI. It is copied
-to the action descriptor as `inputSchema`, so models do not have to infer field
-names from prose.
+Genui derives model-facing schemas automatically when a validator implements
+Standard JSON Schema V1. Action input uses the converter's input direction.
+Validated action output uses its output direction. Genui requests JSON Schema
+draft 2020-12.
 
-Use `outputJsonSchema` with `output` when the action has a machine-readable
-output contract. It is copied to the action descriptor as `outputSchema` and
-included in the selected capability contract. Standard Schema remains the
-enforcement mechanism; JSON Schema is descriptive metadata. An output JSON
-Schema without an `output` validator is rejected.
+Use `inputJsonSchema` or `outputJsonSchema` when the validator cannot derive the
+contract or the application needs a deliberately different model-facing
+description. An explicit schema takes precedence and its converter is not
+called. An output JSON Schema without an `output` validator is rejected.
 
-When a schema library supports both contracts, derive the validator and JSON
-Schema from the same source. Standard Schema does not require JSON Schema
-conversion, so applications may supply the two forms explicitly when needed.
+Derived and explicit schemas are copied into action descriptors as
+`inputSchema` and `outputSchema`. Standard Schema remains the enforcement
+mechanism; JSON Schema is descriptive metadata. A converter error rejects
+`new Genui(...)` as a configuration error instead of silently omitting the
+model contract. Validators without a converter remain supported and may use
+explicit schemas.
 
 ## Effects and policy
 
@@ -104,7 +105,6 @@ const updateStatus = action({
   effect: "write",
   intent: "Change order {input.id} to {input.status}",
   input: UpdateStatusInput,
-  inputJsonSchema: z.toJSONSchema(UpdateStatusInput),
   execute: async (context, input) => context.orders.updateStatus(input),
 })
 ```

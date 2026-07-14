@@ -75,8 +75,6 @@ export const resetDemoOrders = (): void => {
 
 resetDemoOrders()
 
-const orderJsonSchema = z.toJSONSchema(OrderSchema)
-
 const findOrder = (id: string): Order => {
   const order = orders.find((candidate) => candidate.id === id)
   if (order === undefined) throw new Error(`Unknown order: ${id}`)
@@ -158,9 +156,7 @@ export const demoActions = [
     description: "Search orders by customer, order ID, or status.",
     effect: "read",
     input: SearchInputSchema,
-    inputJsonSchema: z.toJSONSchema(SearchInputSchema, { io: "input" }),
     output: OrdersOutputSchema,
-    outputJsonSchema: z.toJSONSchema(OrdersOutputSchema),
     execute: (_context: unknown, input) => {
       const query = input.query.toLowerCase()
       return {
@@ -179,9 +175,7 @@ export const demoActions = [
     description: "Get one order by ID.",
     effect: "read",
     input: OrderIdInputSchema,
-    inputJsonSchema: z.toJSONSchema(OrderIdInputSchema),
     output: OrderSchema,
-    outputJsonSchema: orderJsonSchema,
     execute: (_context: unknown, input) => ({ ...findOrder(input.id) }),
   }),
   action({
@@ -190,9 +184,7 @@ export const demoActions = [
     effect: "write",
     intent: "Change order {input.id} to {input.status}",
     input: UpdateStatusInputSchema,
-    inputJsonSchema: z.toJSONSchema(UpdateStatusInputSchema),
     output: OrderSchema,
-    outputJsonSchema: orderJsonSchema,
     execute: (_context: unknown, input) => {
       const current = findOrder(input.id)
       const updated = { ...current, status: input.status }
@@ -211,7 +203,6 @@ export const demoActions = [
     effect: "read",
     confidentiality: "sensitive",
     input: EmptyInputSchema,
-    inputJsonSchema: z.toJSONSchema(EmptyInputSchema),
     execute: () => ({ contacts: ["private@example.test"] }),
   }),
 ] as const

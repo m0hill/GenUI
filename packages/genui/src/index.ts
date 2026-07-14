@@ -28,4 +28,4 @@ export type {
   SubscriptionDefinition,
   SurfaceStore,
 } from "./types.js"
-export type { StandardSchemaV1 } from "./schema.js"
+export type { StandardJSONSchemaV1, StandardSchemaV1 } from "./schema.js"

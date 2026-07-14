@@ -10,9 +10,13 @@ import {
   type SurfaceRecord,
 } from "./protocol/index.js"
 import { parseWithSchema } from "./schema.js"
-import { subscriptionConfidentiality, subscriptionPolicy } from "./subscription-projections.js"
+import {
+  subscriptionConfidentiality,
+  subscriptionPolicy,
+  type RegisteredSubscription,
+} from "./subscription-projections.js"
 import type { SurfaceRuntime } from "./surface-runtime.js"
-import type { AnySubscriptionDefinition, SubscribeOptions } from "./types.js"
+import type { SubscribeOptions } from "./types.js"
 
 export const maxActiveSubscriptionsPerSurface = 4
 export const maxSubscriptionInputBytes = 64 * 1_024
@@ -75,7 +79,7 @@ export type SubscriptionAuditEntry =
     }
 
 interface CreateSubscriptionRuntimeOptions<Ctx> {
-  readonly byName: ReadonlyMap<string, AnySubscriptionDefinition<Ctx>>
+  readonly byName: ReadonlyMap<string, RegisteredSubscription<Ctx>>
   readonly surfaceRuntime: Pick<SurfaceRuntime, "getRecord" | "revoke">
   readonly onSubscription?: (entry: SubscriptionAuditEntry) => MaybePromise<void>
   readonly onError?: (event: SubscriptionErrorEvent) => MaybePromise<void>
@@ -124,7 +128,7 @@ interface SurfaceRevocationState {
 type AuthorizationResult<Ctx> =
   | {
       readonly ok: true
-      readonly definition: AnySubscriptionDefinition<Ctx>
+      readonly definition: RegisteredSubscription<Ctx>["definition"]
       readonly record: SurfaceRecord
     }
   | { readonly ok: false; readonly error: SubscriptionError }
@@ -427,7 +431,7 @@ export const createSubscriptionRuntime = <Ctx>({
       }
     }
 
-    const definition = byName.get(request.subscription)
+    const definition = byName.get(request.subscription)?.definition
     if (definition !== undefined && subscriptionPolicy(definition) === "block") {
       return {
         ok: false,

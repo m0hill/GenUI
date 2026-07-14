@@ -1,7 +1,11 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { subscriptionEventByteLimit } from "./protocol/index.js"
-import { projectGrantedSubscriptions, publicSubscriptions } from "./subscription-projections.js"
+import {
+  projectGrantedSubscriptions,
+  publicSubscriptions,
+  registerSubscription,
+} from "./subscription-projections.js"
 import { isRecord, testSchema } from "./test-schema.test-support.js"
 import type { AnySubscriptionDefinition } from "./types.js"
 
@@ -29,9 +33,9 @@ void test("subscription projection grants only public allowed definitions", () =
   const blocked = definition("orders.blocked", { policy: "block" })
   const sensitive = definition("orders.sensitive", { sensitive: true })
   const byName = new Map([
-    [allowed.name, allowed],
-    [blocked.name, blocked],
-    [sensitive.name, sensitive],
+    [allowed.name, registerSubscription(allowed)],
+    [blocked.name, registerSubscription(blocked)],
+    [sensitive.name, registerSubscription(sensitive)],
   ])
 
   const projection = projectGrantedSubscriptions({
@@ -65,7 +69,7 @@ void test("subscription projection grants only public allowed definitions", () =
 
 void test("subscription projection copies nested JSON Schemas", () => {
   const value = definition("orders.changes")
-  const projected = publicSubscriptions([value])[0]
+  const projected = publicSubscriptions([registerSubscription(value)])[0]
   assert.notEqual(projected, undefined)
   if (projected === undefined) return
 

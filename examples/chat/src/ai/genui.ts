@@ -22,9 +22,7 @@ const webSearchAction = action({
   description: "Search the web for current information and return text results.",
   effect: "read",
   input: WebSearchInput,
-  inputJsonSchema: z.toJSONSchema(WebSearchInput, { io: "input" }),
   output: WebSearchOutput,
-  outputJsonSchema: z.toJSONSchema(WebSearchOutput),
   execute: async (_context: GenuiContext, input) => ({
     content: await searchWeb(input.query, new AbortController().signal),
   }),
@@ -41,9 +39,7 @@ const savePreferenceAction = action({
   intent: 'Save "{input.preference}" as your preferred trip',
   effect: "write",
   input: SavePreferenceInput,
-  inputJsonSchema: z.toJSONSchema(SavePreferenceInput, { io: "input" }),
   output: SavePreferenceOutput,
-  outputJsonSchema: z.toJSONSchema(SavePreferenceOutput),
   execute: async (context: GenuiContext, input) => {
     const saved = await context.preferences.save(input.preference)
     return { preference: saved.preferredTrip }
@@ -57,9 +53,7 @@ const timeTickSubscription = subscription({
   name: "time.tick",
   description: "Receive the current ISO timestamp once per second.",
   input: TimeTickInput,
-  inputJsonSchema: z.toJSONSchema(TimeTickInput, { io: "input" }),
   event: TimeTickEvent,
-  eventJsonSchema: z.toJSONSchema(TimeTickEvent),
   async *subscribe(_context: GenuiContext, _input, { signal }) {
     while (!signal.aborted) {
       yield { timestamp: new Date().toISOString() }

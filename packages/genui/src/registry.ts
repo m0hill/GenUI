@@ -15,10 +15,19 @@ import {
   type Surface,
   type SurfaceRecord,
 } from "./protocol/index.js"
-import { actionPolicy, publicActions } from "./action-projections.js"
+import {
+  actionPolicy,
+  publicActions,
+  registerAction,
+  type RegisteredAction,
+} from "./action-projections.js"
 import { parseWithSchema } from "./schema.js"
 import { createGeneration, type Generation, type GenerationOptions } from "./generation.js"
-import { publicSubscriptions } from "./subscription-projections.js"
+import {
+  publicSubscriptions,
+  registerSubscription,
+  type RegisteredSubscription,
+} from "./subscription-projections.js"
 import {
   createSubscriptionRuntime,
   type SubscriptionAuditEntry,
@@ -28,8 +37,6 @@ import {
 import { createSurfaceRuntime, type SurfaceRuntime } from "./surface-runtime.js"
 import type {
   ActionDefinition,
-  AnyActionDefinition,
-  AnySubscriptionDefinition,
   ExecuteOptions,
   SubscribeOptions,
   SubscriptionDefinition,
@@ -112,8 +119,8 @@ export const subscription = <Ctx, Input, Event>(
 
 /** Owns one app action registry and its authoritative surface records. */
 export class Genui<Ctx> {
-  readonly #byName: ReadonlyMap<string, AnyActionDefinition<Ctx>>
-  readonly #subscriptionsByName: ReadonlyMap<string, AnySubscriptionDefinition<Ctx>>
+  readonly #byName: ReadonlyMap<string, RegisteredAction<Ctx>>
+  readonly #subscriptionsByName: ReadonlyMap<string, RegisteredSubscription<Ctx>>
   readonly #surfaceRuntime: SurfaceRuntime
   readonly #subscriptionRuntime: SubscriptionRuntime<Ctx>
   readonly #onCall: ((entry: CallAuditEntry) => MaybePromise<void>) | undefined
@@ -121,8 +128,8 @@ export class Genui<Ctx> {
   readonly #inFlightBySurface = new Map<string, number>()
 
   constructor(options: GenuiOptions<Ctx>) {
-    const byName = new Map<string, AnyActionDefinition<Ctx>>()
-    const subscriptionsByName = new Map<string, AnySubscriptionDefinition<Ctx>>()
+    const byName = new Map<string, RegisteredAction<Ctx>>()
+    const subscriptionsByName = new Map<string, RegisteredSubscription<Ctx>>()
 
     for (const action of options.actions) {
       if (!isValidActionName(action.name)) {
@@ -137,7 +144,7 @@ export class Genui<Ctx> {
       ) {
         throw new Error(`Action output JSON Schema requires output validation: ${action.name}`)
       }
-      byName.set(action.name, action)
+      byName.set(action.name, registerAction(action))
     }
 
     for (const definition of options.subscriptions ?? []) {
@@ -154,7 +161,7 @@ export class Genui<Ctx> {
       ) {
         throw new Error(`Invalid subscription policy: ${String(definition.policy)}`)
       }
-      subscriptionsByName.set(definition.name, definition)
+      subscriptionsByName.set(definition.name, registerSubscription(definition))
     }
 
     this.#byName = byName
@@ -251,7 +258,7 @@ export class Genui<Ctx> {
       return actionError("unknown_surface", "Surface grant has expired.")
     }
 
-    const definition = this.#byName.get(call.action)
+    const definition = this.#byName.get(call.action)?.definition
     if (definition !== undefined && actionPolicy(definition) === "block") {
       return actionError("blocked", "Action is blocked.")
     }
@@ -362,7 +369,7 @@ export class Genui<Ctx> {
       callId: call.callId,
       ...(options?.subject === undefined ? {} : { subject: options.subject }),
       action: call.action,
-      effect: this.#byName.get(call.action)?.effect ?? "unknown",
+      effect: this.#byName.get(call.action)?.definition.effect ?? "unknown",
       outcome: result.ok ? "ok" : result.error.code,
       at: Date.now(),
     }

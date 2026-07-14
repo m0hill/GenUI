@@ -23,9 +23,7 @@ export const demoSubscriptions = [
     name: "orders.changes",
     description: "Receive an initial order snapshot and later status changes.",
     input: OrderChangesInputSchema,
-    inputJsonSchema: z.toJSONSchema(OrderChangesInputSchema, { io: "input" }),
     event: OrderChangeEventSchema,
-    eventJsonSchema: z.toJSONSchema(OrderChangeEventSchema),
     subscribe: (_context: unknown, input, options) => watchOrderChanges(input, options),
   }),
 ] as const
