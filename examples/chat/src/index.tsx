@@ -68,6 +68,53 @@ const requestJson = async (request: Request): Promise<unknown> => {
   }
 }
 
+const ChevronIcon = () => (
+  <svg
+    class="chevron"
+    aria-hidden="true"
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path d="m9 6 6 6-6 6" />
+  </svg>
+)
+
+const SendIcon = () => (
+  <svg
+    aria-hidden="true"
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path d="M12 19V5M5 12l7-7 7 7" />
+  </svg>
+)
+
+const PlusIcon = () => (
+  <svg
+    class="pill-icon"
+    aria-hidden="true"
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2.2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path d="M12 5v14M5 12h14" />
+  </svg>
+)
+
 const sending = local<boolean>("sending")
 const resetting = local<boolean>("resetting")
 const session = await JsonlChatSession.open(
@@ -131,7 +178,10 @@ const AssistantMessage = (props: {
       block.type === "thinking" ? (
         block.thinking.trim().length > 0 ? (
           <details class="thinking" open data-preserve-attr={preserve("open")}>
-            <summary>Reasoning</summary>
+            <summary>
+              <ChevronIcon />
+              Reasoning
+            </summary>
             <div class="thinking-body markdown">{unsafeHtml(renderMarkdown(block.thinking))}</div>
           </details>
         ) : null
@@ -147,14 +197,18 @@ const AssistantMessage = (props: {
           snapshot={session.getSurfaceSnapshot(block.surface.id)}
         />
       ) : block.text.trim().length > 0 ? (
-        <div class="message-body markdown">{unsafeHtml(renderMarkdown(block.text))}</div>
+        <div class="markdown">{unsafeHtml(renderMarkdown(block.text))}</div>
       ) : null,
     )}
     {props.activeSearches?.map((search) => (
       <WebSearchActivity query={search.query} status="running" />
     ))}
-    {props.pending === true ? <span class="cursor" aria-label="Generating" /> : null}
-    {props.error ? <p class="message-body error-detail">{props.error}</p> : null}
+    {props.pending === true ? (
+      <small class="message-status" role="status">
+        Writing
+      </small>
+    ) : null}
+    {props.error ? <p class="error-detail">{props.error}</p> : null}
   </article>
 )
 
@@ -166,8 +220,7 @@ const Turn = (props: {
 }) => (
   <section id={props.id} class="turn">
     <article class="message user">
-      <span class="message-label">You</span>
-      <p class="message-body">{props.prompt}</p>
+      <p class="user-bubble">{props.prompt}</p>
     </article>
     <AssistantMessage
       id={props.assistantId}
@@ -181,9 +234,10 @@ const Conversation = (props: { turns: readonly PersistedTurn[] }) => (
   <section id="messages" aria-live="polite" aria-label="Conversation">
     {props.turns.length === 0 ? (
       <div id="empty-state" class="empty">
-        <p class="empty-kicker">Persistent JSONL · local session</p>
-        <h2>A quiet place to think out loud.</h2>
-        <p>Ask a question. The answer arrives as server-rendered HTML patches.</p>
+        <p>
+          Ask a normal question, or ask for a tiny interface like “make a minimalist weather card
+          for San Francisco”.
+        </p>
       </div>
     ) : (
       props.turns.map((turn) => (
@@ -221,26 +275,21 @@ app.get("/", () => {
   return reply.page(
     <main class="shell" data-signals={chatState.defaults}>
       <header class="masthead">
-        <div class="brand">
-          <div class="mark" aria-hidden="true">
-            AI
+        <p class="manual-kicker">GenUI · {modelId} · saved locally</p>
+        <div class="masthead-row">
+          <h1>Local conversation</h1>
+          <div class="masthead-actions">
+            <button
+              class="nav-pill nav-pill-accent"
+              type="button"
+              data-indicator={resetting}
+              data-attr:disabled={resetting}
+              data-on:click={post("/chat/new")}
+            >
+              <PlusIcon />
+              New chat
+            </button>
           </div>
-          <div>
-            <h1>Local conversation</h1>
-            <p class="subtitle">OpenAI Codex · {modelId} · reasoning low</p>
-          </div>
-        </div>
-        <div class="masthead-actions">
-          <div class="status">Saved locally</div>
-          <button
-            class="new-chat"
-            type="button"
-            data-indicator={resetting}
-            data-attr:disabled={resetting}
-            data-on:click={post("/chat/new")}
-          >
-            New chat
-          </button>
         </div>
       </header>
 
@@ -252,18 +301,24 @@ app.get("/", () => {
         data-on:submit={mod(post("/chat"), { prevent: true })}
       >
         <input type="hidden" data-bind={chatState.refs.modelContext} />
-        <div class="composer-inner">
+        <div class="composer-pill">
           <textarea
             aria-label="Message"
             data-bind={chatState.refs.prompt}
             data-attr:disabled={sending}
+            data-on:keydown="evt.key === 'Enter' && !evt.shiftKey && (evt.preventDefault(), evt.currentTarget.form.requestSubmit())"
             maxlength="8000"
-            placeholder="Write a message…"
+            placeholder="Ask anything, or ask for a visual UI…"
             required
-            rows="2"
+            rows="1"
           />
-          <button class="send" type="submit" data-attr:disabled={sending}>
-            Send
+          <button
+            class="btn-send"
+            type="submit"
+            aria-label="Send message"
+            data-attr:disabled={sending}
+          >
+            <SendIcon />
           </button>
         </div>
         <p id="composer-error" role="alert" />
@@ -273,6 +328,21 @@ app.get("/", () => {
       title: "Local conversation",
       head: [
         <meta name="viewport" content="width=device-width, initial-scale=1" />,
+        <meta name="color-scheme" content="light" />,
+        <link
+          rel="preload"
+          href="/assets/fonts/geist-latin-wght-normal.woff2"
+          as="font"
+          type="font/woff2"
+          crossorigin="anonymous"
+        />,
+        <link
+          rel="preload"
+          href="/assets/fonts/geist-mono-latin-wght-normal.woff2"
+          as="font"
+          type="font/woff2"
+          crossorigin="anonymous"
+        />,
         <link rel="stylesheet" href="/assets/styles.css" />,
         <script type="module" src={DATASTAR_RUNTIME} />,
         <script type="module" src="/assets/client.js" />,
