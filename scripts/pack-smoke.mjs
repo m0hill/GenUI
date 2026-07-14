@@ -141,10 +141,6 @@ const readTopic = action({
       version: 1,
       vendor: "pack-smoke",
       validate: () => ({ value: {} }),
-      jsonSchema: {
-        input: () => ({ type: "object", title: "derived input must be bypassed" }),
-        output: () => ({ type: "object" }),
-      },
     },
   },
   inputJsonSchema: { type: "object" },
@@ -321,12 +317,19 @@ const messageSchema = {
 }
 const runtimeTopicSchema: StandardSchemaV1<unknown, { readonly topic: string }> = topicSchema
 const modelTopicSchema: StandardJSONSchemaV1<unknown, { readonly topic: string }> = topicSchema
+const manualTopicSchema: StandardSchemaV1<unknown, { readonly topic: string }> = {
+  "~standard": {
+    version: 1,
+    vendor: "pack-smoke",
+    validate: (_value) => ({ value: { topic: "all" } }),
+  },
+}
 
 const readTopic = action({
   name: "pack.read_topic",
   description: "Read one pack-smoke topic.",
   effect: "read",
-  input: topicSchema,
+  input: manualTopicSchema,
   inputJsonSchema: {
     type: "object",
     properties: { topic: { type: "string" } },
