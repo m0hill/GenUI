@@ -72,6 +72,7 @@ try {
     join(project, "smoke.mjs"),
     `import assert from "node:assert/strict"
 import { action, Genui, memoryStore, subscription } from "genui"
+import { checkGeneratedInterface } from "genui/check"
 import { mount, SubscriptionTransportError } from "genui/dom"
 import {
   codeDialect,
@@ -86,6 +87,7 @@ assert.equal(typeof Genui, "function")
 assert.equal(typeof action, "function")
 assert.equal(typeof memoryStore, "function")
 assert.equal(typeof subscription, "function")
+assert.equal(typeof checkGeneratedInterface, "function")
 assert.equal(typeof mount, "function")
 assert.equal(typeof SubscriptionTransportError, "function")
 assert.equal(typeof parseActionCall, "function")
@@ -149,6 +151,14 @@ const generation = genui.generation({ actions: [readTopic], subscriptions: [upda
 const guidance = generation.guidance()
 assert.match(guidance.environment, /genui.call/)
 assert.match(guidance.capabilityContract, /pack.read_topic/)
+const checked = await checkGeneratedInterface(generation, {
+  content: '<script type="module">const result = await genui.call("pack.read_topic", {}); document.body.textContent = result.message</script>',
+})
+assert.deepEqual(checked, { ok: true })
+const rejected = await checkGeneratedInterface(generation, {
+  content: '<script type="module">genui.missing()</script>',
+})
+assert.equal(rejected.ok, false)
 const surface = await generation.createSurface({ content: "<p>pack smoke</p>" })
 assert.equal(parseSurface(JSON.parse(JSON.stringify(surface)))?.id, surface.id)
 assert.deepEqual(surface.grant.actions[0]?.outputSchema, readTopic.outputJsonSchema)
@@ -203,6 +213,12 @@ assert.equal((await events.next()).done, true)
   type SurfaceStoreIdempotencyRequest,
   type SurfaceStoreIdempotencyResult,
 } from "genui"
+import {
+  checkGeneratedInterface,
+  type CheckGeneratedInterfaceOptions,
+  type GeneratedInterfaceCheckResult,
+  type GeneratedInterfaceDiagnostic,
+} from "genui/check"
 import {
   mount,
   SubscriptionTransportError,
@@ -341,6 +357,17 @@ const generationOptions: GenerationOptions<PackContext> = {
 }
 const generation: Generation = genui.generation(generationOptions)
 const generationGuidance: GenerationGuidance = generation.guidance()
+const checkOptions: CheckGeneratedInterfaceOptions = {
+  content: '<script type="module">await genui.call("pack.read_topic", { topic: "all" })</script>',
+}
+const generatedInterfaceCheck: Promise<GeneratedInterfaceCheckResult> =
+  checkGeneratedInterface(generation, checkOptions)
+const diagnostic: GeneratedInterfaceDiagnostic = {
+  code: "TS2339",
+  line: 1,
+  column: 1,
+  message: "Example external-consumer diagnostic.",
+}
 const createSurfaceOptions: CreateSurfaceOptions = {
   content: "<p>pack type smoke</p>",
   subject: "pack-subject",
@@ -417,6 +444,8 @@ const resultOutcome = (result: ActionResult): string =>
 
 void genui
 void generationGuidance
+void generatedInterfaceCheck
+void diagnostic
 void generatedSurface
 void actionDefinition
 void projectedOutputSchema

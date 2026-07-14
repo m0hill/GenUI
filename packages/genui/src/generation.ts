@@ -1,6 +1,6 @@
 import { codeDialect, type Surface } from "./protocol/index.js"
 import { projectGrantedActions } from "./action-projections.js"
-import { codeCapabilityContract } from "./code/capability-contract.js"
+import { codeCapabilityArtifacts } from "./code/capability-contract.js"
 import { codeEnvironmentInstructions } from "./code/instructions.js"
 import { projectGrantedSubscriptions } from "./subscription-projections.js"
 import type { SurfaceRuntime } from "./surface-runtime.js"
@@ -43,6 +43,21 @@ interface CreateGenerationOptions<Ctx> {
   readonly surfaceRuntime: SurfaceRuntime
 }
 
+interface GenerationState {
+  capabilityDeclarations(): string
+}
+
+const generationStates = new WeakMap<Generation, GenerationState>()
+
+/** Read checker declarations from a Generation created by GenUI. */
+export const generationCapabilityDeclarations = (generation: Generation): string => {
+  const state = generationStates.get(generation)
+  if (state === undefined) {
+    throw new Error("Generated-interface checking requires a Generation created by GenUI.")
+  }
+  return state.capabilityDeclarations()
+}
+
 export const createGeneration = <Ctx>({
   selection,
   byName,
@@ -75,21 +90,20 @@ export const createGeneration = <Ctx>({
     subscriptionNames.push(definition.name)
   }
 
-  return {
-    guidance: () => {
-      const actionProjection = projectGrantedActions({ actions: actionNames, byName })
-      const subscriptionProjection = projectGrantedSubscriptions({
-        subscriptions: subscriptionNames,
-        byName: subscriptionsByName,
-      })
-      return {
-        environment: codeEnvironmentInstructions(),
-        capabilityContract: codeCapabilityContract(
-          actionProjection.actions,
-          subscriptionProjection.subscriptions,
-        ),
-      }
-    },
+  const capabilityArtifacts = () => {
+    const actionProjection = projectGrantedActions({ actions: actionNames, byName })
+    const subscriptionProjection = projectGrantedSubscriptions({
+      subscriptions: subscriptionNames,
+      byName: subscriptionsByName,
+    })
+    return codeCapabilityArtifacts(actionProjection.actions, subscriptionProjection.subscriptions)
+  }
+
+  const generation: Generation = {
+    guidance: () => ({
+      environment: codeEnvironmentInstructions(),
+      capabilityContract: capabilityArtifacts().prompt,
+    }),
     createSurface: (options) =>
       surfaceRuntime.surface({
         dialect: codeDialect,
@@ -101,4 +115,8 @@ export const createGeneration = <Ctx>({
         ...(options.meta === undefined ? {} : { meta: options.meta }),
       }),
   }
+  generationStates.set(generation, {
+    capabilityDeclarations: () => capabilityArtifacts().declarations,
+  })
+  return generation
 }

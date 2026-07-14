@@ -45,6 +45,17 @@ void test("runtime source stays decoupled from app, agent, and transport package
   }
 })
 
+void test("compiler dependencies stay isolated to the check entrypoint", async () => {
+  const files = await sourceFiles("src")
+  const checkPrefix = `${join("src", "check")}${sep}`
+
+  for (const file of files) {
+    if (file.startsWith(checkPrefix)) continue
+    const source = await readFile(file, "utf8")
+    assert.doesNotMatch(source, /\bfrom\s+["'](?:parse5|typescript(?:\/|["']))/, file)
+  }
+})
+
 void test("non-DOM source stays decoupled from the browser host", async () => {
   const files = await sourceFiles("src")
   const domPrefix = `${join("src", "dom")}${sep}`

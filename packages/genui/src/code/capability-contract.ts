@@ -5,6 +5,11 @@ interface SchemaDeclaration {
   readonly fallback?: { readonly name: string; readonly schema: JsonSchema }
 }
 
+export interface CodeCapabilityArtifacts {
+  readonly declarations: string
+  readonly prompt: string
+}
+
 const annotationKeys = new Set([
   "$id",
   "$schema",
@@ -267,15 +272,11 @@ const documentation = (lines: readonly string[], indent: string): string => {
     : [`${indent}/**`, ...escaped.map((line) => `${indent} * ${line}`), `${indent} */`].join("\n")
 }
 
-/** Render selected guest capabilities without changing their authoritative JSON Schemas. */
-export const codeCapabilityContract = (
+/** Render selected guest capability declarations and their model-facing prompt. */
+export const codeCapabilityArtifacts = (
   actions: readonly Action[],
   subscriptions: readonly Subscription[],
-): string => {
-  if (actions.length === 0 && subscriptions.length === 0) {
-    return "# Generated-interface capability contract\n\nNo actions or subscriptions are selected."
-  }
-
+): CodeCapabilityArtifacts => {
   const usedTypeBases = new Map<string, number>()
   const nextTypeBase = (name: string): string => {
     const base = typeBase(name)
@@ -284,7 +285,10 @@ export const codeCapabilityContract = (
     return count === 1 ? base : `${base}${count}`
   }
   const declarations: SchemaDeclaration[] = []
-  const methods: string[] = []
+  const actionMethods: string[] = []
+  const actionMapEntries: string[] = []
+  const subscriptionMethods: string[] = []
+  const subscriptionMapEntries: string[] = []
 
   for (const action of actions) {
     const base = nextTypeBase(action.name)
@@ -292,7 +296,10 @@ export const codeCapabilityContract = (
     const outputName = `${base}Output`
     declarations.push(declaration(inputName, action.inputSchema))
     declarations.push(declaration(outputName, action.outputSchema))
-    methods.push(
+    actionMapEntries.push(
+      `  ${JSON.stringify(action.name)}: { readonly input: ${inputName}; readonly output: ${outputName} }`,
+    )
+    actionMethods.push(
       [
         documentation(
           [
@@ -313,7 +320,10 @@ export const codeCapabilityContract = (
     const eventName = `${base}Event`
     declarations.push(declaration(inputName, subscription.inputSchema))
     declarations.push(declaration(eventName, subscription.eventSchema))
-    methods.push(
+    subscriptionMapEntries.push(
+      `  ${JSON.stringify(subscription.name)}: { readonly input: ${inputName}; readonly event: ${eventName} }`,
+    )
+    subscriptionMethods.push(
       [
         documentation(
           [
@@ -330,7 +340,33 @@ export const codeCapabilityContract = (
   const fallbacks = declarations.flatMap((item) =>
     item.fallback === undefined ? [] : [item.fallback],
   )
-  return [
+  const methods = [...actionMethods, ...subscriptionMethods]
+  const capabilityDeclarations = [
+    ...declarations.map((item) => item.text),
+    "",
+    "interface GenuiActionMap {",
+    ...actionMapEntries,
+    "}",
+    "",
+    "interface GenuiSubscriptionMap {",
+    ...subscriptionMapEntries,
+    "}",
+    "",
+    "interface Genui {",
+    '  call<Name extends keyof GenuiActionMap>(name: Name, input: GenuiActionMap[Name]["input"]): Promise<GenuiActionMap[Name]["output"]>',
+    '  subscribe<Name extends keyof GenuiSubscriptionMap>(name: Name, input: GenuiSubscriptionMap[Name]["input"], handler: (event: GenuiSubscriptionMap[Name]["event"]) => void | Promise<void>): Promise<GenuiSubscriptionHandle>',
+    "}",
+  ].join("\n")
+
+  if (methods.length === 0) {
+    return {
+      declarations: capabilityDeclarations,
+      prompt:
+        "# Generated-interface capability contract\n\nNo actions or subscriptions are selected.",
+    }
+  }
+
+  const prompt = [
     "# Generated-interface capability contract",
     "",
     "These are the complete selected action and subscription commands. Use only these names through `window.genui`.",
@@ -358,4 +394,11 @@ export const codeCapabilityContract = (
           ]),
         ]),
   ].join("\n")
+  return { declarations: capabilityDeclarations, prompt }
 }
+
+/** Render selected guest capabilities without changing their authoritative JSON Schemas. */
+export const codeCapabilityContract = (
+  actions: readonly Action[],
+  subscriptions: readonly Subscription[],
+): string => codeCapabilityArtifacts(actions, subscriptions).prompt

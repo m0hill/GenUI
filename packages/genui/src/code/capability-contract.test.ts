@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import type { Action } from "../protocol/index.js"
-import { codeCapabilityContract } from "./capability-contract.js"
+import { codeCapabilityArtifacts, codeCapabilityContract } from "./capability-contract.js"
 
 void test("capability contract renders supported schemas as TypeScript declarations", () => {
   const actions = [
@@ -107,4 +107,14 @@ void test("capability contract disambiguates colliding generated type names", ()
 
   assert.match(contract, /type OrdersSearchInput =/)
   assert.match(contract, /type OrdersSearch2Input =/)
+})
+
+void test("capability artifacts expose raw checker declarations from the prompt source", () => {
+  const artifacts = codeCapabilityArtifacts([], [])
+
+  assert.match(artifacts.prompt, /No actions or subscriptions are selected/)
+  assert.match(artifacts.declarations, /interface GenuiActionMap \{\s*\}/)
+  assert.match(artifacts.declarations, /interface GenuiSubscriptionMap \{\s*\}/)
+  assert.match(artifacts.declarations, /Name extends keyof GenuiActionMap/)
+  assert.doesNotMatch(artifacts.declarations, /```|Generated-interface capability contract/)
 })

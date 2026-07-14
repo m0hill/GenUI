@@ -7,6 +7,8 @@ Treat the dialect identifier as the wire version. The current contract is
 `code/0`; npm package versions do not replace it.
 
 ```ts
+import { checkGeneratedInterface } from "genui/check"
+
 const ordersUi = genui.generation({
   actions: [searchOrders, updateOrderStatus],
   subscriptions: [orderChanges],
@@ -16,6 +18,13 @@ const guidance = ordersUi.guidance()
 const systemInstructions = guidance.environment
 const renderUiToolDescription =
   `Render an interface using only these actions and subscriptions:\n\n${guidance.capabilityContract}`
+
+const checked = await checkGeneratedInterface(ordersUi, {
+  content: generatedFragment,
+  signal: request.signal,
+})
+if (!checked.ok) return checked.report
+
 const surface = await ordersUi.createSurface({ content: generatedFragment })
 ```
 
@@ -42,6 +51,17 @@ called. Keep `environment` in stable system instructions. Place the selected
 provider supports tool-specific instructions. This keeps unrelated model turns
 free of capability details and lets providers cache the stable section. GenUI
 does not invoke a model or prescribe a provider interface.
+
+`checkGeneratedInterface()` is an optional generation-side preflight. It parses
+the fragment, requires scripts to be inline `type="module"` blocks, and checks
+their JavaScript against the generation's currently visible action and
+subscription declarations. An invalid result contains bounded, serializable
+diagnostics and a report suitable for a model retry. Cancellation rejects with
+the supplied signal's reason.
+
+The check improves feedback; it does not grant authority or make generated code
+trusted. `createSurface()`, the browser broker, and the kernel still apply their
+normal fail-closed policy, grant, schema, approval, and lifecycle checks.
 
 ## Guest content
 

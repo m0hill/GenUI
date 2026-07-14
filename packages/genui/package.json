@@ -12,6 +12,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./check": {
+      "types": "./dist/check/index.d.ts",
+      "import": "./dist/check/index.js"
+    },
     "./dom": {
       "types": "./dist/dom/index.d.ts",
       "import": "./dist/dom/index.js"
@@ -35,6 +39,10 @@
     "lint:fix": "oxlint src --type-aware --fix",
     "format": "oxfmt src *.json",
     "format:check": "oxfmt --check src *.json"
+  },
+  "dependencies": {
+    "parse5": "^8.0.1",
+    "typescript": "^7.0.2"
   },
   "devDependencies": {
     "esbuild": "^0.28.1",
