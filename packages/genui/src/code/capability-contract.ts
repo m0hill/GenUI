@@ -1,4 +1,5 @@
 import type { Action, JsonSchema, Subscription } from "../protocol/index.js"
+import { genuiSubscriptionHandleDeclaration } from "./guest-contract.js"
 
 interface SchemaDeclaration {
   readonly text: string
@@ -373,6 +374,7 @@ export const codeCapabilityArtifacts = (
     "",
     "```ts",
     ...declarations.map((item) => item.text),
+    ...(subscriptionMethods.length === 0 ? [] : ["", genuiSubscriptionHandleDeclaration]),
     "",
     "interface Genui {",
     methods.join("\n\n"),

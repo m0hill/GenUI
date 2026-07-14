@@ -69,7 +69,7 @@ const genui = new Genui<Readonly<Record<string, never>>>({
     callAudits.set(key, entries)
   },
 })
-const playgroundGeneration = genui.generation({
+export const playgroundGeneration = genui.generation({
   actions: demoActions,
   subscriptions: demoSubscriptions,
 })

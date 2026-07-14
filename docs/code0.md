@@ -272,7 +272,7 @@ The initial `genui.subscribe()` Promise rejects with
 open returns a frozen handle:
 
 ```ts
-interface GuestSubscription {
+interface GenuiSubscriptionHandle {
   unsubscribe(): Promise<void>
   readonly done: Promise<
     | { readonly ok: true; readonly reason: "completed" | "unsubscribed" }

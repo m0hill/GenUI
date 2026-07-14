@@ -1,0 +1,28 @@
+<section aria-labelledby="orders-search-title">
+  <h1 id="orders-search-title">Order search</h1>
+  <p>Look up the Aster Labs order when you are ready.</p>
+  <button id="search-orders" type="button">Search orders</button>
+  <output id="orders-search-result" aria-live="polite">Ready.</output>
+
+  <script type="module">
+    const button = document.querySelector("#search-orders")
+    const output = document.querySelector("#orders-search-result")
+
+    button.addEventListener("click", async () => {
+      button.disabled = true
+      output.textContent = "Searching…"
+      try {
+        const result = await genui.call("orders.search", { query: "Aster" })
+        output.textContent = result.orders
+          .map((order) => `${order.id} — ${order.customer} — ${order.status}`)
+          .join("\n")
+      } catch (error) {
+        output.textContent = error instanceof Error ? error.message : "Order search failed."
+      } finally {
+        button.disabled = false
+      }
+    })
+
+    button.dataset.ready = "true"
+  </script>
+</section>
