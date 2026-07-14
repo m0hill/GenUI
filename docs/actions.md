@@ -59,9 +59,9 @@ names from prose.
 
 Use `outputJsonSchema` with `output` when the action has a machine-readable
 output contract. It is copied to the action descriptor as `outputSchema` and
-included in model instructions. Standard Schema remains the enforcement
-mechanism; JSON Schema is descriptive metadata. An output JSON Schema without
-an `output` validator is rejected.
+included in the selected capability contract. Standard Schema remains the
+enforcement mechanism; JSON Schema is descriptive metadata. An output JSON
+Schema without an `output` validator is rejected.
 
 When a schema library supports both contracts, derive the validator and JSON
 Schema from the same source. Standard Schema does not require JSON Schema

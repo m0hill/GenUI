@@ -1,154 +1,60 @@
-import { mcpUiStyleVariableKeys } from "../host-context.js"
-
-const hostStyleVariableInstructions = mcpUiStyleVariableKeys.map((key) => `- \`${key}\``).join("\n")
-
 export const codeEnvironmentInstructions = (): string => `# Generated UI: code/0
 
 Return only an HTML fragment, without Markdown fences or a document wrapper. Use ordinary HTML,
-inline CSS, and inline \`<script type="module">\` blocks. Standard browser DOM APIs are available.
+inline CSS, DOM APIs, and inline \`<script type="module">\` blocks.
 
-The fragment runs in an opaque-origin sandbox. It has no network, storage, parent DOM access, or
-external resources. Keep all JavaScript and CSS inline. Do not use fetch, WebSocket, EventSource,
-external resource URLs, external scripts, external stylesheets, or direct navigation. Only an
-\`genui.openLink\` capability can ask the host to open an external HTTPS URL.
+## Environment and security
 
-The trusted bridge available as \`window.genui\` has exactly this API:
+- The fragment runs in an opaque-origin iframe with no network, storage, parent DOM access,
+  external resources, or direct navigation. Do not use fetch, WebSocket, EventSource, external
+  URLs, external scripts or stylesheets, persistent storage, or parent-page APIs.
+- Keep all code and styles inline. The host stores the fragment verbatim; do not depend on a build
+  step or package import.
+- Rendered confirmation, hidden controls, descriptor lists, and other guest state are not
+  authorization. The trusted host rechecks every action and subscription.
 
-- \`genui.surfaceId\`: this surface's string identifier.
-- \`genui.actions\`: the granted action descriptors from the separate capability contract.
-- \`genui.subscriptions\`: the frozen granted read-only subscription descriptors from that contract.
-- \`genui.hostContext\`: the current deeply frozen host environment.
-- \`genui.onHostContextChange(handler)\`: registers one live-context handler.
-- \`await genui.call(name, input)\`: resolves to the action output or rejects with a
-  \`GenuiActionError\` containing \`code\` and \`message\`.
-- \`await genui.subscribe(name, input, handler)\`: opens a granted subscription and returns a
-  frozen handle with \`done\` and idempotent \`unsubscribe()\`.
-- \`genui.capabilities\`: frozen booleans for optional host capabilities.
-- \`await genui.sendMessage(text)\`, \`await genui.openLink(url)\`, and
-  \`await genui.updateModelContext({ content?, structuredContent? })\`: optional host capabilities.
-- \`genui.snapshot(fn)\`: registers one state provider. The function receives restored JSON state
-  when present and returns current JSON-serializable state when called without arguments.
-- \`genui.teardown(handler)\`: registers one cleanup handler that receives \`{ reason }\`. Keep it
-  fast because the host proceeds with teardown after its deadline.
+## Selected actions and subscriptions
 
-Handle action failures in the interface. Call only actions in the separate capability contract and
-shape inputs from its declarations or exact JSON Schema fallbacks. Example:
+The separate contract declares the only available actions and subscriptions. Follow its TypeScript
+declarations and exact JSON Schema fallbacks.
 
-\`\`\`html
-<button id="search">Search open orders</button>
-<output id="result"></output>
-<script type="module">
-  document.querySelector("#search").onclick = async () => {
-    const orders = await genui.call("orders.search", { status: "open" })
-    document.querySelector("#result").textContent = JSON.stringify(orders)
-  }
-</script>
-\`\`\`
+- \`genui.actions\` and \`genui.subscriptions\` are frozen grant snapshots. Check an action name
+  with \`genui.actions.some((action) => action.name === name)\`.
+- \`await genui.call(name, input)\` resolves to validated output or rejects with a
+  \`GenuiActionError { code, message }\`. Catch failures and render a useful error state.
+- Subscriptions are read-only authority, not host capabilities. \`await genui.subscribe(name,
+  input, handler)\` may reject and returns a frozen handle with \`done\` and idempotent
+  \`unsubscribe()\`. Events arrive in order after the previous handler settles. \`done\` always
+  resolves, including terminal errors. There is no reconnect or replay.
 
-## Subscriptions
+## Host environment
 
-Subscriptions are granted read-only authority, not host capabilities. Feature-detect through
-\`genui.subscriptions\`. Starting may reject, so handle that failure. Events arrive in order; the
-next event waits for the current handler's returned Promise. The handle's \`done\` Promise always
-resolves, including terminal errors. A thrown or rejected handler cancels only its subscription.
-There is no automatic reconnect or replay.
+- \`genui.hostContext\` may contain \`theme\`, \`containerDimensions\`, \`locale\`, \`timeZone\`,
+  and \`platform\`. Use responsive CSS. Pass locale and time zone explicitly to \`Intl\`; do not
+  resize or navigate the parent or rely on user-agent sniffing.
+- \`genui.onHostContextChange(handler)\` reports partial changes. Read the merged
+  \`genui.hostContext\` inside the handler.
+- \`genui.capabilities\` contains only \`sendMessage\`, \`openLink\`, and \`updateModelContext\`
+  booleans and does not contain actions or subscriptions. Check a flag before showing its host
+  control; methods always exist but may reject. \`genui.sendMessage(text)\` may trigger a
+  model follow-up; \`genui.openLink(url)\` accepts only absolute HTTPS URLs;
+  \`genui.updateModelContext({ content?, structuredContent? })\` updates future model context
+  without an immediate follow-up.
 
-\`\`\`html
-<button id="stop" disabled>Stop live updates</button><output id="live-status"></output>
-<script type="module">
-  const status = document.querySelector("#live-status")
-  const stop = document.querySelector("#stop")
-  if (genui.subscriptions.some(({ name }) => name === "orders.changes")) {
-    try {
-      const stream = await genui.subscribe("orders.changes", { status: "processing" }, async event => {
-        status.textContent = event.summary
-      })
-      stop.disabled = false
-      stop.onclick = () => stream.unsubscribe()
-      stream.done.then(result => {
-        stop.disabled = true
-        if (!result.ok) status.textContent = result.error.message
-      })
-    } catch (error) { status.textContent = String(error) }
-  }
-</script>
-\`\`\`
+## Lifecycle
 
-## Host context
+- \`genui.snapshot(fn)\` registers one JSON-state provider. The function receives restored state
+  when present and returns current state when called without arguments.
+- \`genui.teardown(handler)\` registers one cleanup handler receiving \`{ reason }\`. Finish
+  promptly; the host continues after its deadline.
 
-\`genui.hostContext\` may provide \`theme\`, \`containerDimensions\`, \`locale\`, \`timeZone\`,
-and \`platform\`. Pass locale and time zone explicitly to \`Intl\`; do not rely on browser defaults.
-Use platform only for small adaptations instead of user-agent sniffing. Use responsive CSS and keep
-content usable inside fixed host-owned dimensions; do not resize or navigate the parent. A change
-handler receives a frozen partial update; read the merged \`genui.hostContext\` inside it.
+## Styling
 
-\`\`\`html
-<time id="local-time"></time>
-<script type="module">
-  const renderHostContext = () => {
-    const {
-      locale = "en-US",
-      timeZone = "UTC",
-      platform = "web",
-      containerDimensions = {},
-    } = genui.hostContext
-    document.querySelector("#local-time").textContent =
-      new Intl.DateTimeFormat(locale, { timeZone }).format(new Date())
-    document.documentElement.dataset.platform = platform
-    document.documentElement.classList.toggle("fixed-height", "height" in containerDimensions)
-  }
-  genui.onHostContextChange(renderHostContext)
-  renderHostContext()
-</script>
-\`\`\`
-
-## Host capabilities
-
-The methods \`sendMessage\`, \`openLink\`, and \`updateModelContext\` always exist. Render a control
-only when its matching frozen boolean in \`genui.capabilities\` is true. \`genui.sendMessage(text)\`
-asks the host to add user-role text and may trigger a model follow-up. \`genui.openLink(url)\`
-accepts only absolute HTTPS URLs. \`genui.updateModelContext({ content?, structuredContent? })\`
-replaces the latest UI state for future model turns without triggering an immediate follow-up.
-Every method returns a Promise and may be denied; show rejection in the interface.
-
-\`\`\`html
-<div id="host-controls"></div><output id="host-status"></output>
-<script type="module">
-  const controls = [
-    ["sendMessage", "Send selection", () => genui.sendMessage("Show my selection")],
-    ["openLink", "Open details", () => genui.openLink("https://example.com/details")],
-    [
-      "updateModelContext",
-      "Share state",
-      () => genui.updateModelContext({ content: "Rows 2 and 5 selected" }),
-    ],
-  ]
-  for (const [name, label, invoke] of controls) {
-    if (!genui.capabilities[name]) continue
-    const button = Object.assign(document.createElement("button"), { textContent: label })
-    button.onclick = async () => {
-      button.disabled = true
-      try { await invoke() }
-      catch (error) { document.querySelector("#host-status").textContent = String(error) }
-      finally { button.disabled = false }
-    }
-    document.querySelector("#host-controls").append(button)
-  }
-</script>
-\`\`\`
-
-## Host styling
-
-The host may provide standardized MCP Apps CSS custom properties. Use a standardized token for
-every visual property it covers: colors, font families, font weights, text and heading sizes, line
-heights, borders, radii, focus rings, and shadows. Do not hardcode those values directly. Hardcode
-only layout geometry, spacing, and behavior for which no standardized token exists.
-
-Reference every token through \`var(--token, fallback)\` with a sensible fallback, for example
-\`var(--color-background-primary, light-dark(#ffffff, #171717))\` and
-\`var(--font-sans, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif)\`.
-\`light-dark()\` values follow the host's light or dark color scheme. The standardized radius token
-uses the exact name \`--border-radius-sm\`. The complete standardized set is:
-
-${hostStyleVariableInstructions}
+Use standardized host CSS variables for every visual property they cover, with a sensible fallback
+in each \`var()\`. Common tokens include \`--color-background-primary\`, \`--color-text-primary\`,
+\`--color-border-primary\`, \`--color-ring-primary\`, \`--font-sans\`, \`--font-text-md-size\`,
+\`--font-text-md-line-height\`, \`--border-radius-sm\`, \`--border-width-regular\`, and
+\`--shadow-sm\`. Use \`light-dark()\` for theme-aware color fallbacks and a system font stack for
+font fallbacks. Do not hardcode colors, typography, borders, radii, rings, or shadows. Hardcode only
+layout geometry, spacing, and behavior for which no standardized token exists.
 `

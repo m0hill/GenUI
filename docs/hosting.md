@@ -91,11 +91,12 @@ const surface = await ordersUi.createSurface({
 })
 ```
 
-Pass `guidance.environment` and `guidance.capabilityContract` to the model in
-the positions appropriate for the model provider. The environment section is
-stable code/0 guidance. The capability contract is a compact TypeScript-like
-view of only the selected, currently model-visible capabilities. GenUI does
-not call the model or prescribe a provider prompt API.
+Use `guidance.environment` as stable system guidance. Place
+`guidance.capabilityContract` beside the provider's surface-generation tool
+when tool-specific instructions are available. The capability contract is a
+compact TypeScript-like view of only the selected, currently model-visible
+actions and subscriptions. GenUI does not call the model or prescribe a
+provider prompt interface.
 
 Return the serializable `Surface` to the browser. Do not let the browser supply
 or mutate the authoritative grant.

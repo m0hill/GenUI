@@ -333,7 +333,7 @@ export const codeCapabilityContract = (
   return [
     "# Generated-interface capability contract",
     "",
-    "Use only these selected capabilities through `window.genui`.",
+    "Use only these selected actions and subscriptions through `window.genui`.",
     "",
     "```ts",
     ...declarations.map((item) => item.text),

@@ -1,77 +1,67 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { mcpUiStyleVariableKeys } from "../host-context.js"
 import { codeEnvironmentInstructions } from "./instructions.js"
 
-void test("code instructions teach the read-only subscription guest contract", () => {
+// #1 measured 5,981 characters for the legacy representative contract and 2,159 for declarations.
+// This ceiling keeps the new stable-plus-declaration total below that legacy contract alone.
+const stableInstructionCharacterBudget = 3_500
+
+void test("code environment instructions stay compact and capability-independent", () => {
   const instructions = codeEnvironmentInstructions()
 
-  assert.match(instructions, /## Subscriptions/)
-  assert.match(instructions, /genui\.subscriptions/)
-  assert.match(instructions, /genui\.subscribe\(/)
-  assert.match(instructions, /read-only authority, not host capabilities/)
+  assert.equal(
+    instructions.length <= stableInstructionCharacterBudget,
+    true,
+    `stable instructions grew to ${instructions.length} characters`,
+  )
+  assert.doesNotMatch(instructions, /orders\./)
+  assert.doesNotMatch(instructions, /web\.search|preferences\.save|time\.tick/)
+  assert.doesNotMatch(instructions, /Generated-interface capability contract/)
+  assert.doesNotMatch(instructions, /Exact JSON Schema for/)
+})
+
+void test("code environment instructions retain security, failure, and lifecycle semantics", () => {
+  const instructions = codeEnvironmentInstructions()
+
+  assert.match(instructions, /opaque-origin iframe/)
+  assert.match(instructions, /no network, storage, parent DOM access/)
+  assert.match(instructions, /not\s+authorization/)
+  assert.match(instructions, /trusted host rechecks every action and subscription/)
+  assert.match(instructions, /GenuiActionError/)
+  assert.match(instructions, /Catch failures/)
   assert.match(instructions, /Events arrive in order/)
-  assert.match(instructions, /handler's returned Promise/)
-  assert.match(instructions, /done` Promise always\s+resolves/)
-  assert.match(instructions, /unsubscribe\(\)/)
-  assert.match(instructions, /no automatic reconnect or replay/)
-  assert.match(instructions, /EventSource/)
+  assert.match(instructions, /done` always\s+resolves/)
+  assert.match(instructions, /no reconnect or replay/)
+  assert.match(instructions, /genui\.snapshot/)
+  assert.match(instructions, /genui\.teardown/)
+  assert.match(instructions, /host continues after its deadline/)
 })
 
-void test("code instructions teach portable host styling", () => {
-  const instructions = codeEnvironmentInstructions()
-
-  assert.match(instructions, /## Host styling/)
-  assert.match(instructions, /Use a standardized token for\s+every visual property it covers/)
-  assert.match(instructions, /Do not hardcode those values directly/)
-  assert.match(instructions, /layout geometry, spacing, and behavior/)
-  assert.match(instructions, /var\(--color-background-primary, [^)]+\)/)
-  assert.match(instructions, /light-dark\(/)
-  assert.match(instructions, /system-ui/)
-  assert.match(instructions, /--border-radius-sm/)
-  assert.doesNotMatch(instructions, /--border-radius-small/)
-})
-
-void test("code instructions teach optional host capabilities", () => {
-  const instructions = codeEnvironmentInstructions()
-
-  assert.match(instructions, /## Host capabilities/)
-  assert.match(instructions, /genui\.capabilities/)
-  assert.match(instructions, /genui\.sendMessage\(/)
-  assert.match(instructions, /genui\.openLink\(/)
-  assert.match(instructions, /genui\.updateModelContext\(/)
-  assert.match(instructions, /absolute HTTPS URLs/)
-  assert.match(instructions, /may trigger a model follow-up/)
-  assert.match(instructions, /without triggering an immediate follow-up/)
-  assert.match(instructions, /may be denied/)
-})
-
-void test("code instructions teach graceful teardown", () => {
-  const instructions = codeEnvironmentInstructions()
-
-  assert.match(instructions, /genui\.teardown\(/)
-  assert.match(instructions, /cleanup handler/)
-  assert.match(instructions, /deadline/)
-})
-
-void test("code instructions teach portable host context", () => {
+void test("code environment instructions retain portable host integration rules", () => {
   const instructions = codeEnvironmentInstructions()
 
   assert.match(instructions, /genui\.hostContext/)
-  assert.match(instructions, /genui\.onHostContextChange\(/)
-  assert.match(instructions, /Intl\.DateTimeFormat\(locale, \{ timeZone \}\)/)
-  assert.match(instructions, /containerDimensions/)
-  assert.match(instructions, /platform/)
-  assert.match(instructions, /user-agent sniffing/)
+  assert.match(instructions, /genui\.onHostContextChange/)
+  assert.match(instructions, /locale and time zone explicitly to `Intl`/)
   assert.match(instructions, /responsive CSS/)
-  assert.match(instructions, /fixed host-owned dimensions/)
-  assert.match(instructions, /merged `genui\.hostContext`/)
+  assert.match(instructions, /user-agent sniffing/)
+  assert.match(instructions, /genui\.capabilities/)
+  assert.match(instructions, /sendMessage\(text\).*model\s+follow-up/s)
+  assert.match(instructions, /openLink\(url\).*absolute HTTPS URLs/s)
+  assert.match(instructions, /updateModelContext.*without an immediate follow-up/s)
+  assert.match(instructions, /--color-background-primary/)
+  assert.match(instructions, /--border-radius-sm/)
+  assert.match(instructions, /light-dark\(\)/)
+  assert.match(instructions, /system font stack/)
 })
 
-void test("code instructions list every standardized host style variable", () => {
+void test("code environment instructions distinguish selected actions from host capabilities", () => {
   const instructions = codeEnvironmentInstructions()
 
-  for (const key of mcpUiStyleVariableKeys) {
-    assert.equal(instructions.includes(`\`${key}\``), true, `missing ${key}`)
-  }
+  assert.match(instructions, /genui\.actions\.some\(\(action\) => action\.name === name\)/)
+  assert.match(
+    instructions,
+    /genui\.capabilities` contains only `sendMessage`, `openLink`, and `updateModelContext`/,
+  )
+  assert.match(instructions, /does not contain actions or subscriptions/)
 })

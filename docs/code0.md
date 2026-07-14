@@ -13,7 +13,9 @@ const ordersUi = genui.generation({
 })
 
 const guidance = ordersUi.guidance()
-const modelInstructions = `${guidance.environment}\n\n${guidance.capabilityContract}`
+const systemInstructions = guidance.environment
+const renderUiToolDescription =
+  `Render an interface using only these actions and subscriptions:\n\n${guidance.capabilityContract}`
 const surface = await ordersUi.createSurface({ content: generatedFragment })
 ```
 
@@ -35,8 +37,11 @@ and the exact JSON Schema is included as a fallback.
 
 The generation retains selected capability names, not an authorization
 snapshot. Both `guidance()` and `createSurface()` project current policy when
-called. Applications decide where to place the two guidance sections in their
-provider-specific prompt; GenUI does not invoke a model.
+called. Keep `environment` in stable system instructions. Place the selected
+`capabilityContract` beside the provider's surface-generation tool when the
+provider supports tool-specific instructions. This keeps unrelated model turns
+free of capability details and lets providers cache the stable section. GenUI
+does not invoke a model or prescribe a provider interface.
 
 ## Guest content
 
