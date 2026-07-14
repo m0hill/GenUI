@@ -65,9 +65,20 @@ interface OperationalReliabilityScenario extends ReliabilityScenarioBase {
   }
 }
 
+interface BoundsReliabilityScenario extends ReliabilityScenarioBase {
+  readonly kind: "bounds"
+  readonly expected: {
+    readonly maxSurfaceContentBytes: 102_400
+    readonly maxInlineModules: 16
+    readonly oversizedCode: "GENUI004"
+    readonly excessModuleCode: "GENUI005"
+  }
+}
+
 export type ReliabilityScenario =
   | BrowserReliabilityScenario
   | CheckerReliabilityScenario
+  | BoundsReliabilityScenario
   | OperationalReliabilityScenario
 
 export const reliabilityScenarios = [
@@ -206,6 +217,30 @@ export const reliabilityScenarios = [
         "currentScript is always null",
         "load or re-export modules",
       ],
+    },
+  },
+  {
+    id: "PREFLIGHT-BOUNDS-006",
+    kind: "bounds",
+    provenance: {
+      kind: "authored",
+      source: "GenUI portable preflight Feature Contract",
+      sanitized: true,
+    },
+    prompt: {
+      user: "Build an interface from a bounded HTML fragment with inline module scripts.",
+      context: "The scenario crosses every GenUI-owned Surface content ingress.",
+    },
+    generation: {
+      profile: "playground",
+      environment: "code/0",
+    },
+    fragment: new URL("../fixtures/reliability/preflight-bounds-006.html", import.meta.url),
+    expected: {
+      maxSurfaceContentBytes: 102_400,
+      maxInlineModules: 16,
+      oversizedCode: "GENUI004",
+      excessModuleCode: "GENUI005",
     },
   },
   {

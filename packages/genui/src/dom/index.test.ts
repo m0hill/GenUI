@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import {
+  maxSurfaceContentBytes,
   subscriptionEventByteLimit,
   type ActionCall,
   type ActionResult,
@@ -26,6 +27,9 @@ import {
   testSurface,
 } from "./test-support.test-support.js"
 
+const exactSurfaceContent = `${"界".repeat(Math.floor(maxSurfaceContentBytes / 3))}x`
+const oversizedSurfaceContent = `${exactSurfaceContent}界`
+
 void test("mount renders isolated code with bootstrap before verbatim content", async () => {
   const { element } = createMountTarget()
   const content = `<button id="run">Run</button><script type="module">window.ready = true</script>`
@@ -50,6 +54,39 @@ void test("mount renders isolated code with bootstrap before verbatim content", 
   assert.match(iframe.srcdoc, /Replacement/)
   instance.dispose()
   assert.equal(element.querySelector("iframe"), null)
+})
+
+void test("PREFLIGHT-BOUNDS-006 rejects oversized mount and replacement before injection", () => {
+  const { window, element } = createMountTarget()
+  const existing = window.document.createElement("p")
+  existing.textContent = "Existing host content"
+  element.append(existing)
+  const oversized = testSurface([], oversizedSurfaceContent)
+
+  assert.throws(
+    () =>
+      mount(asDomElement(element), oversized, {
+        transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+      }),
+    /Surface content must be at most 102400 UTF-8 bytes/,
+  )
+  assert.equal(element.querySelector("iframe"), null)
+  assert.equal(element.textContent, "Existing host content")
+
+  const initial = testSurface([], "<p>Initial</p>")
+  const instance = mount(asDomElement(element), initial, {
+    transport: async (): Promise<ActionResult> => ({ ok: true, value: {} }),
+  })
+  const iframe = mountedIframe(element)
+  const initialDocument = iframe.srcdoc
+  assert.throws(
+    () => instance.replace({ ...oversized, id: initial.id }),
+    /Surface content must be at most 102400 UTF-8 bytes/,
+  )
+  assert.equal(instance.surface, initial)
+  assert.equal(iframe.srcdoc, initialDocument)
+  assert.doesNotMatch(iframe.srcdoc, /界/)
+  instance.dispose()
 })
 
 void test("mount renders trusted host theme variables before guest content", () => {

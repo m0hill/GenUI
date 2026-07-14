@@ -25,6 +25,7 @@ import {
   type SurfaceBrokerTask,
 } from "./surface-broker.js"
 import type { SurfaceEvent } from "./surface-events.js"
+import { assertSurfaceContentWithinLimit } from "../surface-content.js"
 
 export type {
   SubscriptionCloseReason,
@@ -150,6 +151,7 @@ ${renderHostStyleVariables(hostContext)}</head>
 </html>`
 
 const assertSupportedSurface = (surface: Surface): void => {
+  assertSurfaceContentWithinLimit(surface.content)
   if (surface.dialect !== codeDialect) {
     throw new Error(`Unsupported generated UI dialect: ${surface.dialect}`)
   }

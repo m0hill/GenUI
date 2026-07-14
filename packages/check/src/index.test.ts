@@ -8,6 +8,7 @@ import {
   type Generation,
   type StandardSchemaV1,
 } from "genui"
+import { maxSurfaceContentBytes } from "genui/protocol"
 import {
   createGeneratedInterfaceChecker,
   typescriptGeneratedInterfaceCompiler,
@@ -144,6 +145,55 @@ void test("checker accepts ordinary DOM code using selected commands", async () 
   })
 
   assert.deepEqual(result, { ok: true })
+})
+
+void test("PREFLIGHT-BOUNDS-006 measures Surface content as UTF-8 bytes", async () => {
+  const exactContent = `${"界".repeat(Math.floor(maxSurfaceContentBytes / 3))}x`
+  const oversizedContent = `${exactContent}界`
+
+  assert.equal(exactContent.length < maxSurfaceContentBytes, true)
+  assert.equal(new TextEncoder().encode(exactContent).byteLength, maxSurfaceContentBytes)
+  assert.deepEqual(await checkGeneratedInterface(generation, { content: exactContent }), {
+    ok: true,
+  })
+
+  const rejected = assertInvalid(
+    await checkGeneratedInterface(generation, { content: oversizedContent }),
+  )
+  assert.deepEqual(
+    rejected.diagnostics.map(({ code, line, column }) => ({ code, line, column })),
+    [{ code: "GENUI004", line: 1, column: 1 }],
+  )
+  assert.match(rejected.report, /at most 102400 UTF-8 bytes/)
+  assert.doesNotMatch(rejected.report, /界/)
+})
+
+void test("PREFLIGHT-BOUNDS-006 accepts sixteen inline modules and rejects the seventeenth", async () => {
+  const inlineModules = (count: number): string =>
+    Array.from({ length: count }, () => '<script type="module"></script>').join("\n")
+
+  assert.deepEqual(await checkGeneratedInterface(generation, { content: inlineModules(16) }), {
+    ok: true,
+  })
+
+  let compilerCalled = false
+  const check = createGeneratedInterfaceChecker({
+    compiler: {
+      check: async () => {
+        compilerCalled = true
+        return { ok: true, diagnostics: [] }
+      },
+    },
+    readContract: readGenerationCheckerContract,
+  })
+  const rejected = assertInvalid(await check(generation, { content: inlineModules(17) }))
+
+  assert.equal(compilerCalled, false)
+  assert.deepEqual(
+    rejected.diagnostics.map(({ code, line, column }) => ({ code, line, column })),
+    [{ code: "GENUI005", line: 17, column: 1 }],
+  )
+  assert.match(rejected.report, /at most 16 inline module scripts/)
 })
 
 void test("checker ignores DOM element specialization in a web-search panel", async () => {

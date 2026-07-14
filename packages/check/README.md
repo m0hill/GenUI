@@ -25,13 +25,18 @@ Invalid generated content returns `{ ok: false, diagnostics, report }`. Send the
 bounded report to model-repair policy when appropriate. `HTML:*` and `TS*`
 diagnostic codes and wording are scoped to the installed checker version.
 
-Stable `GENUI006`–`GENUI014` diagnostics cover incompatible literal nullish
-capability inputs, imports, direct network and worker APIs, persistent storage,
-parent-page access, direct navigation, runtime code generation,
-`document.currentScript`, and unsupported HTML structures. Browser-global
-rules accept locally shadowed names and recognize static properties on
-`window`, `self`, and `globalThis`. They intentionally do not prove arbitrary
-data flow, semantic UI correctness, or host-dependent image policy.
+Stable `GENUI004`–`GENUI014` diagnostics cover the 102,400-byte UTF-8 Surface
+limit, the 16-inline-module limit, incompatible literal nullish capability
+inputs, imports, direct network and worker APIs, persistent storage, parent-page
+access, direct navigation, runtime code generation, `document.currentScript`,
+and unsupported HTML structures. Browser-global rules accept locally shadowed
+names and recognize static properties on `window`, `self`, and `globalThis`.
+They intentionally do not prove arbitrary data flow, semantic UI correctness,
+or host-dependent image policy.
+
+Both resource-limit failures are ordinary bounded invalid results, not
+`GeneratedInterfaceCheckError`. Applications may reject smaller content, but
+must measure UTF-8 bytes rather than JavaScript string length.
 
 Failures outside model content reject with `GeneratedInterfaceCheckError`:
 

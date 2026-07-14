@@ -26,6 +26,7 @@
   "devDependencies": {
     "@genui/check": "workspace:*",
     "esbuild": "^0.28.1",
+    "happy-dom": "^20.10.6",
     "playwright": "^1.61.1"
   }
 }

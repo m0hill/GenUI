@@ -3,7 +3,15 @@ import { readFile } from "node:fs/promises"
 import { test } from "node:test"
 import { serve } from "@hono/node-server"
 import { checkGeneratedInterface, GeneratedInterfaceCheckError } from "@genui/check"
-import type { Generation } from "genui"
+import { Genui, memoryStore, type Generation, type SurfaceStore } from "genui"
+import { mount } from "genui/dom"
+import {
+  maxSurfaceContentBytes,
+  parseSurface,
+  type ActionResult,
+  type SurfaceRecord,
+} from "genui/protocol"
+import { Window } from "happy-dom"
 import { chromium } from "playwright"
 import { app, playgroundGeneration, resetPlaygroundState } from "./app.js"
 import { resetDemoOrders } from "./actions.js"
@@ -37,6 +45,140 @@ for (const scenario of reliabilityScenarios) {
         )
       }
       for (const text of expected.reportIncludes) assert.match(checked.report, new RegExp(text))
+      return
+    }
+
+    if (scenario.kind === "bounds") {
+      assert.equal(maxSurfaceContentBytes, scenario.expected.maxSurfaceContentBytes)
+      assert.equal(
+        (fragment.match(/<script type="module">/gu) ?? []).length,
+        scenario.expected.maxInlineModules,
+      )
+      assert.deepEqual(await checkGeneratedInterface(playgroundGeneration, { content: fragment }), {
+        ok: true,
+      })
+
+      const excessModule = await checkGeneratedInterface(playgroundGeneration, {
+        content: `${fragment}\n<script type="module"></script>`,
+      })
+      assert.equal(excessModule.ok, false)
+      if (excessModule.ok) throw new Error("The seventeenth module must be rejected.")
+      assert.deepEqual(
+        excessModule.diagnostics.map(({ code }) => code),
+        [scenario.expected.excessModuleCode],
+      )
+
+      const exactContent = `${"界".repeat(Math.floor(maxSurfaceContentBytes / 3))}x`
+      const oversizedContent = `${exactContent}界`
+      assert.equal(exactContent.length < maxSurfaceContentBytes, true)
+      assert.equal(new TextEncoder().encode(exactContent).byteLength, maxSurfaceContentBytes)
+
+      const oversizedCheck = await checkGeneratedInterface(playgroundGeneration, {
+        content: oversizedContent,
+      })
+      assert.equal(oversizedCheck.ok, false)
+      if (oversizedCheck.ok) throw new Error("Oversized content must be rejected.")
+      assert.deepEqual(
+        oversizedCheck.diagnostics.map(({ code }) => code),
+        [scenario.expected.oversizedCode],
+      )
+
+      const backing = memoryStore()
+      let storeWrites = 0
+      const countingStore: SurfaceStore = {
+        get: (id) => backing.get(id),
+        set: (record) => {
+          storeWrites += 1
+          return backing.set(record)
+        },
+        revoke: (id) => backing.revoke(id),
+        runIdempotent: (request, operation) => backing.runIdempotent(request, operation),
+      }
+      const runtime = new Genui<undefined>({ actions: [], store: countingStore })
+      const generation = runtime.generation({ actions: [] })
+      await assert.rejects(
+        generation.createSurface({ content: oversizedContent }),
+        /Surface content must be at most 102400 UTF-8 bytes/,
+      )
+      assert.equal(storeWrites, 0)
+
+      const exactSurface = await generation.createSurface({ content: exactContent })
+      assert.equal(storeWrites, 1)
+      assert.notEqual(parseSurface(exactSurface), undefined)
+      assert.equal(parseSurface({ ...exactSurface, content: oversizedContent }), undefined)
+
+      const validRecord = await backing.get(exactSurface.id)
+      assert.ok(validRecord)
+      const oversizedRecords: readonly SurfaceRecord[] = [
+        {
+          ...validRecord,
+          source: { ...validRecord.source, content: oversizedContent },
+        },
+        {
+          ...validRecord,
+          surface: { ...validRecord.surface, content: oversizedContent },
+        },
+      ]
+      for (const record of oversizedRecords) {
+        let maliciousWrites = 0
+        const maliciousStore: SurfaceStore = {
+          get: () => record,
+          set: () => {
+            maliciousWrites += 1
+          },
+          revoke: () => undefined,
+          runIdempotent: async (_request, operation) => ({
+            status: "result",
+            result: await operation(),
+          }),
+        }
+        const restored = new Genui<undefined>({ actions: [], store: maliciousStore })
+        assert.equal(await restored.diagnostics(record.surface.id), undefined)
+        assert.equal(await restored.reproject(record.surface.id), undefined)
+        assert.deepEqual(
+          await restored.execute(
+            {
+              surfaceId: record.surface.id,
+              callId: "bounds-call",
+              action: "bounds.missing",
+              input: {},
+            },
+            undefined,
+          ),
+          {
+            ok: false,
+            error: { code: "unknown_surface", message: "Surface is not available." },
+          },
+        )
+        assert.equal(maliciousWrites, 0)
+      }
+
+      const window = new Window()
+      const root = window.document.createElement("div")
+      const existing = window.document.createElement("p")
+      existing.textContent = "Existing host content"
+      root.append(existing)
+      // SAFETY: happy-dom implements the Element operations used by mount in this test.
+      const mountRoot = root as unknown as Element
+      const transport = async (): Promise<ActionResult> => ({ ok: true, value: null })
+      assert.throws(
+        () => mount(mountRoot, { ...exactSurface, content: oversizedContent }, { transport }),
+        /Surface content must be at most 102400 UTF-8 bytes/,
+      )
+      assert.equal(root.querySelector("iframe"), null)
+      assert.equal(root.textContent, "Existing host content")
+
+      const mounted = mount(mountRoot, { ...exactSurface, content: "<p>Valid</p>" }, { transport })
+      const iframe = root.querySelector("iframe")
+      assert.ok(iframe)
+      const initialDocument = iframe.srcdoc
+      assert.throws(
+        () => mounted.replace({ ...exactSurface, content: oversizedContent }),
+        /Surface content must be at most 102400 UTF-8 bytes/,
+      )
+      assert.equal(iframe.srcdoc, initialDocument)
+      assert.doesNotMatch(iframe.srcdoc, /界/)
+      mounted.dispose()
       return
     }
 

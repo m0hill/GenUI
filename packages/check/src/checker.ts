@@ -13,6 +13,7 @@ import {
   type Generation,
   type GenerationCheckerContract,
 } from "genui"
+import { maxSurfaceContentBytes } from "genui/protocol"
 import { collectStaticDiagnostics } from "./static-diagnostics.js"
 
 export interface CheckGeneratedInterfaceOptions {
@@ -97,10 +98,12 @@ const projectRoot = "/__genui_check__"
 const contractPath = `${projectRoot}/genui.d.ts`
 const tsconfigPath = `${projectRoot}/tsconfig.json`
 const maxReportedDiagnostics = 8
+const maxInlineModuleScripts = 16
 const maxDiagnosticMessageLength = 1_000
 const maxReportLength = 8_000
 const maxReportLineLength = 160
 const htmlNamespace = "http://www.w3.org/1999/xhtml"
+const utf8Encoder = new TextEncoder()
 
 const checkerDomDeclarations = `
 // The checker validates syntax and the GenUI contract, not DOM element specialization. Generated
@@ -135,8 +138,22 @@ export const createGeneratedInterfaceChecker =
       ) {
         throw new GeneratedInterfaceCheckError("incompatible_generation")
       }
+      if (utf8Encoder.encode(options.content).byteLength > maxSurfaceContentBytes) {
+        return invalidResult("", [
+          {
+            code: "GENUI004",
+            line: 1,
+            column: 1,
+            message: `Generated interface content must be at most ${String(maxSurfaceContentBytes)} UTF-8 bytes.`,
+          },
+        ])
+      }
       const parsed = parseGeneratedContent(options.content)
       throwIfAborted(signal)
+
+      if (parsed.diagnostics.some(({ code }) => code === "GENUI005")) {
+        return invalidResult(options.content, [...parsed.diagnostics].sort(compareDiagnostics))
+      }
 
       const compiled =
         parsed.modules.length === 0
@@ -187,6 +204,7 @@ const parseGeneratedContent = (content: string): ParsedContent => {
   diagnostics.push(...tokenizerStructureDiagnostics(content))
 
   const modules: InlineModule[] = []
+  let moduleLimitReported = false
   const visit = (node: DefaultTreeAdapterTypes.Node): void => {
     if ("tagName" in node) {
       if (node.tagName === "template") return
@@ -225,6 +243,18 @@ const parseGeneratedContent = (content: string): ParsedContent => {
             column,
             message: "Generated interface script location could not be determined.",
           })
+          return
+        }
+        if (modules.length >= maxInlineModuleScripts) {
+          if (!moduleLimitReported) {
+            diagnostics.push({
+              code: "GENUI005",
+              line,
+              column,
+              message: `Generated interfaces may contain at most ${String(maxInlineModuleScripts)} inline module scripts.`,
+            })
+            moduleLimitReported = true
+          }
           return
         }
         modules.push({
