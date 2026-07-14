@@ -228,17 +228,35 @@ void test("JSONL session persists the latest snapshot for a known surface", asyn
             id: "surface-1",
             content: "<button>Increment</button>",
             dialect: "code/0",
-            grant: { surfaceId: "surface-1", actions: [], subscriptions: [] },
+            grant: {
+              surfaceId: "surface-1",
+              subject: "subject-1",
+              actions: [],
+              subscriptions: [],
+            },
           },
         },
       ],
     })
 
-    await session.appendSurfaceSnapshots([
-      { surfaceId: "surface-1", snapshot: { count: 1 } },
-      { surfaceId: "unknown-surface", snapshot: { count: 99 } },
-    ])
-    await session.appendSurfaceSnapshots([{ surfaceId: "surface-1", snapshot: { count: 2 } }])
+    assert.deepEqual(
+      await session.appendSurfaceSnapshots({
+        subject: "subject-1",
+        snapshots: [{ surfaceId: "surface-1", snapshot: { count: 1 } }],
+      }),
+      { ok: true },
+    )
+    assert.deepEqual(
+      await session.appendSurfaceSnapshots({
+        subject: "subject-1",
+        snapshots: [{ surfaceId: "unknown-surface", snapshot: { count: 99 } }],
+      }),
+      { ok: false, reason: "not_granted" },
+    )
+    await session.appendSurfaceSnapshots({
+      subject: "subject-1",
+      snapshots: [{ surfaceId: "surface-1", snapshot: { count: 2 } }],
+    })
 
     const restored = await JsonlChatSession.open(filePath)
     assert.deepEqual(restored.getSurfaceSnapshot("surface-1"), { count: 2 })
@@ -266,13 +284,24 @@ void test("JSONL session does not append an unchanged surface snapshot", async (
             id: "surface-1",
             content: "<select></select>",
             dialect: "code/0",
-            grant: { surfaceId: "surface-1", actions: [], subscriptions: [] },
+            grant: {
+              surfaceId: "surface-1",
+              subject: "subject-1",
+              actions: [],
+              subscriptions: [],
+            },
           },
         },
       ],
     })
-    await session.appendSurfaceSnapshots([{ surfaceId: "surface-1", snapshot: ["a", "b"] }])
-    await session.appendSurfaceSnapshots([{ surfaceId: "surface-1", snapshot: ["a", "b"] }])
+    await session.appendSurfaceSnapshots({
+      subject: "subject-1",
+      snapshots: [{ surfaceId: "surface-1", snapshot: ["a", "b"] }],
+    })
+    await session.appendSurfaceSnapshots({
+      subject: "subject-1",
+      snapshots: [{ surfaceId: "surface-1", snapshot: ["a", "b"] }],
+    })
 
     assert.equal((await readFile(filePath, "utf8")).trim().split("\n").length, 4)
   } finally {
@@ -297,14 +326,20 @@ void test("JSONL session does not append an oversized surface snapshot", async (
             id: "surface-1",
             content: "<textarea></textarea>",
             dialect: "code/0",
-            grant: { surfaceId: "surface-1", actions: [], subscriptions: [] },
+            grant: {
+              surfaceId: "surface-1",
+              subject: "subject-1",
+              actions: [],
+              subscriptions: [],
+            },
           },
         },
       ],
     })
-    await session.appendSurfaceSnapshots([
-      { surfaceId: "surface-1", snapshot: "x".repeat(maxSurfaceSnapshotBytes) },
-    ])
+    await session.appendSurfaceSnapshots({
+      subject: "subject-1",
+      snapshots: [{ surfaceId: "surface-1", snapshot: "x".repeat(maxSurfaceSnapshotBytes) }],
+    })
 
     assert.equal((await readFile(filePath, "utf8")).trim().split("\n").length, 3)
     assert.equal(session.getSurfaceSnapshot("surface-1"), undefined)

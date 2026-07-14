@@ -206,6 +206,17 @@ export interface SurfaceSnapshotInput {
   readonly snapshot: SurfaceSnapshot
 }
 
+/** Authenticated snapshot batch accepted by the chat persistence boundary. */
+export interface AppendSurfaceSnapshotsInput {
+  readonly subject: string
+  readonly snapshots: readonly SurfaceSnapshotInput[]
+}
+
+/** Whether every requested surface belongs to the authenticated subject. */
+export type AppendSurfaceSnapshotsResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly reason: "not_granted" }
+
 export type AppendGeneratedInterfaceAttemptInput = Omit<GeneratedInterfaceAttempt, "type"> & {
   readonly turnId: string
 }
@@ -389,36 +400,42 @@ export class JsonlChatSession {
     return write
   }
 
-  appendSurfaceSnapshots(inputs: readonly SurfaceSnapshotInput[]): Promise<void> {
+  appendSurfaceSnapshots(
+    input: AppendSurfaceSnapshotsInput,
+  ): Promise<AppendSurfaceSnapshotsResult> {
     const write = this.writeQueue.then(async () => {
-      const knownSurfaceIds = new Set(
+      const ownedSurfaceIds = new Set(
         this.entries.flatMap((entry) =>
           entry.message.role === "assistant"
             ? entry.message.content.flatMap((block) =>
-                block.type === "surface" ? [block.surface.id] : [],
+                block.type === "surface" && block.surface.grant.subject === input.subject
+                  ? [block.surface.id]
+                  : [],
               )
             : [],
         ),
       )
-      const entries = inputs.flatMap((input) => {
-        if (!knownSurfaceIds.has(input.surfaceId)) return []
-        if (!SurfaceSnapshot.safeParse(input.snapshot).success) return []
+      if (input.snapshots.some((snapshot) => !ownedSurfaceIds.has(snapshot.surfaceId))) {
+        return { ok: false, reason: "not_granted" } as const
+      }
+      const entries = input.snapshots.flatMap((snapshot) => {
+        if (!SurfaceSnapshot.safeParse(snapshot.snapshot).success) return []
         if (
-          JSON.stringify(this.surfaceSnapshots.get(input.surfaceId)) ===
-          JSON.stringify(input.snapshot)
+          JSON.stringify(this.surfaceSnapshots.get(snapshot.surfaceId)) ===
+          JSON.stringify(snapshot.snapshot)
         ) {
           return []
         }
         return [
           {
             type: "surface_snapshot",
-            surfaceId: input.surfaceId,
+            surfaceId: snapshot.surfaceId,
             timestamp: new Date().toISOString(),
-            snapshot: input.snapshot,
+            snapshot: snapshot.snapshot,
           } as const,
         ]
       })
-      if (entries.length === 0) return
+      if (entries.length === 0) return { ok: true } as const
 
       await appendFile(
         this.filePath,
@@ -426,9 +443,13 @@ export class JsonlChatSession {
         "utf8",
       )
       for (const entry of entries) this.surfaceSnapshots.set(entry.surfaceId, entry.snapshot)
+      return { ok: true } as const
     })
 
-    this.writeQueue = write.catch(() => undefined)
+    this.writeQueue = write.then(
+      () => undefined,
+      () => undefined,
+    )
     return write
   }
 }

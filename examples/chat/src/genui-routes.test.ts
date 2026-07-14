@@ -1,0 +1,209 @@
+import assert from "node:assert/strict"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import test from "node:test"
+import { Hono } from "hono"
+import type { ActionCall, SubscriptionRequest } from "genui/protocol"
+import { generatedUi } from "./ai/genui.js"
+import { createAuthenticatedSessions, type AuthenticatedSession } from "./authenticated-session.js"
+import { parseExecuteEnvelope, pendingApprovals } from "./approval.js"
+import { createGenuiRoutes } from "./genui-routes.js"
+import { JsonPreferenceStore } from "./preferences.js"
+import { JsonlChatSession } from "./session.js"
+
+const authenticatedHeaders = (
+  session: AuthenticatedSession,
+  csrfToken = session.csrfToken,
+): Readonly<Record<string, string>> => ({
+  "content-type": "application/json",
+  cookie: `chat_session=${session.credential}`,
+  "x-chat-csrf": csrfToken,
+})
+
+const postJson = (
+  app: Hono,
+  path: string,
+  body: unknown,
+  session?: AuthenticatedSession,
+  csrfToken?: string,
+): Promise<Response> =>
+  Promise.resolve(
+    app.request(path, {
+      method: "POST",
+      headers:
+        session === undefined
+          ? { "content-type": "application/json" }
+          : authenticatedHeaders(session, csrfToken),
+      body: JSON.stringify(body),
+    }),
+  )
+
+const createRouteFixture = async () => {
+  const directory = await mkdtemp(join(tmpdir(), "genui-chat-routes-"))
+  const chatSession = await JsonlChatSession.open(join(directory, "chat.jsonl"))
+  const preferences = new JsonPreferenceStore(join(directory, "preferences.json"))
+  const sessions = createAuthenticatedSessions()
+  const owner = sessions.create()
+  const other = sessions.create()
+  const app = new Hono().route("/genui", createGenuiRoutes({ sessions, chatSession, preferences }))
+  pendingApprovals.clear()
+
+  return {
+    app,
+    chatSession,
+    preferences,
+    owner,
+    other,
+    async dispose() {
+      pendingApprovals.clear()
+      await rm(directory, { recursive: true, force: true })
+    },
+  }
+}
+
+void test("CHAT-APR-003 crosses the execute HTTP authentication boundary", async () => {
+  const fixture = await createRouteFixture()
+  try {
+    const surface = await generatedUi.createSurface({
+      content: "<p>Trips</p>",
+      subject: fixture.owner.subject,
+    })
+    const otherCall = {
+      surfaceId: surface.id,
+      callId: "other-session-save",
+      action: "preferences.save",
+      input: { preference: "City" },
+    } satisfies ActionCall
+
+    const unauthenticated = await postJson(fixture.app, "/genui/execute", "malformed")
+    assert.equal(unauthenticated.status, 401)
+    assert.deepEqual(await unauthenticated.json(), {
+      result: {
+        ok: false,
+        error: { code: "unknown_surface", message: "Authentication is required." },
+      },
+    })
+
+    const invalidCsrf = await postJson(
+      fixture.app,
+      "/genui/execute",
+      { call: otherCall },
+      fixture.owner,
+      "invalid",
+    )
+    assert.equal(invalidCsrf.status, 401)
+
+    const wrongSubject = await postJson(
+      fixture.app,
+      "/genui/execute",
+      { call: otherCall },
+      fixture.other,
+    )
+    assert.equal(wrongSubject.status, 200)
+    assert.deepEqual(await wrongSubject.json(), {
+      result: {
+        ok: false,
+        error: { code: "not_granted", message: "Surface is not granted to this subject." },
+      },
+    })
+    assert.equal(pendingApprovals.token(otherCall), undefined)
+    assert.equal(await fixture.preferences.get(), undefined)
+
+    const ownerCall = { ...otherCall, callId: "owner-save" }
+    const owner = await postJson(fixture.app, "/genui/execute", { call: ownerCall }, fixture.owner)
+    assert.equal(owner.status, 200)
+    const ownerEnvelope = parseExecuteEnvelope(await owner.json())
+    assert.deepEqual(ownerEnvelope?.result, {
+      ok: false,
+      error: {
+        code: "approval_required",
+        message: 'Save "City" as your preferred trip',
+      },
+    })
+    assert.equal(typeof ownerEnvelope?.approvalToken, "string")
+  } finally {
+    await fixture.dispose()
+  }
+})
+
+void test("CHAT-APR-003 crosses the subscription HTTP authentication boundary", async () => {
+  const fixture = await createRouteFixture()
+  try {
+    const surface = await generatedUi.createSurface({
+      content: "<p>Clock</p>",
+      subject: fixture.owner.subject,
+    })
+    const request = {
+      surfaceId: surface.id,
+      subscriptionId: "clock-other",
+      subscription: "time.tick",
+      input: {},
+    } satisfies SubscriptionRequest
+
+    const unauthenticated = await postJson(fixture.app, "/genui/subscribe", "malformed")
+    assert.equal(unauthenticated.status, 401)
+    assert.deepEqual(await unauthenticated.json(), {
+      ok: false,
+      error: { code: "unknown_surface", message: "Authentication is required." },
+    })
+
+    const wrongSubject = await postJson(fixture.app, "/genui/subscribe", request, fixture.other)
+    assert.equal(wrongSubject.status, 400)
+    assert.deepEqual(await wrongSubject.json(), {
+      ok: false,
+      error: { code: "not_granted", message: "Surface is not granted to this subject." },
+    })
+
+    const ownerRequest = { ...request, subscriptionId: "clock-owner" }
+    const owner = await postJson(fixture.app, "/genui/subscribe", ownerRequest, fixture.owner)
+    assert.equal(owner.status, 200)
+    const reader = owner.body?.getReader()
+    assert.ok(reader)
+    const first = await reader.read()
+    assert.equal(first.done, false)
+    assert.match(new TextDecoder().decode(first.value), /"type":"event"/u)
+    await reader.cancel()
+  } finally {
+    await fixture.dispose()
+  }
+})
+
+void test("snapshot writes require CSRF and a matching surface subject", async () => {
+  const fixture = await createRouteFixture()
+  try {
+    const surface = await generatedUi.createSurface({
+      content: "<p>Counter</p>",
+      subject: fixture.owner.subject,
+    })
+    await fixture.chatSession.appendTurn({
+      userId: "snapshot-user",
+      assistantId: "snapshot-assistant",
+      prompt: "Make a counter",
+      assistantContent: [{ type: "surface", surface }],
+    })
+    const snapshots = [{ surfaceId: surface.id, snapshot: { count: 1 } }]
+
+    const unauthenticated = await postJson(fixture.app, "/genui/snapshots", snapshots)
+    assert.equal(unauthenticated.status, 401)
+
+    const invalidCsrf = await postJson(
+      fixture.app,
+      "/genui/snapshots",
+      snapshots,
+      fixture.owner,
+      "invalid",
+    )
+    assert.equal(invalidCsrf.status, 401)
+
+    const wrongSubject = await postJson(fixture.app, "/genui/snapshots", snapshots, fixture.other)
+    assert.equal(wrongSubject.status, 403)
+    assert.equal(fixture.chatSession.getSurfaceSnapshot(surface.id), undefined)
+
+    const owner = await postJson(fixture.app, "/genui/snapshots", snapshots, fixture.owner)
+    assert.equal(owner.status, 204)
+    assert.deepEqual(fixture.chatSession.getSurfaceSnapshot(surface.id), { count: 1 })
+  } finally {
+    await fixture.dispose()
+  }
+})

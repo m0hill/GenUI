@@ -5,17 +5,19 @@ import { serve } from "@hono/node-server"
 import { serveStatic } from "@hono/node-server/serve-static"
 import { event, local, mod, post, preserve, read, reply, state, unsafeHtml } from "datastar-kit"
 import { Hono } from "hono"
-import { stream } from "hono/streaming"
-import { actionError, parseSubscriptionRequest, subscriptionOpenError } from "genui/protocol"
 import { z } from "zod"
-import { executeGeneratedUiAction, openGeneratedUiSubscription } from "./ai/genui.js"
 import {
   generatedInterfaceOutcomeMessage,
   type GeneratedInterfaceRepairOutcome,
 } from "./ai/generated-interface-repair.js"
 import { type GeneratedUiModelContext, modelId, streamChat } from "./ai/index.js"
-import { parseExecuteRequest, pendingApprovals, type ExecuteEnvelope } from "./approval.js"
-import { authenticatedSessions } from "./authenticated-session.js"
+import { pendingApprovals } from "./approval.js"
+import {
+  authenticatedSessionFromRequest,
+  authenticatedSessions,
+  serializeAuthenticatedSessionCookie,
+} from "./authenticated-session.js"
+import { createGenuiRoutes } from "./genui-routes.js"
 import { renderMarkdown } from "./markdown.js"
 import { JsonPreferenceStore } from "./preferences.js"
 import {
@@ -41,17 +43,6 @@ const GeneratedUiModelContext = z
   })
   .strict()
 
-const SurfaceSnapshots = z
-  .array(
-    z
-      .object({
-        surfaceId: z.string().min(1).max(256),
-        snapshot: SurfaceSnapshot,
-      })
-      .strict(),
-  )
-  .max(64)
-
 const chatState = state({
   prompt: "",
   modelContext: "",
@@ -63,23 +54,6 @@ const parseJson = (text: string): unknown => {
   } catch {
     return null
   }
-}
-
-const requestJson = async (request: Request): Promise<unknown> => {
-  try {
-    return await request.json()
-  } catch {
-    return null
-  }
-}
-
-const sessionFromRequest = (request: Request) => {
-  const credential = request.headers
-    .get("cookie")
-    ?.split(";")
-    .map((part) => part.trim().split("=", 2))
-    .find(([name]) => name === "chat_session")?.[1]
-  return authenticatedSessions.get(credential)
 }
 
 const ChevronIcon = () => (
@@ -285,9 +259,11 @@ app.use(
 )
 
 app.get("/", (c) => {
-  const current = sessionFromRequest(c.req.raw) ?? authenticatedSessions.create()
+  const current =
+    authenticatedSessionFromRequest(authenticatedSessions, c.req.raw) ??
+    authenticatedSessions.create()
   const turns = session.getTurns()
-  c.header("set-cookie", `chat_session=${current.credential}; HttpOnly; SameSite=Strict; Path=/`)
+  c.header("set-cookie", serializeAuthenticatedSessionCookie(current))
   return reply.page(
     <main class="shell" data-signals={chatState.defaults}>
       <header class="masthead">
@@ -368,101 +344,10 @@ app.get("/", (c) => {
   )
 })
 
-app.post("/genui/execute", async (c) => {
-  const current = sessionFromRequest(c.req.raw)
-  if (current === undefined || c.req.header("x-chat-csrf") !== current.csrfToken) {
-    return c.json(
-      {
-        result: actionError("unknown_surface", "Authentication is required."),
-      } satisfies ExecuteEnvelope,
-      401,
-    )
-  }
-  const request = parseExecuteRequest(await requestJson(c.req.raw))
-  if (request === undefined) {
-    return c.json(
-      {
-        result: actionError("invalid_input", "Malformed GenUI action call."),
-      } satisfies ExecuteEnvelope,
-      400,
-    )
-  }
-  const result = await executeGeneratedUiAction(
-    request.call,
-    preferences,
-    current.subject,
-    (_action, input) =>
-      pendingApprovals.check({
-        call: request.call,
-        input,
-        token: request.approvalToken,
-      }),
-  )
-  const approvalToken =
-    !result.ok && result.error.code === "approval_required"
-      ? pendingApprovals.token(request.call)
-      : undefined
-  return c.json({
-    result,
-    ...(approvalToken === undefined ? {} : { approvalToken }),
-  } satisfies ExecuteEnvelope)
-})
-
-app.post("/genui/subscribe", async (c) => {
-  const current = sessionFromRequest(c.req.raw)
-  if (current === undefined || c.req.header("x-chat-csrf") !== current.csrfToken) {
-    return c.json(subscriptionOpenError("unknown_surface", "Authentication is required."), 401)
-  }
-  const request = parseSubscriptionRequest(await requestJson(c.req.raw))
-  if (request === undefined) {
-    return c.json(subscriptionOpenError("invalid_input", "Malformed subscription request."), 400)
-  }
-
-  const requestSignal = c.req.raw.signal
-  const sourceController = new AbortController()
-  const abortSource = (): void => sourceController.abort()
-  if (requestSignal.aborted) abortSource()
-  else requestSignal.addEventListener("abort", abortSource, { once: true })
-  const detachRequestSignal = (): void => {
-    requestSignal.removeEventListener("abort", abortSource)
-  }
-  const stopSource = (): void => {
-    detachRequestSignal()
-    sourceController.abort()
-  }
-
-  const opened = await openGeneratedUiSubscription(
-    request,
-    preferences,
-    current.subject,
-    sourceController.signal,
-  )
-  if (!opened.ok) {
-    stopSource()
-    return c.json(opened, 400)
-  }
-
-  c.header("cache-control", "no-store")
-  c.header("content-type", "application/x-ndjson; charset=utf-8")
-  c.header("x-content-type-options", "nosniff")
-  return stream(c, async (output) => {
-    output.onAbort(stopSource)
-    try {
-      for await (const delivery of opened.events) {
-        await output.writeln(JSON.stringify(delivery))
-      }
-    } finally {
-      stopSource()
-    }
-  })
-})
-
-app.post("/genui/snapshots", async (c) => {
-  const snapshots = SurfaceSnapshots.safeParse(await requestJson(c.req.raw))
-  if (!snapshots.success) return c.json({ error: "Invalid generated UI snapshots." }, 400)
-  await session.appendSurfaceSnapshots(snapshots.data)
-  return c.body(null, 204)
-})
+app.route(
+  "/genui",
+  createGenuiRoutes({ sessions: authenticatedSessions, chatSession: session, preferences }),
+)
 
 app.post("/chat/new", async () => {
   await session.reset()
@@ -475,7 +360,7 @@ app.post("/chat/new", async () => {
 })
 
 app.post("/chat", async (c) => {
-  const current = sessionFromRequest(c.req.raw)
+  const current = authenticatedSessionFromRequest(authenticatedSessions, c.req.raw)
   if (current === undefined) return c.text("Authentication is required.", 401)
   const subject = current.subject
   const signals = await read.signals(c.req.raw).catch(() => null)
