@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname } from "node:path"
-import type { GeneratedInterfaceDiagnostic } from "genui/check"
+import type { GeneratedInterfaceDiagnostic } from "@genui/check"
 import { codeDialect, parseSurface, type Surface } from "genui/protocol"
 import { z } from "zod"
 

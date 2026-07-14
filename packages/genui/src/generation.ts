@@ -1,6 +1,7 @@
-import { codeDialect, type Surface } from "./protocol/index.js"
+import { codeDialect, type JsonSchema, type Surface } from "./protocol/index.js"
 import { projectGrantedActions, type RegisteredAction } from "./action-projections.js"
 import { codeCapabilityArtifacts } from "./code/capability-contract.js"
+import { genuiGuestDeclarations } from "./code/guest-contract.js"
 import { codeEnvironmentInstructions } from "./code/instructions.js"
 import {
   projectGrantedSubscriptions,
@@ -34,6 +35,25 @@ export interface Generation {
   createSurface(options: CreateSurfaceOptions): Promise<Surface>
 }
 
+/** Current version of the read-only package contract consumed by `@genui/check`. */
+export const generationCheckerContractVersion = 1
+
+/** One selected capability input contract exposed without executable behavior. */
+export interface GenerationCheckerCapabilityInput {
+  readonly kind: "action" | "subscription"
+  readonly name: string
+  readonly schema?: JsonSchema
+}
+
+/** Descriptive, non-authoritative facts exposed to a compatible checker package. */
+export interface GenerationCheckerContract {
+  readonly version: typeof generationCheckerContractVersion
+  readonly dialect: typeof codeDialect
+  readonly guestDeclarations: string
+  readonly capabilityDeclarations: string
+  readonly capabilityInputs: readonly GenerationCheckerCapabilityInput[]
+}
+
 interface CreateGenerationOptions<Ctx> {
   readonly selection: GenerationOptions<Ctx>
   readonly byName: ReadonlyMap<string, RegisteredAction<Ctx>>
@@ -42,18 +62,17 @@ interface CreateGenerationOptions<Ctx> {
 }
 
 interface GenerationState {
-  capabilityDeclarations(): string
+  checkerContract(): GenerationCheckerContract
 }
 
 const generationStates = new WeakMap<Generation, GenerationState>()
 
-/** Read checker declarations from a Generation created by GenUI. */
-export const generationCapabilityDeclarations = (generation: Generation): string => {
+/** Read current model-visible facts from a genuine Generation without granting authority. */
+export const readGenerationCheckerContract = (
+  generation: Generation,
+): GenerationCheckerContract | undefined => {
   const state = generationStates.get(generation)
-  if (state === undefined) {
-    throw new Error("Generated-interface checking requires a Generation created by GenUI.")
-  }
-  return state.capabilityDeclarations()
+  return state?.checkerContract()
 }
 
 export const createGeneration = <Ctx>({
@@ -88,13 +107,21 @@ export const createGeneration = <Ctx>({
     subscriptionNames.push(definition.name)
   }
 
-  const capabilityArtifacts = () => {
+  const capabilityProjection = () => {
     const actionProjection = projectGrantedActions({ actions: actionNames, byName })
     const subscriptionProjection = projectGrantedSubscriptions({
       subscriptions: subscriptionNames,
       byName: subscriptionsByName,
     })
-    return codeCapabilityArtifacts(actionProjection.actions, subscriptionProjection.subscriptions)
+    return {
+      actions: actionProjection.actions,
+      subscriptions: subscriptionProjection.subscriptions,
+    }
+  }
+
+  const capabilityArtifacts = () => {
+    const projection = capabilityProjection()
+    return codeCapabilityArtifacts(projection.actions, projection.subscriptions)
   }
 
   const generation: Generation = {
@@ -114,7 +141,30 @@ export const createGeneration = <Ctx>({
       }),
   }
   generationStates.set(generation, {
-    capabilityDeclarations: () => capabilityArtifacts().declarations,
+    checkerContract: () => {
+      const projection = capabilityProjection()
+      return {
+        version: generationCheckerContractVersion,
+        dialect: codeDialect,
+        guestDeclarations: genuiGuestDeclarations,
+        capabilityDeclarations: codeCapabilityArtifacts(
+          projection.actions,
+          projection.subscriptions,
+        ).declarations,
+        capabilityInputs: [
+          ...projection.actions.map((action) => ({
+            kind: "action" as const,
+            name: action.name,
+            ...(action.inputSchema === undefined ? {} : { schema: action.inputSchema }),
+          })),
+          ...projection.subscriptions.map((subscription) => ({
+            kind: "subscription" as const,
+            name: subscription.name,
+            ...(subscription.inputSchema === undefined ? {} : { schema: subscription.inputSchema }),
+          })),
+        ],
+      }
+    },
   })
   return generation
 }

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { execFile } from "node:child_process"
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, mkdir, rm, stat, writeFile } from "node:fs/promises"
+import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
@@ -8,6 +9,9 @@ import { fileURLToPath } from "node:url"
 
 const execFileAsync = promisify(execFile)
 const root = fileURLToPath(new URL("..", import.meta.url))
+const { build: buildBrowserFixture } = createRequire(
+  new URL("../packages/genui/package.json", import.meta.url),
+)("esbuild")
 
 const run = async (command, args, cwd) => {
   try {
@@ -22,11 +26,11 @@ const run = async (command, args, cwd) => {
   }
 }
 
-const packPackage = async (name, destination) => {
+const packPackage = async (name, directory, destination) => {
   const { stdout } = await run(
     "nub",
     ["pack", "--pack-destination", destination, "--json"],
-    join(root, "packages/genui"),
+    join(root, directory),
   )
   const [metadata] = JSON.parse(stdout)
   assert(metadata)
@@ -38,7 +42,7 @@ const packPackage = async (name, destination) => {
       return isPackageMetadata || path.startsWith("dist/")
     }),
   )
-  return metadata.filename
+  return { ...metadata, size: (await stat(metadata.filename)).size }
 }
 
 const temp = await mkdtemp(join(tmpdir(), "genui-pack-smoke-"))
@@ -46,11 +50,14 @@ const temp = await mkdtemp(join(tmpdir(), "genui-pack-smoke-"))
 try {
   const packs = join(temp, "packs")
   const project = join(temp, "project")
+  const checkerProject = join(temp, "checker-project")
   await mkdir(packs)
   await mkdir(project)
+  await mkdir(checkerProject)
 
   await run("nub", ["run", "build"], root)
-  const genuiTarball = await packPackage("genui", packs)
+  const genuiPack = await packPackage("genui", "packages/genui", packs)
+  const checkerPack = await packPackage("@genui/check", "packages/check", packs)
 
   await writeFile(
     join(project, "package.json"),
@@ -60,7 +67,7 @@ try {
         private: true,
         type: "module",
         dependencies: {
-          genui: `file:${genuiTarball}`,
+          genui: `file:${genuiPack.filename}`,
           zod: "4.4.3",
         },
       },
@@ -73,7 +80,6 @@ try {
     join(project, "smoke.mjs"),
     `import assert from "node:assert/strict"
 import { action, Genui, memoryStore, subscription } from "genui"
-import { checkGeneratedInterface } from "genui/check"
 import { mount, SubscriptionTransportError } from "genui/dom"
 import {
   codeDialect,
@@ -88,7 +94,6 @@ assert.equal(typeof Genui, "function")
 assert.equal(typeof action, "function")
 assert.equal(typeof memoryStore, "function")
 assert.equal(typeof subscription, "function")
-assert.equal(typeof checkGeneratedInterface, "function")
 assert.equal(typeof mount, "function")
 assert.equal(typeof SubscriptionTransportError, "function")
 assert.equal(typeof parseActionCall, "function")
@@ -96,6 +101,13 @@ assert.equal(typeof parseSubscriptionRequest, "function")
 assert.equal(typeof parseSubscriptionDelivery, "function")
 assert.equal(typeof assertSurfaceStoreConformance, "function")
 assert.equal(codeDialect, "code/0")
+
+const assertPackageMissing = async (specifier) => {
+  await assert.rejects(import(specifier), (error) => error?.code === "ERR_MODULE_NOT_FOUND")
+}
+await assertPackageMissing("@genui/check")
+await assertPackageMissing("parse5")
+await assertPackageMissing("typescript")
 
 const updates = subscription({
   name: "pack.events",
@@ -167,14 +179,6 @@ const generation = genui.generation({ actions: [readTopic], subscriptions: [upda
 const guidance = generation.guidance()
 assert.match(guidance.environment, /genui.call/)
 assert.match(guidance.capabilityContract, /pack.read_topic/)
-const checked = await checkGeneratedInterface(generation, {
-  content: '<script type="module">const result = await genui.call("pack.read_topic", {}); document.body.textContent = result.message</script>',
-})
-assert.deepEqual(checked, { ok: true })
-const rejected = await checkGeneratedInterface(generation, {
-  content: '<script type="module">genui.missing()</script>',
-})
-assert.equal(rejected.ok, false)
 const surface = await generation.createSurface({ content: "<p>pack smoke</p>" })
 assert.equal(parseSurface(JSON.parse(JSON.stringify(surface)))?.id, surface.id)
 assert.deepEqual(surface.grant.actions[0]?.inputSchema, { type: "object" })
@@ -245,12 +249,6 @@ import {
   type SurfaceStoreIdempotencyRequest,
   type SurfaceStoreIdempotencyResult,
 } from "genui"
-import {
-  checkGeneratedInterface,
-  type CheckGeneratedInterfaceOptions,
-  type GeneratedInterfaceCheckResult,
-  type GeneratedInterfaceDiagnostic,
-} from "genui/check"
 import {
   mount,
   SubscriptionTransportError,
@@ -451,17 +449,6 @@ const generationOptions: GenerationOptions<PackContext> = {
 }
 const generation: Generation = genui.generation(generationOptions)
 const generationGuidance: GenerationGuidance = generation.guidance()
-const checkOptions: CheckGeneratedInterfaceOptions = {
-  content: '<script type="module">await genui.call("pack.read_topic", { topic: "all" })</script>',
-}
-const generatedInterfaceCheck: Promise<GeneratedInterfaceCheckResult> =
-  checkGeneratedInterface(generation, checkOptions)
-const diagnostic: GeneratedInterfaceDiagnostic = {
-  code: "TS2339",
-  line: 1,
-  column: 1,
-  message: "Example external-consumer diagnostic.",
-}
 const createSurfaceOptions: CreateSurfaceOptions = {
   content: "<p>pack type smoke</p>",
   subject: "pack-subject",
@@ -538,8 +525,6 @@ const resultOutcome = (result: ActionResult): string =>
 
 void genui
 void generationGuidance
-void generatedInterfaceCheck
-void diagnostic
 void generatedSurface
 void actionDefinition
 void transformingActionDefinition
@@ -571,7 +556,162 @@ void resultOutcome
   )
 
   await writeFile(
+    join(project, "browser.mjs"),
+    `import { Genui } from "genui"
+import { mount } from "genui/dom"
+import { parseSurface } from "genui/protocol"
+
+void Genui
+void mount
+void parseSurface
+`,
+  )
+
+  await writeFile(
     join(project, "tsconfig.json"),
+    `${JSON.stringify(
+      {
+        compilerOptions: {
+          lib: ["ES2022", "DOM"],
+          module: "NodeNext",
+          moduleResolution: "NodeNext",
+          noEmit: true,
+          strict: true,
+          target: "ES2022",
+        },
+        files: ["smoke.ts"],
+      },
+      null,
+      2,
+    )}\n`,
+  )
+
+  await writeFile(
+    join(checkerProject, "package.json"),
+    `${JSON.stringify(
+      {
+        name: "genui-check-pack-smoke",
+        private: true,
+        type: "module",
+        dependencies: {
+          "@genui/check": `file:${checkerPack.filename}`,
+          genui: `file:${genuiPack.filename}`,
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  )
+
+  await writeFile(
+    join(checkerProject, "smoke.mjs"),
+    `import assert from "node:assert/strict"
+import { checkGeneratedInterface } from "@genui/check"
+import { action, Genui } from "genui"
+
+const input = {
+  "~standard": {
+    version: 1,
+    vendor: "check-pack-smoke",
+    validate: (value) =>
+      typeof value === "object" && value !== null && typeof value.query === "string"
+        ? { value: { query: value.query } }
+        : { issues: [{ message: "query required" }] },
+  },
+}
+const search = action({
+  name: "pack.search",
+  description: "Search the pack-smoke fixture.",
+  effect: "read",
+  input,
+  inputJsonSchema: {
+    type: "object",
+    properties: { query: { type: "string" } },
+    required: ["query"],
+    additionalProperties: false,
+  },
+  execute: (_context, value) => ({ query: value.query }),
+})
+const generation = new Genui({ actions: [search] }).generation({ actions: [search] })
+
+const valid = await checkGeneratedInterface(generation, {
+  content: '<script type="module">await genui.call("pack.search", { query: "GenUI" })</script>',
+})
+assert.deepEqual(valid, { ok: true })
+
+const invalid = await checkGeneratedInterface(generation, {
+  content: '<script type="module">genui.missing()</script>',
+})
+assert.equal(invalid.ok, false)
+assert.match(invalid.report, /missing/)
+`,
+  )
+
+  await writeFile(
+    join(checkerProject, "smoke.ts"),
+    `import {
+  checkGeneratedInterface,
+  type CheckGeneratedInterfaceOptions,
+  type GeneratedInterfaceCheckResult,
+  type GeneratedInterfaceDiagnostic,
+} from "@genui/check"
+import {
+  Genui,
+  action,
+  generationCheckerContractVersion,
+  readGenerationCheckerContract,
+  type Generation,
+  type GenerationCheckerCapabilityInput,
+  type GenerationCheckerContract,
+  type StandardSchemaV1,
+} from "genui"
+
+const input: StandardSchemaV1<unknown, { readonly query: string }> = {
+  "~standard": {
+    version: 1,
+    vendor: "check-pack-smoke",
+    validate: (_value) => ({ value: { query: "GenUI" } }),
+  },
+}
+const search = action({
+  name: "pack.search",
+  description: "Search the pack-smoke fixture.",
+  effect: "read",
+  input,
+  inputJsonSchema: { type: "object" },
+  execute: (_context: undefined, value) => value,
+})
+const generation: Generation = new Genui({ actions: [search] }).generation({ actions: [search] })
+const contract: GenerationCheckerContract | undefined = readGenerationCheckerContract(generation)
+const contractVersion: 1 = generationCheckerContractVersion
+const capabilityInput: GenerationCheckerCapabilityInput | undefined =
+  contract?.capabilityInputs[0]
+const options: CheckGeneratedInterfaceOptions = {
+  content: '<script type="module">await genui.call("pack.search", {})</script>',
+}
+const checked: Promise<GeneratedInterfaceCheckResult> = checkGeneratedInterface(
+  generation,
+  options,
+)
+const diagnostic: GeneratedInterfaceDiagnostic = {
+  code: "TS2339",
+  line: 1,
+  column: 1,
+  message: "Example external-consumer diagnostic.",
+}
+const report = (result: GeneratedInterfaceCheckResult): string | undefined =>
+  result.ok ? undefined : result.report
+
+void contractVersion
+void capabilityInput
+void checked
+void diagnostic
+void report
+`,
+  )
+
+  await writeFile(
+    join(checkerProject, "tsconfig.json"),
     `${JSON.stringify(
       {
         compilerOptions: {
@@ -597,7 +737,31 @@ void resultOutcome
     project,
   )
 
-  process.stdout.write("Packed genui package and type smoke test passed.\n")
+  const browserBuild = await buildBrowserFixture({
+    absWorkingDir: project,
+    bundle: true,
+    entryPoints: ["browser.mjs"],
+    format: "esm",
+    metafile: true,
+    outfile: "browser.js",
+    platform: "browser",
+  })
+  assert.doesNotMatch(
+    Object.keys(browserBuild.metafile.inputs).join("\n"),
+    /(?:@genui\/check|parse5|typescript)/,
+  )
+
+  await run("nub", ["install", "--ignore-scripts"], checkerProject)
+  await run("node", ["smoke.mjs"], checkerProject)
+  await run(
+    "node",
+    [join(root, "node_modules/typescript/bin/tsc"), "--project", "tsconfig.json"],
+    checkerProject,
+  )
+
+  process.stdout.write(
+    `PACKAGE-ISOLATION-001 passed. genui package: ${String(genuiPack.size)} bytes; @genui/check package: ${String(checkerPack.size)} bytes.\n`,
+  )
 } finally {
   await rm(temp, { force: true, recursive: true })
 }

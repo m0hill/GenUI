@@ -1,8 +1,11 @@
 export { action, Genui, subscription } from "./registry.js"
+export { generationCheckerContractVersion, readGenerationCheckerContract } from "./generation.js"
 export { memoryStore } from "./surface-runtime.js"
 export type {
   CreateSurfaceOptions,
   Generation,
+  GenerationCheckerCapabilityInput,
+  GenerationCheckerContract,
   GenerationGuidance,
   GenerationOptions,
 } from "./generation.js"

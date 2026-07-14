@@ -21,3 +21,5 @@
   boundaries, hardening, and the recommended implementation order.
 - [playground README](../examples/playground/README.md) — run the reference host
   and evaluate model output through the real sandbox and action pipeline.
+- [checker package README](../packages/check/README.md) — install and use the
+  optional server-side generated-interface preflight package.
