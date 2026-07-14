@@ -1,12 +1,15 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { registerAction, type RegisteredAction } from "./action-projections.js"
-import type { Policy } from "./protocol/index.js"
+import { maxSurfaceContentBytes, type Policy, type SurfaceRecord } from "./protocol/index.js"
 import { registerSubscription, type RegisteredSubscription } from "./subscription-projections.js"
 import { createSurfaceRuntime } from "./surface-runtime.js"
 import { isRecord, testSchema } from "./test-schema.test-support.js"
-import type { AnyActionDefinition } from "./types.js"
+import type { AnyActionDefinition, SurfaceStore } from "./types.js"
 import type { AnySubscriptionDefinition } from "./types.js"
+
+const exactSurfaceContent = `${"界".repeat(Math.floor(maxSurfaceContentBytes / 3))}x`
+const oversizedSurfaceContent = `${exactSurfaceContent}界`
 
 const emptyInput = testSchema<Readonly<Record<string, never>>>((value) =>
   isRecord(value) ? { ok: true, value: {} } : { ok: false, message: "input must be an object." },
@@ -166,4 +169,86 @@ void test("surface runtime accepts only the shipped dialect", async () => {
     runtime.surface({ dialect: "code/1", content: "", actions: [] }),
     /Unsupported generated UI dialect: code\/1/,
   )
+})
+
+void test("PREFLIGHT-BOUNDS-006 rejects oversized creation before projection or storage", async () => {
+  let stored = 0
+  const store: SurfaceStore = {
+    get: () => undefined,
+    set: () => {
+      stored += 1
+    },
+    revoke: () => undefined,
+    runIdempotent: async (_request, operation) => ({
+      status: "result",
+      result: await operation(),
+    }),
+  }
+  const byName = new (class extends Map<string, RegisteredAction<unknown>> {
+    override get(): RegisteredAction<unknown> | undefined {
+      throw new Error("authority projection must not run")
+    }
+  })()
+  const runtime = createSurfaceRuntime({ byName, store })
+
+  assert.equal(exactSurfaceContent.length < maxSurfaceContentBytes, true)
+  assert.equal(new TextEncoder().encode(exactSurfaceContent).byteLength, maxSurfaceContentBytes)
+  await assert.rejects(
+    runtime.surface({ content: oversizedSurfaceContent, actions: ["dice.roll"] }),
+    (error: unknown) => {
+      assert.ok(error instanceof RangeError)
+      assert.match(error.message, /102400 UTF-8 bytes/)
+      assert.doesNotMatch(error.message, /界/)
+      return true
+    },
+  )
+  assert.equal(stored, 0)
+
+  const accepted = await createSurfaceRuntime({ byName: new Map(), store }).surface({
+    content: exactSurfaceContent,
+    actions: [],
+  })
+  assert.equal(accepted.content, exactSurfaceContent)
+  assert.equal(stored, 1)
+})
+
+void test("PREFLIGHT-BOUNDS-006 refuses oversized records returned by a custom store", async () => {
+  const backingRuntime = createSurfaceRuntime({ byName: new Map() })
+  const created = await backingRuntime.surface({ content: "<p>Stored</p>", actions: [] })
+  const validRecord = await backingRuntime.getRecord(created.id)
+  assert.ok(validRecord)
+
+  const records: readonly SurfaceRecord[] = [
+    {
+      ...validRecord,
+      source: { ...validRecord.source, content: oversizedSurfaceContent },
+    },
+    {
+      ...validRecord,
+      surface: { ...validRecord.surface, content: oversizedSurfaceContent },
+    },
+  ]
+
+  for (const record of records) {
+    let stored = 0
+    const runtime = createSurfaceRuntime({
+      byName: new Map(),
+      store: {
+        get: () => record,
+        set: () => {
+          stored += 1
+        },
+        revoke: () => undefined,
+        runIdempotent: async (_request, operation) => ({
+          status: "result",
+          result: await operation(),
+        }),
+      },
+    })
+
+    assert.equal(await runtime.getRecord(record.surface.id), undefined)
+    assert.equal(await runtime.diagnostics(record.surface.id), undefined)
+    assert.equal(await runtime.reprojectSurface(record.surface.id), undefined)
+    assert.equal(stored, 0)
+  }
 })

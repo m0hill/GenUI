@@ -17,6 +17,7 @@ import {
   type RegisteredSubscription,
 } from "./subscription-projections.js"
 import { copyJsonSchema } from "./schema.js"
+import { assertSurfaceContentWithinLimit, isSurfaceContentWithinLimit } from "./surface-content.js"
 import type {
   SurfaceStoreIdempotencyRequest,
   SurfaceStoreIdempotencyResult,
@@ -151,6 +152,7 @@ const copySurfaceRecord = (record: SurfaceRecord): SurfaceRecord => ({
 })
 
 const assertCodeSurface = (source: SurfaceInput): void => {
+  assertSurfaceContentWithinLimit(source.content)
   if (source.dialect !== undefined && source.dialect !== codeDialect) {
     throw new Error(`Unsupported generated UI dialect: ${source.dialect}`)
   }
@@ -260,7 +262,14 @@ export const createSurfaceRuntime = <Ctx>({
 
   const storedRecord = async (id: string): Promise<SurfaceRecord | undefined> => {
     const record = await store.get(id)
-    return record === undefined ? undefined : copySurfaceRecord(record)
+    if (
+      record === undefined ||
+      !isSurfaceContentWithinLimit(record.source.content) ||
+      !isSurfaceContentWithinLimit(record.surface.content)
+    ) {
+      return undefined
+    }
+    return copySurfaceRecord(record)
   }
 
   const surface = async (input: SurfaceInput): Promise<Surface> => {

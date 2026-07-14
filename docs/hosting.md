@@ -102,6 +102,17 @@ provider prompt interface.
 Return the serializable `Surface` to the browser. Do not let the browser supply
 or mutate the authoritative grant.
 
+Surface content is limited to 102,400 UTF-8 bytes. Import
+`maxSurfaceContentBytes` from `genui/protocol` when an application needs to
+apply an earlier advisory limit. Measure with `TextEncoder`; character counts
+are not equivalent for CJK, emoji, and other multibyte text. Smaller host
+limits are allowed. Do not truncate content to make it fit.
+
+`createSurface()` rejects oversized content before grant projection or
+storage. `parseSurface()` returns `undefined` for an oversized transport value.
+Browser `mount()` and `replace()` reject before iframe injection, even when a
+caller bypasses the protocol decoder.
+
 `GenuiOptions.subscriptions` and `GenerationOptions.subscriptions` are optional
 and default to empty. Every serialized grant still carries separate `actions`
 and `subscriptions` arrays. Action and subscription names must be globally

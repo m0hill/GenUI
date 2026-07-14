@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import {
+  maxSurfaceContentBytes,
   parseActionCall,
   parseActionResult,
   parseSubscriptionDelivery,
@@ -9,6 +10,9 @@ import {
   parseSurface,
   subscriptionEventByteLimit,
 } from "./index.js"
+
+const exactSurfaceContent = `${"界".repeat(Math.floor(maxSurfaceContentBytes / 3))}x`
+const oversizedSurfaceContent = `${exactSurfaceContent}界`
 
 const validSurface = {
   id: "surface-1",
@@ -131,6 +135,17 @@ void test("parseSurface accepts a JSON round trip and rejects malformed fields",
   for (const [field, value] of malformed) {
     assert.equal(parseSurface(value), undefined, field)
   }
+})
+
+void test("PREFLIGHT-BOUNDS-006 parses only Surface content within the UTF-8 bound", () => {
+  assert.equal(exactSurfaceContent.length < maxSurfaceContentBytes, true)
+  assert.equal(new TextEncoder().encode(exactSurfaceContent).byteLength, maxSurfaceContentBytes)
+  assert.equal(
+    new TextEncoder().encode(oversizedSurfaceContent).byteLength > maxSurfaceContentBytes,
+    true,
+  )
+  assert.notEqual(parseSurface({ ...validSurface, content: exactSurfaceContent }), undefined)
+  assert.equal(parseSurface({ ...validSurface, content: oversizedSurfaceContent }), undefined)
 })
 
 void test("subscription codecs copy exact requests and delivery envelopes", () => {

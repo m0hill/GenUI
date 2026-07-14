@@ -33,6 +33,11 @@ calls and subscriptions, optional host capabilities and context, state
 snapshots, and lifecycle hooks without exposing the parent page or a network
 connection.
 
+Every Surface is limited to 102,400 UTF-8 bytes. Import
+`maxSurfaceContentBytes` from `genui/protocol` for host-side byte accounting.
+Creation, protocol parsing, store re-entry, mount, and replacement all fail
+closed on oversized content and never truncate it.
+
 Security comes from isolation and trusted-side enforcement:
 
 - The iframe receives only its projected grant.

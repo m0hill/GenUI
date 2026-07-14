@@ -1,4 +1,5 @@
 import {
+  maxSurfaceContentBytes,
   subscriptionEventByteLimit,
   type ActionResult,
   type MaybePromise,
@@ -46,10 +47,17 @@ export const assertSurfaceStoreConformance = async (
   const namespace = `genui-store-${globalThis.crypto.randomUUID()}`
   const surfaceId = `${namespace}-surface`
   const subscriptionName = "records.changes"
+  const boundaryContent = `${"界".repeat(Math.floor(maxSurfaceContentBytes / 3))}x`
+  if (
+    boundaryContent.length >= maxSurfaceContentBytes ||
+    new TextEncoder().encode(boundaryContent).byteLength !== maxSurfaceContentBytes
+  ) {
+    fail("the UTF-8 boundary fixture must contain exactly maxSurfaceContentBytes bytes")
+  }
   const record: SurfaceRecord = {
     surface: {
       id: surfaceId,
-      content: "<p>Store contract</p>",
+      content: boundaryContent,
       dialect: "code/0",
       grant: {
         surfaceId,
@@ -91,7 +99,7 @@ export const assertSurfaceStoreConformance = async (
       },
     },
     source: {
-      content: "<p>Store contract</p>",
+      content: boundaryContent,
       actions: [],
       subscriptions: [subscriptionName],
       subject: "subject-1",

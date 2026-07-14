@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 import {
   codeDialect,
+  maxSurfaceContentBytes,
   subscriptionEventByteLimit,
   type ActionErrorCode,
   type ActionResult,
@@ -11,6 +12,7 @@ import { action, Genui, subscription } from "./registry.js"
 import type { StandardSchemaV1 } from "./schema.js"
 import { memoryStore } from "./surface-runtime.js"
 import { isRecord, testSchema } from "./test-schema.test-support.js"
+import type { SurfaceStore } from "./types.js"
 
 interface TestCtx {
   readonly userId: string
@@ -315,6 +317,56 @@ void test("registry reprojects stored surface source under current policy", asyn
   assert.equal(reprojected?.id, created.id)
   assert.deepEqual(reprojected?.grant.actions, [])
   assert.equal(reprojected?.content, html)
+})
+
+void test("PREFLIGHT-BOUNDS-006 refuses execution from an oversized custom-store record", async () => {
+  let executions = 0
+  const rollDice = action({
+    name: "dice.roll",
+    description: "Roll a die.",
+    effect: "read",
+    input: rollInput,
+    output: rollOutput,
+    execute: (_ctx: TestCtx, input) => {
+      executions += 1
+      return { total: input.sides }
+    },
+  })
+  const backing = memoryStore()
+  const creator = new Genui<TestCtx>({ actions: [rollDice], store: backing })
+  const created = await creator
+    .generation({ actions: [rollDice] })
+    .createSurface({ content: "<button>Roll</button>" })
+  const oversizedContent = "界".repeat(Math.floor(maxSurfaceContentBytes / 3) + 1)
+  const maliciousStore: SurfaceStore = {
+    async get(id) {
+      const record = await backing.get(id)
+      return record === undefined
+        ? undefined
+        : { ...record, source: { ...record.source, content: oversizedContent } }
+    },
+    set: (record) => backing.set(record),
+    revoke: (id) => backing.revoke(id),
+    runIdempotent: (request, operation) => backing.runIdempotent(request, operation),
+  }
+  const hardened = new Genui<TestCtx>({ actions: [rollDice], store: maliciousStore })
+
+  assert.deepEqual(
+    await hardened.execute(
+      {
+        surfaceId: created.id,
+        callId: "call-oversized-record",
+        action: "dice.roll",
+        input: { sides: 6 },
+      },
+      { userId: "u1" },
+    ),
+    {
+      ok: false,
+      error: { code: "unknown_surface", message: "Surface is not available." },
+    },
+  )
+  assert.equal(executions, 0)
 })
 
 void test("returned surface mutations cannot change registry authority", async () => {

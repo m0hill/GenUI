@@ -1,6 +1,14 @@
 /** Buildless sandboxed HTML and JavaScript dialect. */
 export const codeDialect = "code/0"
 
+/** Package-wide maximum for generated Surface content, measured as UTF-8 bytes. */
+export const maxSurfaceContentBytes = 102_400
+
+const surfaceContentEncoder = new TextEncoder()
+
+const isSurfaceContentWithinLimit = (content: string): boolean =>
+  surfaceContentEncoder.encode(content).byteLength <= maxSurfaceContentBytes
+
 const actionNamePattern = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$/i
 
 /** Names start with a letter and contain at least two segments separated by `.`, `_`, or `-`. */
@@ -289,7 +297,9 @@ const isGrant = (value: unknown, surfaceId: string): value is Grant =>
 export const parseSurface = (value: unknown): Surface | undefined => {
   if (!isRecord(value)) return undefined
   if (typeof value.id !== "string") return undefined
-  if (typeof value.content !== "string") return undefined
+  if (typeof value.content !== "string" || !isSurfaceContentWithinLimit(value.content)) {
+    return undefined
+  }
   if (typeof value.dialect !== "string") return undefined
   if (!isGrant(value.grant, value.id)) return undefined
   if (value.meta !== undefined && !isRecord(value.meta)) return undefined

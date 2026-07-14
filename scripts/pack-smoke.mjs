@@ -83,6 +83,7 @@ import { action, Genui, memoryStore, subscription } from "genui"
 import { mount, SubscriptionTransportError } from "genui/dom"
 import {
   codeDialect,
+  maxSurfaceContentBytes,
   parseActionCall,
   parseSubscriptionDelivery,
   parseSubscriptionRequest,
@@ -101,6 +102,7 @@ assert.equal(typeof parseSubscriptionRequest, "function")
 assert.equal(typeof parseSubscriptionDelivery, "function")
 assert.equal(typeof assertSurfaceStoreConformance, "function")
 assert.equal(codeDialect, "code/0")
+assert.equal(maxSurfaceContentBytes, 102_400)
 
 const assertPackageMissing = async (specifier) => {
   await assert.rejects(import(specifier), (error) => error?.code === "ERR_MODULE_NOT_FOUND")
@@ -268,6 +270,7 @@ import {
   type TeardownOptions,
 } from "genui/dom"
 import {
+  maxSurfaceContentBytes,
   parseActionCall,
   parseSubscriptionDelivery,
   parseSubscriptionRequest,
@@ -495,6 +498,7 @@ const subscriptionTransportError = new SubscriptionTransportError(
   "Subscription transport is unavailable.",
 )
 const parsedSurface: Surface | undefined = parseSurface({})
+const surfaceContentByteLimit: 102_400 = maxSurfaceContentBytes
 const mountFunction: typeof mount = mount
 const snapshot: SnapshotValue = { selected: "pack" }
 const imagePolicy: ImagePolicy = "none"
@@ -547,6 +551,7 @@ void teardownOptions
 void violationReason
 void closeReason
 void mounted
+void surfaceContentByteLimit
 void unboundedDimensions
 void hostContext
 void storeFactory

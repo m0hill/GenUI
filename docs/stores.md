@@ -31,8 +31,16 @@ void test("Postgres SurfaceStore contract", async () => {
 
 The check covers cross-instance record visibility, concurrent joining,
 fingerprint conflicts, completed-result replay, provisional
-`approval_required` cleanup, and revocation. Run it against the real database,
+`approval_required` cleanup, revocation, and lossless persistence of Surface
+content at the 102,400-byte UTF-8 boundary. Run it against the real database,
 not an in-memory fake.
+
+The runtime treats the Surface content bound as authoritative after storage.
+If either `SurfaceRecord.source.content` or `SurfaceRecord.surface.content`
+exceeds 102,400 UTF-8 bytes, loading, execution, diagnostics, and reprojection
+fail closed as if the record were unavailable. This also applies to old or
+custom-store-provided records that exceed the limit. Do not truncate, migrate,
+or bypass the record at the adapter boundary.
 
 ## Required idempotency states
 

@@ -61,8 +61,16 @@ diagnostics and a report suitable for a model retry. Failures outside model
 content reject with `GeneratedInterfaceCheckError`; do not present them as
 repair instructions. Cancellation rejects with the supplied signal's reason.
 
+A Surface may contain at most 102,400 UTF-8 bytes. The checker, protocol
+decoder, authoritative runtime, store re-entry, browser mount, and replacement
+all enforce the same bound without truncation. A host may impose a smaller
+limit, but it must measure UTF-8 bytes rather than JavaScript string length.
+The checker accepts at most 16 inline module scripts.
+
 GenUI-owned diagnostics have stable meanings:
 
+- `GENUI004` reports Surface content over 102,400 UTF-8 bytes;
+- `GENUI005` reports more than 16 inline module scripts;
 - `GENUI006` reports literal `null` or `undefined` when the selected capability
   input schema statically excludes it;
 - `GENUI007` reports module imports and re-exports;
