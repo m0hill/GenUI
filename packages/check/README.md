@@ -25,6 +25,14 @@ Invalid generated content returns `{ ok: false, diagnostics, report }`. Send the
 bounded report to model-repair policy when appropriate. `HTML:*` and `TS*`
 diagnostic codes and wording are scoped to the installed checker version.
 
+Stable `GENUI006`–`GENUI014` diagnostics cover incompatible literal nullish
+capability inputs, imports, direct network and worker APIs, persistent storage,
+parent-page access, direct navigation, runtime code generation,
+`document.currentScript`, and unsupported HTML structures. Browser-global
+rules accept locally shadowed names and recognize static properties on
+`window`, `self`, and `globalThis`. They intentionally do not prove arbitrary
+data flow, semantic UI correctness, or host-dependent image policy.
+
 Failures outside model content reject with `GeneratedInterfaceCheckError`:
 
 - `incompatible_generation` — the value is not a compatible GenUI

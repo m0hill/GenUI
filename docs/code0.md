@@ -61,6 +61,29 @@ diagnostics and a report suitable for a model retry. Failures outside model
 content reject with `GeneratedInterfaceCheckError`; do not present them as
 repair instructions. Cancellation rejects with the supplied signal's reason.
 
+GenUI-owned diagnostics have stable meanings:
+
+- `GENUI006` reports literal `null` or `undefined` when the selected capability
+  input schema statically excludes it;
+- `GENUI007` reports module imports and re-exports;
+- `GENUI008` reports direct network, connection, beacon, and worker-loading
+  APIs;
+- `GENUI009` reports persistent browser storage and cookies;
+- `GENUI010` reports parent-page, opener, and frame-owner access;
+- `GENUI011` reports direct location, history, window-open, and Navigation API
+  mutation;
+- `GENUI012` reports direct runtime code generation and string-valued timers;
+- `GENUI013` reports `document.currentScript`; and
+- `GENUI014` reports unsupported external-resource, embedded-document, base,
+  refresh, form, and navigation HTML structures.
+
+The JavaScript rules resolve real browser globals and direct `window`, `self`,
+or `globalThis` property access, including static computed properties. Local
+shadows are accepted. The checker does not perform general data-flow analysis.
+Unknown schema compatibility is accepted and remains subject to runtime
+validation. Image URLs remain host-policy-dependent and are not rejected
+unconditionally.
+
 The check improves feedback; it does not grant authority or make generated code
 trusted. `createSurface()`, the browser broker, and the kernel still apply their
 normal fail-closed policy, grant, schema, approval, and lifecycle checks.
@@ -73,7 +96,8 @@ HTML, inline CSS, DOM APIs, and inline `<script type="module">` blocks.
 Keep scripts and styles inline. Do not use network APIs such as `fetch`,
 `WebSocket`, or `EventSource`, external scripts, external stylesheets,
 parent-page access, persistent storage, or navigation. The sandbox blocks these
-facilities; code that depends on them will fail.
+facilities; the optional checker reports maintained direct/static forms before
+mounting. Runtime isolation remains authoritative.
 
 Handle `genui.call()` failures and render a useful error state. Generated code
 must not treat a rendered confirmation or button state as authorization.
