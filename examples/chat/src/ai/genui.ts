@@ -78,11 +78,13 @@ export const generatedUi = runtime.generation({
 export const executeGeneratedUiAction = (
   call: ActionCall,
   preferences: JsonPreferenceStore,
+  subject: string,
   approve?: ExecuteOptions["approve"],
-): Promise<ActionResult> => runtime.execute(call, { preferences }, { approve })
+): Promise<ActionResult> => runtime.execute(call, { preferences }, { subject, approve })
 
 export const openGeneratedUiSubscription = (
   request: SubscriptionRequest,
   preferences: JsonPreferenceStore,
+  subject: string,
   signal: AbortSignal,
-) => runtime.subscribe(request, { preferences }, { signal })
+) => runtime.subscribe(request, { preferences }, { subject, signal })

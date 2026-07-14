@@ -15,6 +15,7 @@ import {
 } from "./ai/generated-interface-repair.js"
 import { type GeneratedUiModelContext, modelId, streamChat } from "./ai/index.js"
 import { parseExecuteRequest, pendingApprovals, type ExecuteEnvelope } from "./approval.js"
+import { authenticatedSessions } from "./authenticated-session.js"
 import { renderMarkdown } from "./markdown.js"
 import { JsonPreferenceStore } from "./preferences.js"
 import {
@@ -70,6 +71,15 @@ const requestJson = async (request: Request): Promise<unknown> => {
   } catch {
     return null
   }
+}
+
+const sessionFromRequest = (request: Request) => {
+  const credential = request.headers
+    .get("cookie")
+    ?.split(";")
+    .map((part) => part.trim().split("=", 2))
+    .find(([name]) => name === "chat_session")?.[1]
+  return authenticatedSessions.get(credential)
 }
 
 const ChevronIcon = () => (
@@ -274,8 +284,10 @@ app.use(
   }),
 )
 
-app.get("/", () => {
+app.get("/", (c) => {
+  const current = sessionFromRequest(c.req.raw) ?? authenticatedSessions.create()
   const turns = session.getTurns()
+  c.header("set-cookie", `chat_session=${current.credential}; HttpOnly; SameSite=Strict; Path=/`)
   return reply.page(
     <main class="shell" data-signals={chatState.defaults}>
       <header class="masthead">
@@ -333,6 +345,7 @@ app.get("/", () => {
       head: [
         <meta name="viewport" content="width=device-width, initial-scale=1" />,
         <meta name="color-scheme" content="light" />,
+        <meta name="chat-csrf" content={current.csrfToken} />,
         <link
           rel="preload"
           href="/assets/fonts/geist-latin-wght-normal.woff2"
@@ -356,6 +369,15 @@ app.get("/", () => {
 })
 
 app.post("/genui/execute", async (c) => {
+  const current = sessionFromRequest(c.req.raw)
+  if (current === undefined || c.req.header("x-chat-csrf") !== current.csrfToken) {
+    return c.json(
+      {
+        result: actionError("unknown_surface", "Authentication is required."),
+      } satisfies ExecuteEnvelope,
+      401,
+    )
+  }
   const request = parseExecuteRequest(await requestJson(c.req.raw))
   if (request === undefined) {
     return c.json(
@@ -365,12 +387,16 @@ app.post("/genui/execute", async (c) => {
       400,
     )
   }
-  const result = await executeGeneratedUiAction(request.call, preferences, (_action, input) =>
-    pendingApprovals.check({
-      call: request.call,
-      input,
-      token: request.approvalToken,
-    }),
+  const result = await executeGeneratedUiAction(
+    request.call,
+    preferences,
+    current.subject,
+    (_action, input) =>
+      pendingApprovals.check({
+        call: request.call,
+        input,
+        token: request.approvalToken,
+      }),
   )
   const approvalToken =
     !result.ok && result.error.code === "approval_required"
@@ -383,6 +409,10 @@ app.post("/genui/execute", async (c) => {
 })
 
 app.post("/genui/subscribe", async (c) => {
+  const current = sessionFromRequest(c.req.raw)
+  if (current === undefined || c.req.header("x-chat-csrf") !== current.csrfToken) {
+    return c.json(subscriptionOpenError("unknown_surface", "Authentication is required."), 401)
+  }
   const request = parseSubscriptionRequest(await requestJson(c.req.raw))
   if (request === undefined) {
     return c.json(subscriptionOpenError("invalid_input", "Malformed subscription request."), 400)
@@ -401,7 +431,12 @@ app.post("/genui/subscribe", async (c) => {
     sourceController.abort()
   }
 
-  const opened = await openGeneratedUiSubscription(request, preferences, sourceController.signal)
+  const opened = await openGeneratedUiSubscription(
+    request,
+    preferences,
+    current.subject,
+    sourceController.signal,
+  )
   if (!opened.ok) {
     stopSource()
     return c.json(opened, 400)
@@ -440,6 +475,9 @@ app.post("/chat/new", async () => {
 })
 
 app.post("/chat", async (c) => {
+  const current = sessionFromRequest(c.req.raw)
+  if (current === undefined) return c.text("Authentication is required.", 401)
+  const subject = current.subject
   const signals = await read.signals(c.req.raw).catch(() => null)
   const parsed = ChatSignals.safeParse(signals)
   if (!parsed.success) {
@@ -491,6 +529,7 @@ app.post("/chat", async (c) => {
         prompt,
         modelContext,
         preferences,
+        subject,
         signal: c.req.raw.signal,
       })
       for await (const item of response) {

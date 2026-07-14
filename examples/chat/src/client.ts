@@ -95,6 +95,7 @@ const composer = document.querySelector<HTMLFormElement>(".composer")
 const prompt = document.querySelector<HTMLTextAreaElement>('textarea[data-bind="prompt"]')
 const modelContext = document.querySelector<HTMLInputElement>('input[data-bind="modelContext"]')
 const approvals = new Map<string, { readonly token: string; approved: boolean }>()
+const csrfToken = document.querySelector<HTMLMetaElement>('meta[name="chat-csrf"]')?.content
 const callKey = (surfaceId: string, callId: string): string => JSON.stringify([surfaceId, callId])
 
 type CapturedSnapshot = {
@@ -114,7 +115,7 @@ const persistSnapshots = async (): Promise<void> => {
 
   const response = await fetch("/genui/snapshots", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", "x-chat-csrf": csrfToken ?? "" },
     body: JSON.stringify(snapshots),
   })
   if (!response.ok) throw new Error("Generated interface state could not be saved.")
@@ -161,7 +162,7 @@ const executeAction: ActionTransport = async (call, options) => {
   if (approval?.approved) approvals.delete(key)
   const response = await fetch("/genui/execute", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", "x-chat-csrf": csrfToken ?? "" },
     body: JSON.stringify({
       call,
       ...(approval?.approved === true ? { approvalToken: approval.token } : {}),
@@ -189,7 +190,7 @@ const confirmAction: ActionConfirmationHandler = async (_action, call, intent) =
 const subscribe: SubscriptionTransport = async (request, options) => {
   const response = await fetch("/genui/subscribe", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", "x-chat-csrf": csrfToken ?? "" },
     body: JSON.stringify(request),
     signal: options.signal,
   })

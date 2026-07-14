@@ -120,6 +120,7 @@ export interface StreamChatInput {
   readonly prompt: string
   readonly modelContext: GeneratedUiModelContext | undefined
   readonly preferences: JsonPreferenceStore
+  readonly subject: string
   readonly signal: AbortSignal
 }
 
@@ -134,7 +135,7 @@ export async function streamChatWithProvider<TApi extends Api>(
   activeModel: Model<TApi>,
   apiKey: string,
 ): Promise<AsyncIterable<ChatStreamEvent>> {
-  const { history, prompt, modelContext, preferences, signal } = input
+  const { history, prompt, modelContext, preferences, signal, subject } = input
   const userContent: Extract<Message, { role: "user" }>["content"] =
     modelContext === undefined
       ? prompt
@@ -218,7 +219,7 @@ export async function streamChatWithProvider<TApi extends Api>(
             const checked = await checkGeneratedInterface(generatedUi, { content, signal })
             if (checked.ok) {
               generatedInterfaceRepair.accept()
-              const surface = await generatedUi.createSurface({ content })
+              const surface = await generatedUi.createSurface({ content, subject })
               text = "The generated interface was rendered in the conversation."
               events = [{ type: "surface_result", surface }]
               context.messages.push({

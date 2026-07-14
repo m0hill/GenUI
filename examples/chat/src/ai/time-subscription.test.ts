@@ -6,7 +6,10 @@ import { JsonPreferenceStore } from "../preferences.js"
 import { generatedUi, openGeneratedUiSubscription } from "./genui.js"
 
 void test("time.tick emits immediately and stops when its transport is cancelled", async () => {
-  const surface = await generatedUi.createSurface({ content: "<p>Clock</p>" })
+  const surface = await generatedUi.createSurface({
+    content: "<p>Clock</p>",
+    subject: "test-subject",
+  })
   assert.deepEqual(
     surface.grant.subscriptions.map((subscription) => subscription.name),
     ["time.tick"],
@@ -20,6 +23,7 @@ void test("time.tick emits immediately and stops when its transport is cancelled
       input: {},
     },
     new JsonPreferenceStore(join(tmpdir(), "unused-preferences.json")),
+    "test-subject",
     controller.signal,
   )
 
