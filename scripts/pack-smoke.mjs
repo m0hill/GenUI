@@ -589,7 +589,7 @@ void resultOutcome
     )}\n`,
   )
 
-  await run("nub", ["install", "--offline", "--ignore-scripts"], project)
+  await run("nub", ["install", "--ignore-scripts"], project)
   await run("node", ["smoke.mjs"], project)
   await run(
     "node",

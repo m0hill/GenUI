@@ -35,9 +35,10 @@ Run the external-consumer smoke test before distributing a local build:
 nub run test:pack
 ```
 
-It packs the private package, installs the tarball into a temporary project
-without registry access, and checks JavaScript and TypeScript imports through
-all four public entrypoints. The temporary tarball is deleted after the test.
+It packs the private package, installs that local tarball into a temporary
+external project, and checks JavaScript and TypeScript imports through every
+public entrypoint. Registry dependencies may be fetched normally; GenUI itself
+always comes from the tarball. The temporary tarball is deleted after the test.
 
 ## Create the server runtime
 
