@@ -14,6 +14,7 @@
     "lint:fix": "oxlint src --type-aware --fix",
     "start": "nub run build && nub src/server.ts",
     "test": "nub run build && nub --test $(find src -name '*.test.ts' -print)",
+    "test:reliability": "nub run build && nub --test src/reliability.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

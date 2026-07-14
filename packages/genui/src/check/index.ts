@@ -2,6 +2,7 @@ import { parseFragment, type DefaultTreeAdapterTypes, type ParserError } from "p
 import { API, type Diagnostic } from "typescript/unstable/async"
 import { createVirtualFileSystem } from "typescript/unstable/fs"
 import { generationCapabilityDeclarations, type Generation } from "../generation.js"
+import { genuiGuestDeclarations } from "../code/guest-contract.js"
 
 export interface CheckGeneratedInterfaceOptions {
   readonly content: string
@@ -44,35 +45,7 @@ const maxReportLength = 8_000
 const maxReportLineLength = 160
 const htmlNamespace = "http://www.w3.org/1999/xhtml"
 
-const guestDeclarations = `
-type GenuiJson = null | boolean | number | string | readonly GenuiJson[] | {
-  readonly [key: string]: GenuiJson
-}
-
-interface GenuiHostContext {
-  readonly theme?: "light" | "dark"
-  readonly containerDimensions?: {
-    readonly height?: number
-    readonly maxHeight?: number
-    readonly width?: number
-    readonly maxWidth?: number
-  }
-  readonly locale?: string
-  readonly timeZone?: string
-  readonly platform?: string
-}
-
-interface GenuiSubscriptionHandle {
-  unsubscribe(): Promise<void>
-  readonly done: Promise<
-    | { readonly ok: true; readonly reason: "completed" | "unsubscribed" }
-    | {
-        readonly ok: false
-        readonly error: { readonly code: string; readonly message: string }
-      }
-  >
-}
-
+const checkerDomDeclarations = `
 // The checker validates syntax and the GenUI contract, not DOM element specialization. Generated
 // interfaces commonly select controls by dynamic IDs, where lib.dom cannot infer the element type.
 interface ParentNode {
@@ -83,26 +56,6 @@ interface ParentNode {
 interface Document {
   getElementById(elementId: string): any
 }
-
-interface Genui {
-  readonly surfaceId: string
-  readonly hostContext: GenuiHostContext
-  readonly sendMessage?: (text: string) => Promise<void>
-  readonly openLink?: (url: string) => Promise<void>
-  readonly updateModelContext?: (params: {
-    readonly content?: string
-    readonly structuredContent?: Readonly<Record<string, GenuiJson>>
-  }) => Promise<void>
-  onHostContextChange(handler: (partial: GenuiHostContext) => void | Promise<void>): void
-  snapshot(provider: (restored?: any) => GenuiJson | Promise<GenuiJson>): void
-  teardown(handler: (context: { readonly reason?: string }) => void | Promise<void>): void
-}
-
-interface Window {
-  readonly genui: Readonly<Genui>
-}
-
-declare const genui: Readonly<Genui>
 `
 
 /** Check inline module scripts against one selected Generation before creating a surface. */
@@ -210,7 +163,7 @@ const checkModules = async (
   signal: AbortSignal,
 ): Promise<readonly GeneratedInterfaceDiagnostic[]> => {
   const files: Record<string, string> = {
-    [contractPath]: `${guestDeclarations}\n${generationCapabilityDeclarations(generation)}`,
+    [contractPath]: `${genuiGuestDeclarations}\n${checkerDomDeclarations}\n${generationCapabilityDeclarations(generation)}`,
     [tsconfigPath]: JSON.stringify(
       {
         compilerOptions: {

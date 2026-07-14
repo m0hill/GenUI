@@ -1,7 +1,8 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import type { Action } from "../protocol/index.js"
+import type { Action, Subscription } from "../protocol/index.js"
 import { codeCapabilityArtifacts, codeCapabilityContract } from "./capability-contract.js"
+import { genuiSubscriptionHandleDeclaration } from "./guest-contract.js"
 
 void test("capability contract renders supported schemas as TypeScript declarations", () => {
   const actions = [
@@ -117,4 +118,37 @@ void test("capability artifacts expose raw checker declarations from the prompt 
   assert.match(artifacts.declarations, /interface GenuiSubscriptionMap \{\s*\}/)
   assert.match(artifacts.declarations, /Name extends keyof GenuiActionMap/)
   assert.doesNotMatch(artifacts.declarations, /```|Generated-interface capability contract/)
+})
+
+void test("capability contract declares the subscription handle only when selected", () => {
+  const subscriptions = [
+    {
+      name: "orders.changes",
+      description: "Watch order changes.",
+      confidentiality: "normal",
+      inputSchema: { type: "object", additionalProperties: false },
+      eventSchema: { type: "object", additionalProperties: true },
+      maxEventBytes: 4_096,
+    },
+  ] satisfies readonly Subscription[]
+
+  const withSubscription = codeCapabilityArtifacts([], subscriptions).prompt
+  assert.equal(withSubscription.includes(genuiSubscriptionHandleDeclaration), true)
+  assert.ok(
+    withSubscription.indexOf(genuiSubscriptionHandleDeclaration) <
+      withSubscription.indexOf("interface Genui {"),
+  )
+
+  const actionOnly = codeCapabilityContract(
+    [
+      {
+        name: "orders.get",
+        description: "Get an order.",
+        effect: "read",
+        requiresApproval: false,
+      },
+    ],
+    [],
+  )
+  assert.equal(actionOnly.includes(genuiSubscriptionHandleDeclaration), false)
 })

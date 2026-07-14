@@ -13,6 +13,7 @@
     "test": "nub run build && nub run --recursive test",
     "check": "nub run build && nub run format:check && nub run --recursive check && nub run test:pack",
     "test:pack": "node scripts/pack-smoke.mjs",
+    "test:reliability": "nub run build && nub run --filter @genui/playground test:reliability",
     "typecheck": "nub run build && nub run --recursive typecheck",
     "lint": "nub run --recursive lint",
     "lint:fix": "nub run --recursive lint:fix",
