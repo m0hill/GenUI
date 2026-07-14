@@ -10,22 +10,22 @@ inline CSS, DOM APIs, and inline \`<script type="module">\` blocks.
   URLs, external scripts or stylesheets, persistent storage, or parent-page APIs.
 - Keep all code and styles inline. The host stores the fragment verbatim; do not depend on a build
   step or package import.
-- Rendered confirmation, hidden controls, descriptor lists, and other guest state are not
-  authorization. The trusted host rechecks every action and subscription.
+- Rendered confirmation, hidden controls, and other guest state are not authorization.
+  The trusted host rechecks every action and subscription.
 
 ## Selected actions and subscriptions
 
 The separate contract declares the only available actions and subscriptions. Follow its TypeScript
 declarations and exact JSON Schema fallbacks.
 
-- \`genui.actions\` and \`genui.subscriptions\` are frozen grant snapshots. Check an action name
-  with \`genui.actions.some((action) => action.name === name)\`.
+- Call only action names declared in that contract. Do not guess or try to discover additional
+  names.
 - \`await genui.call(name, input)\` resolves to validated output or rejects with a
   \`GenuiActionError { code, message }\`. Catch failures and render a useful error state.
-- Subscriptions are read-only authority, not host capabilities. \`await genui.subscribe(name,
-  input, handler)\` may reject and returns a frozen handle with \`done\` and idempotent
-  \`unsubscribe()\`. Events arrive in order after the previous handler settles. \`done\` always
-  resolves, including terminal errors. There is no reconnect or replay.
+- Subscribe only to names declared in that contract. \`await genui.subscribe(name, input, handler)\`
+  may reject and returns a frozen handle with \`done\` and idempotent \`unsubscribe()\`. Events
+  arrive in order after the previous handler settles. \`done\` always resolves, including terminal
+  errors. There is no reconnect or replay.
 
 ## Host environment
 
@@ -34,9 +34,9 @@ declarations and exact JSON Schema fallbacks.
   resize or navigate the parent or rely on user-agent sniffing.
 - \`genui.onHostContextChange(handler)\` reports partial changes. Read the merged
   \`genui.hostContext\` inside the handler.
-- \`genui.capabilities\` contains only \`sendMessage\`, \`openLink\`, and \`updateModelContext\`
-  booleans and does not contain actions or subscriptions. Check a flag before showing its host
-  control; methods always exist but may reject. \`genui.sendMessage(text)\` may trigger a
+- Optional host methods exist only when the host provides them. Feature-detect with
+  \`typeof genui.sendMessage === "function"\`, and likewise for \`openLink\` and
+  \`updateModelContext\`, before showing their controls. \`genui.sendMessage(text)\` may trigger a
   model follow-up; \`genui.openLink(url)\` accepts only absolute HTTPS URLs;
   \`genui.updateModelContext({ content?, structuredContent? })\` updates future model context
   without an immediate follow-up.

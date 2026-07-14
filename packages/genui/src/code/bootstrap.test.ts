@@ -13,7 +13,6 @@ import type { GuestHostContext } from "../host-context.js"
 import {
   codeDialect,
   subscriptionEventByteLimit,
-  type Action,
   type Subscription,
   type Surface,
 } from "../protocol/index.js"
@@ -24,18 +23,11 @@ const surfaceId = "surface-code"
 
 interface GuestApi {
   readonly surfaceId: string
-  readonly actions: readonly unknown[]
-  readonly subscriptions: readonly Subscription[]
-  readonly capabilities: {
-    readonly sendMessage: boolean
-    readonly openLink: boolean
-    readonly updateModelContext: boolean
-  }
   readonly hostContext: GuestHostContext
   call(name: string, input: unknown): Promise<unknown>
-  sendMessage(text: unknown): Promise<void>
-  openLink(url: unknown): Promise<void>
-  updateModelContext(params: unknown): Promise<void>
+  readonly sendMessage?: (text: unknown) => Promise<void>
+  readonly openLink?: (url: unknown) => Promise<void>
+  readonly updateModelContext?: (params: unknown) => Promise<void>
   snapshot(provider: (restored?: unknown) => unknown): void
   teardown(handler: (context: { readonly reason?: string }) => unknown): void
   onHostContextChange(handler: (partial: GuestApi["hostContext"]) => unknown): void
@@ -57,7 +49,6 @@ interface GuestApi {
 
 interface HarnessOptions {
   readonly documentId?: string
-  readonly actions?: readonly Action[]
   readonly subscriptions?: readonly Subscription[]
   readonly sendMessage?: boolean
   readonly openLink?: boolean
@@ -189,8 +180,7 @@ const createHarness = (
       channel,
       surfaceId,
       documentId: options.documentId ?? "document-code",
-      actions: options.actions ?? [],
-      subscriptions: options.subscriptions ?? [],
+      subscriptionNames: (options.subscriptions ?? []).map(({ name }) => name),
       sendMessage: options.sendMessage ?? false,
       openLink: options.openLink ?? false,
       updateModelContext: options.updateModelContext ?? false,
@@ -244,27 +234,21 @@ const assertGenuiError = async (promise: Promise<unknown>, code: string): Promis
   })
 }
 
-void test("code bootstrap installs the pinned API with its embedded grant", () => {
-  const actions = [
-    {
-      name: "orders.search",
-      description: "Search orders.",
-      effect: "read",
-      requiresApproval: false,
-      inputSchema: {
-        type: "object",
-        properties: { status: { type: "string" } },
-      },
-      outputSchema: {
-        type: "array",
-        items: { type: "object", properties: { id: { type: "string" } } },
-      },
-    },
-  ] satisfies readonly Action[]
-  const { genui } = createHarness({ actions })
+type HostMethodName = "sendMessage" | "openLink" | "updateModelContext"
+
+const hostMethod = (genui: GuestApi, name: HostMethodName): ((input: unknown) => Promise<void>) => {
+  const method = genui[name]
+  if (method === undefined) throw new Error(`Expected genui.${name} to be available.`)
+  return method
+}
+
+void test("code bootstrap hides grant descriptors from the guest API", () => {
+  const { genui } = createHarness()
 
   assert.equal(genui.surfaceId, surfaceId)
-  assert.deepEqual(jsonRoundTrip(genui.actions), actions)
+  assert.equal(Object.hasOwn(genui, "actions"), false)
+  assert.equal(Object.hasOwn(genui, "subscriptions"), false)
+  assert.equal(Object.hasOwn(genui, "capabilities"), false)
 })
 
 void test("code bootstrap exposes frozen subscriptions and acknowledges events after handlers", async () => {
@@ -311,9 +295,7 @@ void test("code bootstrap exposes frozen subscriptions and acknowledges events a
   })
   const stream = await opening
   assert.equal(Object.isFrozen(stream), true)
-  assert.equal(Object.isFrozen(genui.subscriptions), true)
-  assert.equal(Object.isFrozen(genui.subscriptions[0]), true)
-  assert.equal(Object.isFrozen(genui.subscriptions[0]?.eventSchema), true)
+  assert.equal(Object.hasOwn(genui, "subscriptions"), false)
 
   dispatchInboundMessage(window, {
     channel,
@@ -874,18 +856,14 @@ void test("code bootstrap freezes deeply nested subscription events without recu
   )
 })
 
-void test("code bootstrap exposes frozen host capability flags and methods", () => {
+void test("code bootstrap exposes only available host capability methods", () => {
   const { genui } = createHarness({ sendMessage: true, updateModelContext: true })
 
-  assert.deepEqual(jsonRoundTrip(genui.capabilities), {
-    sendMessage: true,
-    openLink: false,
-    updateModelContext: true,
-  })
-  assert.equal(Object.isFrozen(genui.capabilities), true)
+  assert.equal(Object.hasOwn(genui, "capabilities"), false)
   assert.equal(typeof genui.sendMessage, "function")
-  assert.equal(typeof genui.openLink, "function")
+  assert.equal(Object.hasOwn(genui, "openLink"), false)
   assert.equal(typeof genui.updateModelContext, "function")
+  assert.equal(Object.isFrozen(genui), true)
 })
 
 void test("code bootstrap exposes the initial deeply frozen host context", () => {
@@ -1072,14 +1050,12 @@ void test("code bootstrap captures teardown request identity and handler at rece
   assert.equal(acknowledgment.requestId, "teardown-original")
 })
 
-void test("code bootstrap rejects unavailable host capabilities locally", async () => {
+void test("code bootstrap omits unavailable host capabilities", () => {
   const { genui, messages } = createHarness()
 
-  await Promise.all([
-    assertGenuiError(genui.sendMessage("Hello"), "not_available"),
-    assertGenuiError(genui.openLink("https://example.com"), "not_available"),
-    assertGenuiError(genui.updateModelContext({ content: "Hello" }), "not_available"),
-  ])
+  assert.equal(Object.hasOwn(genui, "sendMessage"), false)
+  assert.equal(Object.hasOwn(genui, "openLink"), false)
+  assert.equal(Object.hasOwn(genui, "updateModelContext"), false)
   assert.equal(
     messages.some((message) => isRecord(message) && message.type === "capability_call"),
     false,
@@ -1088,15 +1064,21 @@ void test("code bootstrap rejects unavailable host capabilities locally", async 
 
 void test("code bootstrap rejects malformed capability input locally", async () => {
   const cases = [
-    (genui: GuestApi) => genui.sendMessage(42),
-    (genui: GuestApi) => genui.openLink(null),
-    (genui: GuestApi) => genui.updateModelContext(null),
-    (genui: GuestApi) => genui.updateModelContext({ content: 42 }),
-    (genui: GuestApi) => genui.updateModelContext({ structuredContent: [] }),
-    (genui: GuestApi) => genui.updateModelContext({ structuredContent: new Date(0) }),
+    (genui: GuestApi) => hostMethod(genui, "sendMessage")(42),
+    (genui: GuestApi) => hostMethod(genui, "openLink")(null),
+    (genui: GuestApi) => hostMethod(genui, "updateModelContext")(null),
+    (genui: GuestApi) => hostMethod(genui, "updateModelContext")({ content: 42 }),
+    (genui: GuestApi) => hostMethod(genui, "updateModelContext")({ structuredContent: [] }),
     (genui: GuestApi) =>
-      genui.updateModelContext({ structuredContent: { toJSON: () => ["not", "a", "record"] } }),
-    (genui: GuestApi) => genui.updateModelContext({ unexpected: true }),
+      hostMethod(genui, "updateModelContext")({ structuredContent: new Date(0) }),
+    (genui: GuestApi) =>
+      hostMethod(
+        genui,
+        "updateModelContext",
+      )({
+        structuredContent: { toJSON: () => ["not", "a", "record"] },
+      }),
+    (genui: GuestApi) => hostMethod(genui, "updateModelContext")({ unexpected: true }),
   ]
 
   for (const run of cases) {
@@ -1127,7 +1109,7 @@ void test("code bootstrap turns hostile model-context accessors into promise rej
 
   let result: Promise<void> | undefined
   assert.doesNotThrow(() => {
-    result = genui.updateModelContext(params)
+    result = hostMethod(genui, "updateModelContext")(params)
   })
   assert.notEqual(result, undefined)
   assert.equal(
@@ -1142,7 +1124,7 @@ void test("code bootstrap turns hostile model-context accessors into promise rej
 void test("code bootstrap enforces the 16 KiB send-message text limit in UTF-8 bytes", async () => {
   const exactText = "é".repeat(8 * 1_024)
   const exact = createHarness({ sendMessage: true })
-  const exactResult = exact.genui.sendMessage(exactText)
+  const exactResult = hostMethod(exact.genui, "sendMessage")(exactText)
   const request = exact.messages.find(
     (message) => isRecord(message) && message.type === "capability_call",
   )
@@ -1157,7 +1139,7 @@ void test("code bootstrap enforces the 16 KiB send-message text limit in UTF-8 b
   await exactResult
 
   const oversized = createHarness({ sendMessage: true })
-  const oversizedResult = oversized.genui.sendMessage(`${exactText}a`)
+  const oversizedResult = hostMethod(oversized.genui, "sendMessage")(`${exactText}a`)
   assert.equal(
     oversized.messages.some((message) => isRecord(message) && message.type === "capability_call"),
     false,
@@ -1170,7 +1152,7 @@ void test("code bootstrap enforces serialized model-context input and its 16 KiB
   const emptyPayloadBytes = new TextEncoder().encode(JSON.stringify({ content: "" })).byteLength
   const exactParams = { content: "x".repeat(maxBytes - emptyPayloadBytes) }
   const exact = createHarness({ updateModelContext: true })
-  const exactResult = exact.genui.updateModelContext(exactParams)
+  const exactResult = hostMethod(exact.genui, "updateModelContext")(exactParams)
   const request = exact.messages.find(
     (message) => isRecord(message) && message.type === "capability_call",
   )
@@ -1185,7 +1167,10 @@ void test("code bootstrap enforces serialized model-context input and its 16 KiB
   await exactResult
 
   const oversized = createHarness({ updateModelContext: true })
-  const oversizedResult = oversized.genui.updateModelContext({
+  const oversizedResult = hostMethod(
+    oversized.genui,
+    "updateModelContext",
+  )({
     content: `${exactParams.content}a`,
   })
   assert.equal(
@@ -1197,7 +1182,7 @@ void test("code bootstrap enforces serialized model-context input and its 16 KiB
   const cyclic = createHarness({ updateModelContext: true })
   const structuredContent: Record<string, unknown> = {}
   structuredContent.self = structuredContent
-  const cyclicResult = cyclic.genui.updateModelContext({ structuredContent })
+  const cyclicResult = hostMethod(cyclic.genui, "updateModelContext")({ structuredContent })
   assert.equal(
     cyclic.messages.some((message) => isRecord(message) && message.type === "capability_call"),
     false,
@@ -1208,7 +1193,7 @@ void test("code bootstrap enforces serialized model-context input and its 16 KiB
 void test("code bootstrap sends messages through the capability bridge and resolves void", async () => {
   const { genui, messages, window } = createHarness({ sendMessage: true })
 
-  const result = genui.sendMessage("Show the selected orders")
+  const result = hostMethod(genui, "sendMessage")("Show the selected orders")
   const request = messages.find(
     (message) => isRecord(message) && message.type === "capability_call",
   )
@@ -1238,7 +1223,7 @@ void test("code bootstrap sends messages through the capability bridge and resol
 void test("code bootstrap sends open-link requests through the capability bridge", async () => {
   const { genui, messages, window } = createHarness({ openLink: true })
 
-  const result = genui.openLink("https://example.com/orders/42")
+  const result = hostMethod(genui, "openLink")("https://example.com/orders/42")
   const request = messages.find(
     (message) => isRecord(message) && message.type === "capability_call",
   )
@@ -1269,7 +1254,7 @@ void test("code bootstrap sends model-context updates through the capability bri
     structuredContent: { selectedOrderIds: ["order-2", "order-5"] },
   }
 
-  const result = genui.updateModelContext(params)
+  const result = hostMethod(genui, "updateModelContext")(params)
   const request = messages.find(
     (message) => isRecord(message) && message.type === "capability_call",
   )
@@ -1296,7 +1281,7 @@ void test("code bootstrap sends model-context updates through the capability bri
 void test("code bootstrap preserves host capability error codes", async () => {
   for (const code of ["denied", "invalid_input", "rate_limited"]) {
     const { genui, messages, window } = createHarness({ openLink: true })
-    const result = genui.openLink("https://example.com")
+    const result = hostMethod(genui, "openLink")("https://example.com")
     const request = messages.find(
       (message) => isRecord(message) && message.type === "capability_call",
     )
@@ -1317,7 +1302,10 @@ void test("code bootstrap preserves host capability error codes", async () => {
 void test("red team: guest-posted capability results cannot settle pending requests", async () => {
   const { genui, messages, window } = createHarness({ sendMessage: true })
   let settled = false
-  const result = genui.sendMessage("Hello").then(() => {
+  const result = hostMethod(
+    genui,
+    "sendMessage",
+  )("Hello").then(() => {
     settled = true
   })
   const request = messages.find(

@@ -1,12 +1,10 @@
-import type { Action, Subscription } from "../protocol/index.js"
 import type { GuestHostContext } from "../host-context.js"
 
 interface CodeBootstrapOptions {
   readonly channel: string
   readonly surfaceId: string
   readonly documentId: string
-  readonly actions: readonly Action[]
-  readonly subscriptions: readonly Subscription[]
+  readonly subscriptionNames: readonly string[]
   readonly sendMessage: boolean
   readonly openLink: boolean
   readonly updateModelContext: boolean
@@ -22,9 +20,9 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
   "use strict"
 
   const config = ${config}
-  const { actions, channel, documentId, hostContext: initialHostContext,
+  const { channel, documentId, hostContext: initialHostContext,
     openLink: canOpenLink, sendMessage: canSendMessage, surfaceId,
-    subscriptions: configuredSubscriptions,
+    subscriptionNames,
     updateModelContext: canUpdateModelContext } = config
   const objectFreeze = Object.freeze
   const objectIsFrozen = Object.isFrozen
@@ -50,11 +48,6 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
   const stringFrom = String
   const canonicalLocales = Intl.getCanonicalLocales.bind(Intl)
   const TrustedDateTimeFormat = Intl.DateTimeFormat
-  const capabilities = objectFreeze({
-    sendMessage: canSendMessage,
-    openLink: canOpenLink,
-    updateModelContext: canUpdateModelContext,
-  })
   const deepFreeze = (value) => {
     if (typeof value !== "object" || value === null || objectIsFrozen(value)) return value
     const pendingFreeze = [value]
@@ -71,7 +64,7 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
     }
     return value
   }
-  const subscriptions = deepFreeze(configuredSubscriptions)
+  const grantedSubscriptions = new Set(subscriptionNames)
   const pending = new Map()
   const pendingSubscriptions = new Map()
   let nextCallId = 0
@@ -221,9 +214,6 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
     })
   }
 
-  const unavailableCapability = () => promiseReject(
-    new GenuiActionError("not_available", "Host capability is not available."),
-  )
   const invalidCapabilityInput = () => promiseReject(
     new GenuiActionError("invalid_input", "Capability input is invalid."),
   )
@@ -490,7 +480,7 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
         "Subscription name and event handler are required.",
       ))
     }
-    const granted = arraySome(subscriptions, (descriptor) => descriptor.name === subscription)
+    const granted = setHas(grantedSubscriptions, subscription)
     if (!granted) {
       return promiseReject(new GenuiActionError(
         "not_granted",
@@ -556,42 +546,36 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
     })
   }
 
-  const sendMessage = canSendMessage
-    ? (text) => {
-        if (typeof text !== "string" ||
-            new TextEncoder().encode(text).byteLength > maxCapabilityPayloadBytes) {
-          return invalidCapabilityInput()
-        }
-        return requestCapability("ui/message", {
-          role: "user",
-          content: { type: "text", text },
-        })
-      }
-    : unavailableCapability
-  const openLink = canOpenLink
-    ? (url) => typeof url === "string"
-      ? requestCapability("ui/open-link", { url })
-      : invalidCapabilityInput()
-    : unavailableCapability
-  const updateModelContext = canUpdateModelContext
-    ? (params) => {
-        let encoded
-        let normalized
-        try {
-          if (!isModelContextParams(params)) return invalidCapabilityInput()
-          encoded = JSON.stringify(params)
-          normalized = JSON.parse(encoded)
-          if (!isModelContextParams(normalized)) return invalidCapabilityInput()
-        } catch {
-          return invalidCapabilityInput()
-        }
-        if (encoded === undefined ||
-            new TextEncoder().encode(encoded).byteLength > maxCapabilityPayloadBytes) {
-          return invalidCapabilityInput()
-        }
-        return requestCapability("ui/update-model-context", normalized)
-      }
-    : unavailableCapability
+  const sendMessage = (text) => {
+    if (typeof text !== "string" ||
+        new TextEncoder().encode(text).byteLength > maxCapabilityPayloadBytes) {
+      return invalidCapabilityInput()
+    }
+    return requestCapability("ui/message", {
+      role: "user",
+      content: { type: "text", text },
+    })
+  }
+  const openLink = (url) => typeof url === "string"
+    ? requestCapability("ui/open-link", { url })
+    : invalidCapabilityInput()
+  const updateModelContext = (params) => {
+    let encoded
+    let normalized
+    try {
+      if (!isModelContextParams(params)) return invalidCapabilityInput()
+      encoded = JSON.stringify(params)
+      normalized = JSON.parse(encoded)
+      if (!isModelContextParams(normalized)) return invalidCapabilityInput()
+    } catch {
+      return invalidCapabilityInput()
+    }
+    if (encoded === undefined ||
+        new TextEncoder().encode(encoded).byteLength > maxCapabilityPayloadBytes) {
+      return invalidCapabilityInput()
+    }
+    return requestCapability("ui/update-model-context", normalized)
+  }
 
   window.addEventListener("message", (event) => {
     if (!event.isTrusted || event.source !== window.parent) return
@@ -774,18 +758,15 @@ export const codeBootstrapScript = (options: CodeBootstrapOptions): string => {
 
   const genui = {
     surfaceId,
-    actions,
-    subscriptions,
-    capabilities,
     call,
     subscribe,
-    sendMessage,
-    openLink,
-    updateModelContext,
     snapshot,
     teardown,
     onHostContextChange,
   }
+  if (canSendMessage) genui.sendMessage = sendMessage
+  if (canOpenLink) genui.openLink = openLink
+  if (canUpdateModelContext) genui.updateModelContext = updateModelContext
   Object.defineProperty(genui, "hostContext", {
     configurable: false,
     enumerable: true,

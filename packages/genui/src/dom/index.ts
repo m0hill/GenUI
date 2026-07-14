@@ -146,7 +146,7 @@ const surfaceDocument = (
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src ${imageSourcePolicy(imagePolicy)}; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 ${renderHostStyleVariables(hostContext)}</head>
-<body><script>${codeBootstrapScript({ channel: protocolChannel, surfaceId: surface.id, documentId, actions: surface.grant.actions, subscriptions: surface.grant.subscriptions, ...capabilities, hostContext: guestHostContext(hostContext), ...(restore === undefined ? {} : { restore }) })}</script>${surface.content}</body>
+<body><script>${codeBootstrapScript({ channel: protocolChannel, surfaceId: surface.id, documentId, subscriptionNames: surface.grant.subscriptions.map(({ name }) => name), ...capabilities, hostContext: guestHostContext(hostContext), ...(restore === undefined ? {} : { restore }) })}</script>${surface.content}</body>
 </html>`
 
 const assertSupportedSurface = (surface: Surface): void => {

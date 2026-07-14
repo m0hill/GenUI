@@ -595,10 +595,10 @@ after its deadline.
 
 ## Provide host capabilities
 
-Pass only the capabilities that the host implements. Handler presence enables
-the matching boolean in `genui.capabilities`; the guest methods still exist
-when a handler is absent and reject with `not_available`. The methods mirror
-MCP Apps `ui/message`, `ui/open-link`, and `ui/update-model-context` semantics.
+Pass only the capabilities that the host implements. Handler presence exposes
+the matching guest method. A missing handler omits that method. The methods
+mirror MCP Apps `ui/message`, `ui/open-link`, and `ui/update-model-context`
+semantics.
 
 Add app-owned `addConversationMessage()` and `setModelContextForNextTurn()`
 integrations, then pass the handlers with the other mount options:

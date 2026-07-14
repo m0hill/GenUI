@@ -102,20 +102,26 @@ const snapshotSurface: Surface = {
   grant: { surfaceId: "surface-snapshot-browser", actions: [], subscriptions: [] },
 }
 
-const startupGrantSurface: Surface = {
-  id: "surface-startup-grant-browser",
+const guestApiSurface: Surface = {
+  id: "surface-guest-api-browser",
   dialect: "code/0",
   content: `
-    <output id="startup-actions"></output>
+    <output id="guest-api"></output>
     <script type="module">
-      document.querySelector("#startup-actions").textContent =
-        genui.actions.map((action) => action.name).join(",")
+      document.querySelector("#guest-api").textContent = JSON.stringify(Object.keys(genui).sort())
     </script>
   `,
   grant: {
-    surfaceId: "surface-startup-grant-browser",
+    surfaceId: "surface-guest-api-browser",
     actions: surface.grant.actions,
-    subscriptions: [],
+    subscriptions: [
+      {
+        name: "orders.changes",
+        description: "Receive order changes.",
+        confidentiality: "normal",
+        maxEventBytes: subscriptionEventByteLimit,
+      },
+    ],
   },
 }
 
@@ -237,9 +243,10 @@ const capabilitySurface: Surface = {
     <output id="denied-link-result"></output>
     <script type="module">
       document.querySelector("#capability-flags").textContent = [
-        genui.capabilities.sendMessage,
-        genui.capabilities.openLink,
-        genui.capabilities.updateModelContext,
+        typeof genui.sendMessage,
+        typeof genui.openLink,
+        typeof genui.updateModelContext,
+        Object.hasOwn(genui, "capabilities"),
       ].join(",")
 
       const run = async (outputId, operation) => {
@@ -312,17 +319,10 @@ const subscriptionSurface: Surface = {
   id: "surface-subscription-browser",
   dialect: "code/0",
   content: `
-    <output id="subscription-projection"></output>
     <button id="subscribe">Subscribe</button>
     <output id="subscription-events"></output>
     <output id="subscription-done"></output>
     <script type="module">
-      document.querySelector("#subscription-projection").textContent = JSON.stringify({
-        names: genui.subscriptions.map((subscription) => subscription.name),
-        frozen: Object.isFrozen(genui.subscriptions) &&
-          Object.isFrozen(genui.subscriptions[0]) &&
-          Object.isFrozen(genui.subscriptions[0].eventSchema),
-      })
       document.querySelector("#subscribe").onclick = async () => {
         const received = []
         let handling = false
@@ -381,7 +381,7 @@ after(async () => {
   await browser?.close()
 })
 
-void test("guest startup scripts receive the embedded grant", async (context) => {
+void test("guest API exposes commands without grant discovery state", async (context) => {
   const page = await newPage()
   context.after(async () => {
     await page.close()
@@ -395,11 +395,19 @@ void test("guest startup scripts receive the embedded grant", async (context) =>
       transport: async () => ({ ok: true, value: {} }),
       onEvent: () => undefined,
     })
-  }, startupGrantSurface)
+  }, guestApiSurface)
 
-  const output = page.frameLocator("iframe").locator("#startup-actions")
+  const output = page.frameLocator("iframe").locator("#guest-api")
   await output.waitFor({ state: "visible" })
-  assert.equal(await output.textContent(), "dice.roll")
+  assert.deepEqual(JSON.parse((await output.textContent()) ?? "null"), [
+    "call",
+    "hostContext",
+    "onHostContextChange",
+    "snapshot",
+    "subscribe",
+    "surfaceId",
+    "teardown",
+  ])
 })
 
 void test("guest subscriptions receive frozen events sequentially and complete", async (context) => {
@@ -445,10 +453,6 @@ void test("guest subscriptions receive frozen events sequentially and complete",
     .locator("iframe")
     .evaluate((iframe) => /"documentId":"([^"]+)"/.exec(iframe.getAttribute("srcdoc") ?? "")?.[1])
   if (initialDocumentId === undefined) throw new Error("Missing initial document ID.")
-  assert.deepEqual(
-    JSON.parse((await frame.locator("#subscription-projection").textContent()) ?? "null"),
-    { names: ["orders.changes"], frozen: true },
-  )
   await frame.locator("#subscribe").click()
   await frame.locator("#subscription-done").getByText("completed").waitFor()
   assert.deepEqual(
@@ -774,7 +778,10 @@ void test("guest feature-detects and invokes host capabilities", async (context)
 
   const frame = page.frameLocator("iframe")
   await frame.locator("#capability-flags").waitFor({ state: "visible" })
-  assert.equal(await frame.locator("#capability-flags").textContent(), "true,true,true")
+  assert.equal(
+    await frame.locator("#capability-flags").textContent(),
+    "function,function,function,false",
+  )
 
   for (const [button, output, expected] of [
     ["#send-message", "#send-message-result", "ok"],

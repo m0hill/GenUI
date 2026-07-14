@@ -400,7 +400,7 @@ void test("updateHostContext rejects invalid updates without changing current co
   instance.dispose()
 })
 
-void test("mount embeds the grant and kills a self-navigating frame", () => {
+void test("mount omits action descriptors and kills a self-navigating frame", () => {
   const { window, element } = createMountTarget()
   const events: SurfaceEvent[] = []
   const surface = testSurface([diceDescriptor], `<p>Safe surface</p>`)
@@ -414,7 +414,8 @@ void test("mount embeds the grant and kills a self-navigating frame", () => {
   iframe.contentWindow.postMessage = (message: unknown): void => {
     hostMessages.push(message)
   }
-  assert.match(iframe.srcdoc, /"actions":\[\{"name":"dice\.roll"/)
+  assert.doesNotMatch(iframe.srcdoc, /"actions":/)
+  assert.doesNotMatch(iframe.srcdoc, /dice\.roll/)
 
   iframe.dispatchEvent(new window.Event("load"))
   assert.deepEqual(hostMessages, [])

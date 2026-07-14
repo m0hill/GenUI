@@ -192,33 +192,25 @@ The bootstrap installs exactly this public API on `window.genui`:
 
 ```js
 genui.surfaceId
-genui.actions
-genui.subscriptions
-genui.capabilities
 genui.hostContext
 genui.onHostContextChange(handler)
 await genui.call(name, input)
 await genui.subscribe(name, input, handler)
-await genui.sendMessage(text)
-await genui.openLink(url)
-await genui.updateModelContext({ content?, structuredContent? })
+await genui.sendMessage(text) // optional
+await genui.openLink(url) // optional
+await genui.updateModelContext({ content?, structuredContent? }) // optional
 genui.snapshot(fn)
 genui.teardown(handler)
 ```
 
-`genui.surfaceId` is the current surface ID. `genui.actions` is the grant
-snapshot embedded by the trusted host before generated content. It is
-available to top-level guest scripts without waiting for an event. Each
-descriptor contains `name`, `description`, `effect`, `confidentiality`, and
-`requiresApproval`, plus optional `intent`, `inputSchema`, and `outputSchema`
-fields.
+`genui.surfaceId` is the current surface ID. The generation contract supplies
+the complete selected action and subscription names, types, and schemas. The
+guest bridge does not expose descriptor collections or a discovery API.
 
-`genui.subscriptions` is the frozen read-only subscription grant available at
-the same time. Each descriptor contains `name`, `description`,
-`confidentiality`, and the fixed `maxEventBytes`, plus optional `inputSchema`
-and `eventSchema` fields. A missing descriptor means the surface has no
-authority to request that subscription. Subscriptions are not host
-capabilities and do not add a boolean to `genui.capabilities`.
+Call only names declared in the generation contract. The trusted host still
+reauthorizes each request against the current surface grant. Handle
+`not_granted` like any other expected command failure because authority may
+change after generation.
 
 `genui.call(name, input)` posts a call carrying `surfaceId`, a unique `callId`,
 the action name, and input. It resolves to the successful action output. It
@@ -229,36 +221,29 @@ ignored. Result, subscription-delivery, host-context, snapshot-request, and
 teardown-request messages are accepted only through native browser delivery
 from the iframe's parent window with the matching channel, surface ID, and
 current-document scope. Synthetic guest-dispatched message events are ignored.
-The guest action and subscription lists are descriptive; mutating them cannot
-change the host or kernel grant.
+Generated code cannot change the host or kernel grant.
 
 ### Subscriptions
 
-Feature-detect a subscription through `genui.subscriptions`, then pass input
-matching its JSON Schema and one event handler:
+Subscribe only to a name in the generation contract. Pass input matching its
+schema and one event handler:
 
 ```js
-const available = genui.subscriptions.some(
-  ({ name }) => name === "orders.changes",
-)
+try {
+  const stream = await genui.subscribe(
+    "orders.changes",
+    { status: "processing" },
+    async (event) => {
+      await renderOrderChange(event)
+    },
+  )
 
-if (available) {
-  try {
-    const stream = await genui.subscribe(
-      "orders.changes",
-      { status: "processing" },
-      async (event) => {
-        await renderOrderChange(event)
-      },
-    )
-
-    stopButton.onclick = () => stream.unsubscribe()
-    stream.done.then((result) => {
-      if (!result.ok) showStreamError(result.error)
-    })
-  } catch (error) {
-    showStreamError(error)
-  }
+  stopButton.onclick = () => stream.unsubscribe()
+  stream.done.then((result) => {
+    if (!result.ok) showStreamError(result.error)
+  })
+} catch (error) {
+  showStreamError(error)
 }
 ```
 
@@ -403,21 +388,19 @@ no equivalent state-capture contract.
 
 ### Host capabilities
 
-The bootstrap always defines the three host-capability methods. The frozen
-`genui.capabilities` object reports whether the current host supplied each
-handler. They mirror MCP Apps `ui/message`, `ui/open-link`, and
-`ui/update-model-context` semantics:
+The bootstrap defines a host-capability method only when the current host
+supplies its handler. The methods mirror MCP Apps `ui/message`, `ui/open-link`,
+and `ui/update-model-context` semantics.
 
 ```js
-genui.capabilities.sendMessage
-genui.capabilities.openLink
-genui.capabilities.updateModelContext
+if (typeof genui.sendMessage === "function") {
+  sendButton.hidden = false
+}
 ```
 
-Feature-detect the matching flag before rendering a control. Each method
-returns a `Promise<void>` and may still be denied after it was advertised.
-Catch the rejection, restore the control's pending state, and show a useful
-message.
+Feature-detect the method before rendering its control. Each method returns a
+`Promise<void>` and may still be denied. Catch the rejection, restore the
+control's pending state, and show a useful message.
 
 `genui.sendMessage(text)` asks the host to add one user-role text message to
 the conversation. The host receives `{ role: "user", content: { type: "text",
@@ -437,7 +420,6 @@ Successful calls resolve without a value. Host handler return values are never
 sent into the sandbox. Failures reject with
 `GenuiActionError { code, message }`. The capability-specific codes are:
 
-- `not_available` when the host did not supply that handler.
 - `invalid_input` for malformed input, a non-HTTPS link, or an oversized
   payload.
 - `denied` when the advertised host handler rejects.

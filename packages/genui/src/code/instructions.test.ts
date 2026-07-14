@@ -29,7 +29,7 @@ void test("code environment instructions retain security, failure, and lifecycle
   assert.match(instructions, /trusted host rechecks every action and subscription/)
   assert.match(instructions, /GenuiActionError/)
   assert.match(instructions, /Catch failures/)
-  assert.match(instructions, /Events arrive in order/)
+  assert.match(instructions, /Events\s+arrive in order/)
   assert.match(instructions, /done` always\s+resolves/)
   assert.match(instructions, /no reconnect or replay/)
   assert.match(instructions, /genui\.snapshot/)
@@ -45,7 +45,7 @@ void test("code environment instructions retain portable host integration rules"
   assert.match(instructions, /locale and time zone explicitly to `Intl`/)
   assert.match(instructions, /responsive CSS/)
   assert.match(instructions, /user-agent sniffing/)
-  assert.match(instructions, /genui\.capabilities/)
+  assert.match(instructions, /typeof genui\.sendMessage === "function"/)
   assert.match(instructions, /sendMessage\(text\).*model\s+follow-up/s)
   assert.match(instructions, /openLink\(url\).*absolute HTTPS URLs/s)
   assert.match(instructions, /updateModelContext.*without an immediate follow-up/s)
@@ -55,13 +55,10 @@ void test("code environment instructions retain portable host integration rules"
   assert.match(instructions, /system font stack/)
 })
 
-void test("code environment instructions distinguish selected actions from host capabilities", () => {
+void test("code environment instructions describe a command-only guest API", () => {
   const instructions = codeEnvironmentInstructions()
 
-  assert.match(instructions, /genui\.actions\.some\(\(action\) => action\.name === name\)/)
-  assert.match(
-    instructions,
-    /genui\.capabilities` contains only `sendMessage`, `openLink`, and `updateModelContext`/,
-  )
-  assert.match(instructions, /does not contain actions or subscriptions/)
+  assert.match(instructions, /Call only action names declared in that contract/)
+  assert.match(instructions, /Subscribe only to names declared in that contract/)
+  assert.doesNotMatch(instructions, /genui\.(actions|subscriptions|capabilities)/)
 })

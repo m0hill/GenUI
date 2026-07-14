@@ -62,7 +62,7 @@ const capabilitiesFixture = `
   <script type="module">
     const capabilityNames = ["sendMessage", "openLink", "updateModelContext"]
     document.querySelector("#capabilities").textContent = capabilityNames
-      .filter((name) => genui.capabilities[name])
+      .filter((name) => typeof genui[name] === "function")
       .join(",")
 
     const run = async (output, operation) => {
@@ -75,14 +75,14 @@ const capabilitiesFixture = `
     }
 
     const sendMessage = document.querySelector("#send-message")
-    sendMessage.hidden = !genui.capabilities.sendMessage
+    sendMessage.hidden = typeof genui.sendMessage !== "function"
     sendMessage.onclick = () => run(
       document.querySelector("#send-message-result"),
       () => genui.sendMessage(${JSON.stringify(capabilityMessage)}),
     )
 
     const updateContext = document.querySelector("#update-context")
-    updateContext.hidden = !genui.capabilities.updateModelContext
+    updateContext.hidden = typeof genui.updateModelContext !== "function"
     updateContext.onclick = () => run(
       document.querySelector("#update-context-result"),
       () => genui.updateModelContext({
@@ -92,7 +92,7 @@ const capabilitiesFixture = `
     )
 
     const openLink = document.querySelector("#open-link")
-    openLink.hidden = !genui.capabilities.openLink
+    openLink.hidden = typeof genui.openLink !== "function"
     openLink.onclick = () => run(
       document.querySelector("#open-link-result"),
       () => genui.openLink(${JSON.stringify(capabilityUrl)}),

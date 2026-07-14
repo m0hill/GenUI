@@ -96,20 +96,18 @@ export const ordersDashboardFixture = `
     })
     void refresh()
 
-    if (genui.subscriptions.some(({ name }) => name === "orders.changes")) {
-      void genui.subscribe("orders.changes", {}, async (event) => {
-        await Promise.resolve()
-        const count = Number(live.dataset.count ?? "0") + 1
-        live.dataset.count = String(count)
-        live.textContent = "Live event " + count + ": " + event.type
-      }).then((stream) => {
-        stream.done.then((result) => {
-          live.dataset.done = result.ok ? result.reason : result.error.code
-        })
-      }).catch((cause) => {
-        error.textContent = cause.message
+    void genui.subscribe("orders.changes", {}, async (event) => {
+      await Promise.resolve()
+      const count = Number(live.dataset.count ?? "0") + 1
+      live.dataset.count = String(count)
+      live.textContent = "Live event " + count + ": " + event.type
+    }).then((stream) => {
+      stream.done.then((result) => {
+        live.dataset.done = result.ok ? result.reason : result.error.code
       })
-    }
+    }).catch((cause) => {
+      error.textContent = cause.message
+    })
   </script>
 </section>
 `.trim()
