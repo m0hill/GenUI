@@ -95,6 +95,10 @@ unconditionally.
 The check improves feedback; it does not grant authority or make generated code
 trusted. `createSurface()`, the browser broker, and the kernel still apply their
 normal fail-closed policy, grant, schema, approval, and lifecycle checks.
+The deterministic `nub run test:reliability` corpus proves this boundary
+through the public checker, Surface creation, real browser host, interaction,
+broker, and kernel. Retained model outputs are fixed privacy-reviewed fixtures;
+live model evaluation is separate.
 
 ## Guest content
 

@@ -1,0 +1,14 @@
+<section aria-labelledby="orders-search-title">
+  <h2 id="orders-search-title">Order lookup</h2>
+  <output id="orders-search-result">Loading orders…</output>
+  <script type="module">
+    const output = document.querySelector("#orders-search-result")
+
+    try {
+      const result = await genui.call("orders.search", { query: "Aster" })
+      output.textContent = result.orders.map((order) => order.id).join(", ")
+    } catch (error) {
+      output.textContent = error.message
+    }
+  </script>
+</section>

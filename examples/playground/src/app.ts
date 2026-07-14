@@ -74,6 +74,8 @@ export const playgroundGeneration = genui.generation({
   subscriptions: demoSubscriptions,
 })
 
+export const revokePlaygroundSurface = (id: string): Promise<void> => genui.revoke(id)
+
 export const app = new Hono()
 
 app.get("/", async (context) => {

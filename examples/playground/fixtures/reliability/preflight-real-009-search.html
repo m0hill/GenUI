@@ -1,0 +1,24 @@
+<section aria-labelledby="search-panel-title">
+  <h2 id="search-panel-title">Search orders</h2>
+  <form>
+    <label>
+      Query
+      <input name="query" value="Aster" />
+    </label>
+    <button type="submit">Search</button>
+  </form>
+  <output aria-live="polite">Ready.</output>
+
+  <script type="module">
+    const panel = document.currentScript.closest("section")
+    const form = panel.querySelector("form")
+    const input = panel.querySelector("input")
+    const output = panel.querySelector("output")
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault()
+      const result = await genui.call("orders.search", { query: input.value })
+      output.textContent = result.orders.map((order) => order.id).join(", ")
+    })
+  </script>
+</section>

@@ -57,3 +57,7 @@ an optional server-side feedback tool, not a browser package or security
 boundary. A successful check does not grant authority or replace surface
 creation, schema validation, current-policy projection, approval, revocation,
 or browser isolation.
+
+Run `nub run test:reliability` in this repository for the deterministic
+checker-to-browser corpus. Live model evaluation remains a separate manual
+measurement.

@@ -1,0 +1,22 @@
+<section aria-labelledby="preference-panel-title">
+  <h2 id="preference-panel-title">Save preference</h2>
+  <form>
+    <label>
+      Order
+      <input name="order" value="ord-1001" />
+    </label>
+    <button type="submit">Save</button>
+  </form>
+  <output aria-live="polite">Ready.</output>
+
+  <script type="module">
+    const panel = document.currentScript.closest("section")
+    const form = panel.querySelector("form")
+    const output = panel.querySelector("output")
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault()
+      output.textContent = "Saved"
+    })
+  </script>
+</section>

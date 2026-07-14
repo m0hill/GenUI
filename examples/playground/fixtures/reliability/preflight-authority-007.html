@@ -1,0 +1,24 @@
+<section aria-labelledby="authority-title">
+  <h1 id="authority-title">Current authority</h1>
+  <button id="check-authority" type="button">Check authority</button>
+  <output id="authority-result" aria-live="polite">Ready.</output>
+
+  <script type="module">
+    const button = document.querySelector("#check-authority")
+    const output = document.querySelector("#authority-result")
+
+    button.addEventListener("click", async () => {
+      button.disabled = true
+      try {
+        await genui.call("orders.search", { query: "Aster" })
+        output.textContent = "authorized"
+      } catch (error) {
+        output.textContent = error instanceof Error ? error.message : "Unknown failure."
+      } finally {
+        button.disabled = false
+      }
+    })
+
+    button.dataset.ready = "true"
+  </script>
+</section>

@@ -13,38 +13,71 @@ import {
 } from "genui/protocol"
 import { Window } from "happy-dom"
 import { chromium } from "playwright"
-import { app, playgroundGeneration, resetPlaygroundState } from "./app.js"
+import { app, playgroundGeneration, resetPlaygroundState, revokePlaygroundSurface } from "./app.js"
 import { resetDemoOrders } from "./actions.js"
 import { parseExecuteRequest, parsePlaygroundEvent } from "./playground-codecs.js"
-import { reliabilityScenarios } from "./reliability-scenarios.js"
+import { type CheckerExpectation, reliabilityScenarios } from "./reliability-scenarios.js"
+
+const assertCheckerExpectation = async (
+  id: string,
+  content: string,
+  expected: CheckerExpectation,
+): Promise<void> => {
+  const checked = await checkGeneratedInterface(playgroundGeneration, { content })
+  if (expected.ok) {
+    assert.deepEqual(checked, { ok: true })
+    return
+  }
+
+  assert.equal(checked.ok, false)
+  if (checked.ok) throw new Error(`${id} should produce checker diagnostics.`)
+  assert.equal(checked.diagnostics.length, expected.diagnosticCount)
+  if (!("diagnosticCodes" in expected)) {
+    assert.equal(
+      checked.diagnostics.every(({ code }) => code.startsWith(expected.diagnosticPrefix)),
+      true,
+    )
+  } else {
+    assert.deepEqual(
+      checked.diagnostics.map(({ code }) => code),
+      expected.diagnosticCodes,
+    )
+  }
+  for (const text of expected.reportIncludes) assert.match(checked.report, new RegExp(text))
+}
 
 for (const scenario of reliabilityScenarios) {
-  void test(scenario.id, async () => {
+  void test(scenario.id, async (context) => {
+    if (scenario.kind === "real_outputs") {
+      assert.equal(scenario.provenance.kind, "sanitized_model_output")
+      assert.equal(scenario.provenance.sanitized, true)
+      assert.notEqual(scenario.provenance.privacyReview.trim(), "")
+      assert.equal(scenario.model.run, "incoming fixture commit 640f8be6d")
+
+      for (const output of scenario.retainedFailures) {
+        await context.test(output.id, async () => {
+          assert.equal(output.provenance.kind, "sanitized_model_output")
+          assert.equal(output.provenance.sanitized, true)
+          assert.notEqual(output.provenance.privacyReview.trim(), "")
+          assert.equal(output.model.id, "gpt-5.6-terra")
+          assert.deepEqual(output.browser.baseline.events, ["guest_error"])
+          assert.deepEqual(output.browser.current, {
+            mounted: false,
+            reason: "checker_rejected",
+          })
+          await assertCheckerExpectation(
+            `${scenario.id}/${output.id}`,
+            await readFile(output.fragment, "utf8"),
+            output.checker,
+          )
+        })
+      }
+    }
+
     const fragment = await readFile(scenario.fragment, "utf8")
+    await assertCheckerExpectation(scenario.id, fragment, scenario.checker)
 
     if (scenario.kind === "checker") {
-      const checked = await checkGeneratedInterface(playgroundGeneration, { content: fragment })
-      const { expected } = scenario
-      if (expected.ok) {
-        assert.deepEqual(checked, { ok: true })
-        return
-      }
-
-      assert.equal(checked.ok, false)
-      if (checked.ok) throw new Error(`${scenario.id} should produce checker diagnostics.`)
-      assert.equal(checked.diagnostics.length, expected.diagnosticCount)
-      if (!("diagnosticCodes" in expected)) {
-        assert.equal(
-          checked.diagnostics.every(({ code }) => code.startsWith(expected.diagnosticPrefix)),
-          true,
-        )
-      } else {
-        assert.deepEqual(
-          checked.diagnostics.map(({ code }) => code),
-          expected.diagnosticCodes,
-        )
-      }
-      for (const text of expected.reportIncludes) assert.match(checked.report, new RegExp(text))
       return
     }
 
@@ -54,9 +87,6 @@ for (const scenario of reliabilityScenarios) {
         (fragment.match(/<script type="module">/gu) ?? []).length,
         scenario.expected.maxInlineModules,
       )
-      assert.deepEqual(await checkGeneratedInterface(playgroundGeneration, { content: fragment }), {
-        ok: true,
-      })
 
       const excessModule = await checkGeneratedInterface(playgroundGeneration, {
         content: `${fragment}\n<script type="module"></script>`,
@@ -211,10 +241,6 @@ for (const scenario of reliabilityScenarios) {
       return
     }
 
-    assert.deepEqual(await checkGeneratedInterface(playgroundGeneration, { content: fragment }), {
-      ok: true,
-    })
-
     resetDemoOrders()
     resetPlaygroundState()
     const browser = await chromium.launch()
@@ -240,11 +266,24 @@ for (const scenario of reliabilityScenarios) {
 
       await page.goto(`http://127.0.0.1:${String(address.port)}`)
       await page.locator("#surface-source").fill(fragment)
+      const surfaceResponsePromise = page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          new URL(response.url()).pathname === "/genui/surface",
+      )
       await page.locator("#create-surface").click()
+      const surfaceResponse = await surfaceResponsePromise
+      const surface = parseSurface(await surfaceResponse.json())
+      assert.ok(surface)
 
       const frame = page.frameLocator("#surface iframe")
-      await frame.locator('#search-orders[data-ready="true"]').waitFor()
-      assert.deepEqual(actionCalls, [], "the fragment must wait for user interaction")
+      await scenario.ready(page)
+      assert.deepEqual(actionCalls, scenario.expected.beforeInteractionActionCalls)
+
+      if (scenario.kind === "authority") {
+        assert.equal(scenario.authorityChange, "revoke_after_mount")
+        await revokePlaygroundSurface(surface.id)
+      }
 
       await scenario.interact(page)
       await frame
@@ -273,17 +312,23 @@ for (const scenario of reliabilityScenarios) {
           .map(({ call }) => ({ action: call.action, input: call.input })),
         scenario.expected.actionCalls,
       )
-      assert.equal(
-        events.some((event) => event.type === "result" && event.result.ok),
-        true,
+      assert.deepEqual(
+        events
+          .filter((event) => event.type === "result")
+          .map((event) => (event.result.ok ? "ok" : event.result.error.code)),
+        scenario.expected.resultCodes,
+      )
+      assert.deepEqual(
+        events.filter((event) => event.type === "audit").map((event) => event.entry.outcome),
+        scenario.expected.auditOutcomes,
       )
       assert.equal(
-        events.some((event) => event.type === "guest_error"),
-        false,
+        events.filter((event) => event.type === "guest_error").length,
+        scenario.expected.guestErrors,
       )
-      assert.equal(
-        events.some((event) => event.type === "violation"),
-        false,
+      assert.deepEqual(
+        events.filter((event) => event.type === "violation").map((event) => event.reason),
+        scenario.expected.violations,
       )
     } finally {
       await browser.close()
