@@ -107,10 +107,10 @@ export interface CallErrorEvent {
 
 export type GenuiErrorEvent = CallErrorEvent | SubscriptionErrorEvent
 
-/** Preserve an action definition's input and output types at declaration sites. */
-export const action = <Ctx, Input, Output>(
-  definition: ActionDefinition<Ctx, Input, Output>,
-): ActionDefinition<Ctx, Input, Output> => definition
+/** Preserve every action schema position at declaration sites. */
+export const action = <Ctx, GuestInput, HandlerInput, GuestOutput, OutputCandidate = GuestOutput>(
+  definition: ActionDefinition<Ctx, HandlerInput, GuestOutput, GuestInput, OutputCandidate>,
+): ActionDefinition<Ctx, HandlerInput, GuestOutput, GuestInput, OutputCandidate> => definition
 
 /** Preserve a subscription definition's input and event types at declaration sites. */
 export const subscription = <Ctx, Input, Event>(

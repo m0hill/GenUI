@@ -10,7 +10,7 @@ import type {
 } from "./protocol/index.js"
 import type { StandardSchemaV1 } from "./schema.js"
 
-interface ActionDefinitionBase<Ctx, Input, Output> {
+interface ActionDefinitionBase<GuestInput, HandlerInput> {
   readonly name: string
   readonly description: string
   /** Hosts render this template as plain text; interpolated input remains untrusted display data. */
@@ -18,33 +18,48 @@ interface ActionDefinitionBase<Ctx, Input, Output> {
   readonly effect: Effect
   readonly confidentiality?: Confidentiality
   readonly policy?: Policy
-  readonly input: StandardSchemaV1<unknown, Input>
+  readonly input: StandardSchemaV1<GuestInput, HandlerInput>
   /** Overrides model-schema derivation from `input` when supplied. */
   readonly inputJsonSchema?: JsonSchema
-  execute(ctx: Ctx, input: Input): Output | Promise<Output>
 }
 
-type ActionOutputContract<Output> =
-  | {
-      readonly output?: undefined
-      readonly outputJsonSchema?: never
-    }
-  | {
-      readonly output: StandardSchemaV1<unknown, Output>
-      /** Overrides model-schema derivation from `output` when supplied. */
-      readonly outputJsonSchema?: JsonSchema
-    }
+type ActionWithoutOutput<Ctx, GuestInput, HandlerInput, GuestOutput> = ActionDefinitionBase<
+  GuestInput,
+  HandlerInput
+> & {
+  readonly output?: undefined
+  readonly outputJsonSchema?: never
+  execute(ctx: Ctx, input: HandlerInput): GuestOutput | Promise<GuestOutput>
+}
 
-/** App-owned unit of authority that generated UI may request but never execute directly. */
-export type ActionDefinition<Ctx, Input = unknown, Output = unknown> = ActionDefinitionBase<
+type ActionWithOutput<Ctx, GuestInput, HandlerInput, OutputCandidate, GuestOutput> =
+  ActionDefinitionBase<GuestInput, HandlerInput> & {
+    readonly output: StandardSchemaV1<OutputCandidate, GuestOutput>
+    /** Overrides model-schema derivation from `output` when supplied. */
+    readonly outputJsonSchema?: JsonSchema
+    execute(ctx: Ctx, input: HandlerInput): OutputCandidate | Promise<OutputCandidate>
+  }
+
+/**
+ * App-owned unit of authority that generated UI may request but never execute directly.
+ *
+ * @typeParam HandlerInput Canonical input passed to `execute` after validation.
+ * @typeParam GuestOutput Canonical result returned to generated UI.
+ * @typeParam GuestInput Untrusted input accepted by the input validator.
+ * @typeParam OutputCandidate Value returned by `execute` before output validation.
+ */
+export type ActionDefinition<
   Ctx,
-  Input,
-  Output
-> &
-  ActionOutputContract<Output>
+  HandlerInput = unknown,
+  GuestOutput = unknown,
+  GuestInput = unknown,
+  OutputCandidate = GuestOutput,
+> =
+  | ActionWithoutOutput<Ctx, GuestInput, HandlerInput, GuestOutput>
+  | ActionWithOutput<Ctx, GuestInput, HandlerInput, OutputCandidate, GuestOutput>
 
 /** Erased action shape stored by a GenUI instance after the schema boundary is recorded. */
-export type AnyActionDefinition<Ctx> = ActionDefinition<Ctx, unknown, unknown>
+export type AnyActionDefinition<Ctx> = ActionDefinition<Ctx, unknown, unknown, unknown, unknown>
 
 /** Read-only app-owned event source that generated UI may subscribe to when granted. */
 export interface SubscriptionDefinition<Ctx, Input = unknown, Event = unknown> {

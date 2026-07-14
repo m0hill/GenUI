@@ -755,6 +755,59 @@ void test("registry executes granted capabilities and validates inputs and outpu
   )
 })
 
+void test("transforming actions canonicalize handler input and guest output", async () => {
+  const dateInput: StandardSchemaV1<string, Date> = {
+    "~standard": {
+      version: 1,
+      vendor: "genui-runtime-test",
+      validate: (value) =>
+        typeof value === "string"
+          ? { value: new Date(value) }
+          : { issues: [{ message: "date must be an ISO string." }] },
+    },
+  }
+  const yearOutput: StandardSchemaV1<number, string> = {
+    "~standard": {
+      version: 1,
+      vendor: "genui-runtime-test",
+      validate: (value) =>
+        typeof value === "number"
+          ? { value: String(value) }
+          : { issues: [{ message: "year must be a number." }] },
+    },
+  }
+  let receivedInput: unknown
+  const readYear = action({
+    name: "dates.read_year",
+    description: "Read the UTC year from an ISO date.",
+    effect: "read",
+    input: dateInput,
+    output: yearOutput,
+    execute: (_ctx: TestCtx, input) => {
+      receivedInput = input
+      return input.getUTCFullYear()
+    },
+  })
+  const registry = new Genui<TestCtx>({ actions: [readYear] })
+  const surface = await registry
+    .generation({ actions: [readYear] })
+    .createSurface({ content: `<button>Read year</button>` })
+
+  const result = await registry.execute(
+    {
+      surfaceId: surface.id,
+      callId: "call-transform",
+      action: "dates.read_year",
+      input: "2026-07-14T00:00:00.000Z",
+    },
+    { userId: "u1" },
+  )
+
+  assert(receivedInput instanceof Date)
+  assert.equal(receivedInput.toISOString(), "2026-07-14T00:00:00.000Z")
+  assert.deepEqual(result, { ok: true, value: "2026" })
+})
+
 void test("registry approval is the authoritative execution gate", async () => {
   let executed = 0
   const createNote = action({

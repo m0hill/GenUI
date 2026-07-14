@@ -61,6 +61,7 @@ try {
         type: "module",
         dependencies: {
           genui: `file:${genuiTarball}`,
+          zod: "4.4.3",
         },
       },
       null,
@@ -225,7 +226,8 @@ assert.equal((await events.next()).done, true)
 
   await writeFile(
     join(project, "smoke.ts"),
-    `import {
+    `import { z } from "zod"
+import {
   Genui,
   action,
   memoryStore,
@@ -324,6 +326,14 @@ const manualTopicSchema: StandardSchemaV1<unknown, { readonly topic: string }> =
     validate: (_value) => ({ value: { topic: "all" } }),
   },
 }
+const dateInputSchema = z.codec(z.iso.datetime(), z.date(), {
+  decode: (value) => new Date(value),
+  encode: (value) => value.toISOString(),
+})
+const yearOutputSchema = z.codec(z.number(), z.string(), {
+  decode: (value) => String(value),
+  encode: (value) => Number(value),
+})
 
 const readTopic = action({
   name: "pack.read_topic",
@@ -344,6 +354,40 @@ const actionDefinition: ActionDefinition<
   { readonly message: string }
 > = readTopic
 const projectedOutputSchema = new Genui({ actions: [readTopic] }).actions()[0]?.outputSchema
+
+const readYear = action({
+  name: "pack.read_year",
+  description: "Read the UTC year from an ISO date.",
+  effect: "read",
+  input: dateInputSchema,
+  output: yearOutputSchema,
+  execute: (_context: PackContext, input) => {
+    const canonicalInput: Date = input
+    // @ts-expect-error The handler receives the validator's canonical Date output.
+    const guestInput: string = input
+    void guestInput
+    return canonicalInput.getUTCFullYear()
+  },
+})
+const transformingActionDefinition: ActionDefinition<
+  PackContext,
+  Date,
+  string,
+  string,
+  number
+> = readYear
+
+const invalidTransformingOutput = action(
+  // @ts-expect-error The output validator accepts a number from the handler.
+  {
+    name: "pack.invalid_transforming_output",
+    description: "Reject an incompatible handler output candidate.",
+    effect: "read",
+    input: dateInputSchema,
+    output: yearOutputSchema,
+    execute: (_context: PackContext, _input) => "wrong candidate",
+  },
+)
 
 const invalidOutputContract = action(
   // @ts-expect-error output JSON Schema requires a runtime output validator.
@@ -498,6 +542,8 @@ void generatedInterfaceCheck
 void diagnostic
 void generatedSurface
 void actionDefinition
+void transformingActionDefinition
+void invalidTransformingOutput
 void runtimeTopicSchema
 void modelTopicSchema
 void projectedOutputSchema

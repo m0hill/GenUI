@@ -45,6 +45,38 @@ choice, not a runtime dependency.
 - `input` validates and canonicalizes untrusted call input.
 - `execute(context, input)` receives only the canonical validated input.
 
+## Transforming validators
+
+Genui preserves both sides of a transforming Standard Schema contract:
+
+- Generated UI supplies the input validator's input type.
+- `execute` receives the input validator's canonical output type.
+- `execute` returns the output validator's input candidate type.
+- Generated UI receives the output validator's canonical output type.
+
+For example, this action receives a `Date`, returns a `number`, and exposes
+strings at both generated-interface boundaries:
+
+```ts
+const IsoDate = z.codec(z.iso.datetime(), z.date(), {
+  decode: (value) => new Date(value),
+  encode: (value) => value.toISOString(),
+})
+const YearText = z.codec(z.number(), z.string(), {
+  decode: (value) => String(value),
+  encode: (value) => Number(value),
+})
+
+const readYear = action({
+  name: "dates.read_year",
+  description: "Read the UTC year from an ISO date.",
+  effect: "read",
+  input: IsoDate,
+  output: YearText,
+  execute: (_context, date) => date.getUTCFullYear(),
+})
+```
+
 Action names must contain at least two segments. Separate segments with `.`,
 `_`, or `-`. Names are globally unique across actions and subscriptions in one
 `Genui` instance.
