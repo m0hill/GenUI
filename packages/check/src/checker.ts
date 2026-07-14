@@ -1,4 +1,11 @@
-import { parseFragment, type DefaultTreeAdapterTypes, type ParserError } from "parse5"
+import {
+  parseFragment,
+  Tokenizer,
+  TokenizerMode,
+  type DefaultTreeAdapterTypes,
+  type ParserError,
+  type TokenHandler,
+} from "parse5"
 import type { Diagnostic } from "typescript/unstable/async"
 import {
   generationCheckerContractVersion,
@@ -6,6 +13,7 @@ import {
   type Generation,
   type GenerationCheckerContract,
 } from "genui"
+import { collectStaticDiagnostics } from "./static-diagnostics.js"
 
 export interface CheckGeneratedInterfaceOptions {
   readonly content: string
@@ -176,11 +184,13 @@ const parseGeneratedContent = (content: string): ParsedContent => {
     })
   }
   if (parseErrors.length > 0) return { diagnostics, modules: [] }
+  diagnostics.push(...tokenizerStructureDiagnostics(content))
 
   const modules: InlineModule[] = []
   const visit = (node: DefaultTreeAdapterTypes.Node): void => {
     if ("tagName" in node) {
       if (node.tagName === "template") return
+      diagnostics.push(...htmlStructureDiagnostics(content, node))
       if (node.tagName === "script") {
         const location = node.sourceCodeLocation?.startTag
         const line = location?.startLine ?? 1
@@ -240,6 +250,171 @@ const parseGeneratedContent = (content: string): ParsedContent => {
   return { diagnostics, modules }
 }
 
+const htmlStructureDiagnostics = (
+  content: string,
+  node: DefaultTreeAdapterTypes.Element,
+): readonly GeneratedInterfaceDiagnostic[] => {
+  const diagnostics: GeneratedInterfaceDiagnostic[] = []
+  const attribute = (name: string): string | undefined =>
+    node.attrs.find((candidate) => candidate.name === name)?.value
+  const add = (message: string, attributeName?: string): void => {
+    const location =
+      (attributeName === undefined ? undefined : node.sourceCodeLocation?.attrs?.[attributeName]) ??
+      node.sourceCodeLocation?.startTag
+    diagnostics.push({
+      code: "GENUI014",
+      line: location?.startLine ?? 1,
+      column: location?.startCol ?? 1,
+      message,
+    })
+  }
+
+  if (
+    node.tagName === "link" &&
+    attribute("rel")?.toLowerCase().split(/\s+/u).includes("stylesheet") === true &&
+    attribute("href") !== undefined
+  ) {
+    add("Generated interfaces cannot load external stylesheets.", "href")
+  } else if (
+    node.tagName === "iframe" ||
+    node.tagName === "embed" ||
+    node.tagName === "object" ||
+    node.tagName === "base"
+  ) {
+    add(`Generated interfaces cannot contain <${node.tagName}> elements.`)
+  } else if (
+    node.tagName === "meta" &&
+    attribute("http-equiv")?.trim().toLowerCase() === "refresh"
+  ) {
+    add("Generated interfaces cannot use refresh navigation.", "http-equiv")
+  } else if (
+    (node.tagName === "a" || node.tagName === "area") &&
+    attribute("href") !== undefined &&
+    !attribute("href")!.trim().startsWith("#")
+  ) {
+    add("Generated interface links must use fragment destinations.", "href")
+  } else if (
+    (node.tagName === "a" || node.tagName === "area" || node.tagName === "form") &&
+    attribute("target") !== undefined
+  ) {
+    add("Generated interfaces cannot set navigation targets.", "target")
+  } else if (node.tagName === "form" && attribute("action") !== undefined) {
+    add("Generated interfaces cannot set form actions.", "action")
+  } else if (
+    (node.tagName === "button" || node.tagName === "input") &&
+    attribute("formaction") !== undefined
+  ) {
+    add("Generated interfaces cannot set form actions.", "formaction")
+  } else if (
+    (node.tagName === "button" || node.tagName === "input") &&
+    attribute("formtarget") !== undefined
+  ) {
+    add("Generated interfaces cannot set form navigation targets.", "formtarget")
+  }
+
+  if (node.tagName === "style") {
+    for (const child of node.childNodes) {
+      if (child.nodeName !== "#text" || !("value" in child)) continue
+      for (const importOffset of cssImportOffsets(child.value)) {
+        const offset = (child.sourceCodeLocation?.startOffset ?? 0) + importOffset
+        const position = lineAndColumn(content, offset)
+        diagnostics.push({
+          code: "GENUI014",
+          line: position.line,
+          column: position.column,
+          message: "Generated interfaces cannot use CSS @import rules.",
+        })
+      }
+    }
+  }
+
+  return diagnostics
+}
+
+const cssImportOffsets = (source: string): readonly number[] => {
+  const offsets: number[] = []
+  let comment = false
+  let quote: '"' | "'" | undefined
+  let escaped = false
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index]
+    const next = source[index + 1]
+    if (comment) {
+      if (character === "*" && next === "/") {
+        comment = false
+        index += 1
+      }
+      continue
+    }
+    if (quote !== undefined) {
+      if (escaped) escaped = false
+      else if (character === "\\") escaped = true
+      else if (character === quote) quote = undefined
+      continue
+    }
+    if (character === "/" && next === "*") {
+      comment = true
+      index += 1
+      continue
+    }
+    if (character === '"' || character === "'") {
+      quote = character
+      continue
+    }
+    if (source.slice(index, index + 7).toLowerCase() !== "@import") continue
+    const following = source[index + 7]
+    if (following === undefined || /[\s"']/u.test(following)) offsets.push(index)
+  }
+
+  return offsets
+}
+
+const tokenizerStructureDiagnostics = (
+  content: string,
+): readonly GeneratedInterfaceDiagnostic[] => {
+  const diagnostics: GeneratedInterfaceDiagnostic[] = []
+  let tokenizer: Tokenizer
+  const handler: TokenHandler = {
+    onStartTag: (token) => {
+      if (token.tagName === "frame") {
+        diagnostics.push({
+          code: "GENUI014",
+          line: token.location?.startLine ?? 1,
+          column: token.location?.startCol ?? 1,
+          message: "Generated interfaces cannot contain <frame> elements.",
+        })
+      }
+      if (token.tagName === "script") tokenizer.state = TokenizerMode.SCRIPT_DATA
+      else if (token.tagName === "title" || token.tagName === "textarea") {
+        tokenizer.state = TokenizerMode.RCDATA
+      } else if (
+        token.tagName === "style" ||
+        token.tagName === "xmp" ||
+        token.tagName === "iframe" ||
+        token.tagName === "noembed" ||
+        token.tagName === "noframes"
+      ) {
+        tokenizer.state = TokenizerMode.RAWTEXT
+      } else if (token.tagName === "plaintext") {
+        tokenizer.state = TokenizerMode.PLAINTEXT
+      }
+    },
+    onEndTag: () => {
+      tokenizer.state = TokenizerMode.DATA
+    },
+    onComment: () => {},
+    onDoctype: () => {},
+    onEof: () => {},
+    onCharacter: () => {},
+    onNullCharacter: () => {},
+    onWhitespaceCharacter: () => {},
+  }
+  tokenizer = new Tokenizer({ sourceCodeLocationInfo: true }, handler)
+  tokenizer.write(content, true)
+  return diagnostics
+}
+
 async function checkModules(
   contract: GenerationCheckerContract,
   modules: readonly InlineModule[],
@@ -271,6 +446,8 @@ async function checkModules(
   const loadedCompiler = await Promise.all([
     import("typescript/unstable/async"),
     import("typescript/unstable/fs"),
+    import("typescript/unstable/ast"),
+    import("typescript/unstable/ast/is"),
   ]).then(
     (value) => ({ ok: true as const, value }),
     (cause: unknown) => ({ ok: false as const, cause }),
@@ -280,7 +457,7 @@ async function checkModules(
   }
   throwIfAborted(signal)
 
-  const [{ API }, { createVirtualFileSystem }] = loadedCompiler.value
+  const [{ API }, { createVirtualFileSystem }, ast, is] = loadedCompiler.value
   const openedCompiler = (() => {
     try {
       const virtualFileSystem = createVirtualFileSystem(files)
@@ -356,11 +533,23 @@ async function checkModules(
           ),
         }
       }
+      const staticDiagnostics = await collectStaticDiagnostics(
+        contract,
+        modules,
+        project,
+        ast,
+        is,
+        signal,
+      )
+      throwIfAborted(signal)
       return {
         ok: true,
-        diagnostics: compilerDiagnostics.map((diagnostic) =>
-          serializeTypeScriptDiagnostic(diagnostic, modules),
-        ),
+        diagnostics: [
+          ...compilerDiagnostics.map((diagnostic) =>
+            serializeTypeScriptDiagnostic(diagnostic, modules),
+          ),
+          ...staticDiagnostics,
+        ],
       }
     } finally {
       await snapshot.dispose()

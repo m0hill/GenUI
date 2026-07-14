@@ -39,13 +39,23 @@ interface CheckerReliabilityScenario extends ReliabilityScenarioBase {
   readonly kind: "checker"
   readonly expected:
     | { readonly ok: true }
-    | {
+    | (CheckerDiagnosticExpectation & {
         readonly ok: false
-        readonly diagnosticCount: number
-        readonly diagnosticPrefix: string
         readonly reportIncludes: readonly string[]
-      }
+      })
 }
+
+type CheckerDiagnosticExpectation =
+  | {
+      readonly diagnosticCount: number
+      readonly diagnosticPrefix: string
+      readonly diagnosticCodes?: never
+    }
+  | {
+      readonly diagnosticCount: number
+      readonly diagnosticCodes: readonly string[]
+      readonly diagnosticPrefix?: never
+    }
 
 interface OperationalReliabilityScenario extends ReliabilityScenarioBase {
   readonly kind: "operational"
@@ -130,6 +140,72 @@ export const reliabilityScenarios = [
       diagnosticCount: 3,
       diagnosticPrefix: "TS",
       reportIncludes: ["capabilities", "orders.missing", "number"],
+    },
+  },
+  {
+    id: "PREFLIGHT-NULL-004",
+    kind: "checker",
+    provenance: {
+      kind: "authored",
+      source: "GenUI portable preflight Feature Contract",
+      sanitized: true,
+    },
+    prompt: {
+      user: "Build an order search and live-update panel.",
+      context: "The submitted fragment passes nullish values to object input contracts.",
+    },
+    generation: {
+      profile: "playground",
+      environment: "code/0",
+    },
+    fragment: new URL("../fixtures/reliability/preflight-null-004.html", import.meta.url),
+    expected: {
+      ok: false,
+      diagnosticCount: 2,
+      diagnosticCodes: ["GENUI006", "GENUI006"],
+      reportIncludes: ["action input excludes null", "subscription input excludes undefined"],
+    },
+  },
+  {
+    id: "PREFLIGHT-ENVIRONMENT-005",
+    kind: "checker",
+    provenance: {
+      kind: "authored",
+      source: "GenUI portable preflight Feature Contract",
+      sanitized: true,
+    },
+    prompt: {
+      user: "Build an order panel using browser facilities that code/0 cannot support.",
+      context: "One authored fixture exercises every stable environment diagnostic family.",
+    },
+    generation: {
+      profile: "playground",
+      environment: "code/0",
+    },
+    fragment: new URL("../fixtures/reliability/preflight-environment-005.html", import.meta.url),
+    expected: {
+      ok: false,
+      diagnosticCount: 8,
+      diagnosticCodes: [
+        "GENUI014",
+        "GENUI008",
+        "GENUI009",
+        "GENUI010",
+        "GENUI011",
+        "GENUI012",
+        "GENUI013",
+        "GENUI007",
+      ],
+      reportIncludes: [
+        "external stylesheets",
+        "network or worker-loading",
+        "persistent browser storage",
+        "access a parent page",
+        "navigate directly",
+        "evaluate code at runtime",
+        "currentScript is always null",
+        "load or re-export modules",
+      ],
     },
   },
   {

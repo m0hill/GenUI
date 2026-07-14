@@ -25,10 +25,17 @@ for (const scenario of reliabilityScenarios) {
       assert.equal(checked.ok, false)
       if (checked.ok) throw new Error(`${scenario.id} should produce checker diagnostics.`)
       assert.equal(checked.diagnostics.length, expected.diagnosticCount)
-      assert.equal(
-        checked.diagnostics.every(({ code }) => code.startsWith(expected.diagnosticPrefix)),
-        true,
-      )
+      if (!("diagnosticCodes" in expected)) {
+        assert.equal(
+          checked.diagnostics.every(({ code }) => code.startsWith(expected.diagnosticPrefix)),
+          true,
+        )
+      } else {
+        assert.deepEqual(
+          checked.diagnostics.map(({ code }) => code),
+          expected.diagnosticCodes,
+        )
+      }
       for (const text of expected.reportIncludes) assert.match(checked.report, new RegExp(text))
       return
     }
