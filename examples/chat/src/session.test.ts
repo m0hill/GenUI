@@ -92,6 +92,53 @@ void test("JSONL session skips malformed trailing records", async () => {
   }
 })
 
+void test("JSONL session records rejected generated interfaces outside chat history", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "genui-chat-"))
+  const filePath = join(directory, "chat.jsonl")
+
+  try {
+    const session = await JsonlChatSession.open(filePath)
+    await session.appendGeneratedInterfaceRejection({
+      turnId: "turn-1",
+      prompt: "Build a search panel",
+      attempt: 1,
+      terminal: false,
+      content: '<script type="module">genui.missing()</script>',
+      diagnostics: [
+        {
+          code: "TS2339",
+          line: 1,
+          column: 29,
+          message: "Property missing does not exist.",
+        },
+      ],
+    })
+
+    const lines = (await readFile(filePath, "utf8")).trim().split("\n")
+    assert.equal(lines.length, 2)
+    assert.deepEqual(JSON.parse(lines[1] ?? "{}"), {
+      type: "generated_interface_rejection",
+      turnId: "turn-1",
+      prompt: "Build a search panel",
+      attempt: 1,
+      terminal: false,
+      content: '<script type="module">genui.missing()</script>',
+      diagnostics: [
+        {
+          code: "TS2339",
+          line: 1,
+          column: 29,
+          message: "Property missing does not exist.",
+        },
+      ],
+      timestamp: JSON.parse(lines[1] ?? "{}").timestamp,
+    })
+    assert.equal((await JsonlChatSession.open(filePath)).getHistory().length, 0)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 void test("JSONL session persists the latest snapshot for a known surface", async () => {
   const directory = await mkdtemp(join(tmpdir(), "genui-chat-"))
   const filePath = join(directory, "chat.jsonl")

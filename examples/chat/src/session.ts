@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname } from "node:path"
+import type { GeneratedInterfaceDiagnostic } from "genui/check"
 import { codeDialect, parseSurface, type Surface } from "genui/protocol"
 import { z } from "zod"
 
@@ -102,7 +103,33 @@ const SurfaceSnapshotEntry = z
   })
   .strict()
 
-const SessionEntry = z.discriminatedUnion("type", [MessageEntry, SurfaceSnapshotEntry])
+const GeneratedInterfaceDiagnostic = z
+  .object({
+    code: z.string().min(1).max(128),
+    line: z.number().int().positive(),
+    column: z.number().int().positive(),
+    message: z.string().min(1).max(1_000),
+  })
+  .strict()
+
+const GeneratedInterfaceRejectionEntry = z
+  .object({
+    type: z.literal("generated_interface_rejection"),
+    turnId: z.string().min(1).max(256),
+    prompt: z.string().min(1).max(8_000),
+    attempt: z.number().int().min(1).max(5),
+    terminal: z.boolean(),
+    content: z.string().min(1).max(100_000),
+    diagnostics: z.array(GeneratedInterfaceDiagnostic).min(1).max(8),
+    timestamp: z.iso.datetime(),
+  })
+  .strict()
+
+const SessionEntry = z.discriminatedUnion("type", [
+  MessageEntry,
+  SurfaceSnapshotEntry,
+  GeneratedInterfaceRejectionEntry,
+])
 
 export type SurfaceSnapshot = z.infer<typeof SurfaceSnapshot>
 
@@ -126,6 +153,15 @@ export interface AppendTurnInput {
 export interface SurfaceSnapshotInput {
   readonly surfaceId: string
   readonly snapshot: SurfaceSnapshot
+}
+
+export interface AppendGeneratedInterfaceRejectionInput {
+  readonly turnId: string
+  readonly prompt: string
+  readonly attempt: number
+  readonly terminal: boolean
+  readonly content: string
+  readonly diagnostics: readonly GeneratedInterfaceDiagnostic[]
 }
 
 const parseLine = (line: string): unknown => {
@@ -192,7 +228,9 @@ export class JsonlChatSession {
       const entry = SessionEntry.safeParse(parseLine(line))
       if (!entry.success) continue
       if (entry.data.type === "message") entries.push(entry.data)
-      else surfaceSnapshots.set(entry.data.surfaceId, entry.data.snapshot)
+      else if (entry.data.type === "surface_snapshot") {
+        surfaceSnapshots.set(entry.data.surfaceId, entry.data.snapshot)
+      }
     }
 
     return new JsonlChatSession(filePath, entries, surfaceSnapshots)
@@ -264,6 +302,20 @@ export class JsonlChatSession {
         "utf8",
       )
       this.entries.push(user, assistant)
+    })
+
+    this.writeQueue = write.catch(() => undefined)
+    return write
+  }
+
+  appendGeneratedInterfaceRejection(input: AppendGeneratedInterfaceRejectionInput): Promise<void> {
+    const write = this.writeQueue.then(async () => {
+      const entry = GeneratedInterfaceRejectionEntry.parse({
+        type: "generated_interface_rejection",
+        ...input,
+        timestamp: new Date().toISOString(),
+      })
+      await appendFile(this.filePath, `${JSON.stringify(entry)}\n`, "utf8")
     })
 
     this.writeQueue = write.catch(() => undefined)

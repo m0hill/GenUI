@@ -11,7 +11,7 @@ import {
   type ToolCall,
 } from "@earendil-works/pi-ai"
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex"
-import { checkGeneratedInterface } from "genui/check"
+import { checkGeneratedInterface, type GeneratedInterfaceDiagnostic } from "genui/check"
 import type { Surface } from "genui/protocol"
 import { getCodexApiKey } from "./auth.js"
 import { generatedUi } from "./genui.js"
@@ -46,6 +46,13 @@ export type ChatStreamEvent =
       type: "surface_result"
       surface: Surface
     }
+  | {
+      type: "generated_interface_rejection"
+      attempt: number
+      terminal: boolean
+      content: string
+      diagnostics: readonly GeneratedInterfaceDiagnostic[]
+    }
 
 const provider = openaiCodexProvider()
 const findModel = () => {
@@ -59,9 +66,20 @@ const findModel = () => {
 const model = findModel()
 const maxToolRounds = 5
 const maxGeneratedInterfaceContentLength = 100_000
-const maxConsecutiveGeneratedInterfaceAttempts = 2
+const maxConsecutiveGeneratedInterfaceAttempts = 3
 
-class GeneratedInterfaceRepairError extends Error {}
+type GeneratedInterfaceRejectionEvent = Extract<
+  ChatStreamEvent,
+  { type: "generated_interface_rejection" }
+>
+
+class GeneratedInterfaceRepairError extends Error {
+  constructor(readonly rejection: GeneratedInterfaceRejectionEvent) {
+    super(
+      `The model could not produce a valid generated interface after ${String(maxConsecutiveGeneratedInterfaceAttempts)} attempts.`,
+    )
+  }
+}
 
 const preferenceReadTool: Tool = {
   name: "preferences_get",
@@ -202,13 +220,18 @@ export async function streamChatWithProvider<TApi extends Api>(
         const checked = await checkGeneratedInterface(generatedUi, { content, signal })
         if (!checked.ok) {
           consecutiveGeneratedInterfaceFailures += 1
-          if (consecutiveGeneratedInterfaceFailures >= maxConsecutiveGeneratedInterfaceAttempts) {
-            throw new GeneratedInterfaceRepairError(
-              `The model could not produce a valid generated interface after ${String(maxConsecutiveGeneratedInterfaceAttempts)} attempts.`,
-            )
-          }
+          const rejection = {
+            type: "generated_interface_rejection",
+            attempt: consecutiveGeneratedInterfaceFailures,
+            terminal:
+              consecutiveGeneratedInterfaceFailures >= maxConsecutiveGeneratedInterfaceAttempts,
+            content,
+            diagnostics: checked.diagnostics,
+          } satisfies GeneratedInterfaceRejectionEvent
+          if (rejection.terminal) throw new GeneratedInterfaceRepairError(rejection)
           text = checked.report
           isError = true
+          event = rejection
         } else {
           consecutiveGeneratedInterfaceFailures = 0
           const surface = await generatedUi.createSurface({ content })
@@ -281,8 +304,13 @@ export async function streamChatWithProvider<TApi extends Api>(
 
       context.messages.push(completed)
       for (const toolCall of toolCalls) {
-        const event = await executeTool(toolCall)
-        if (event !== undefined) yield event
+        try {
+          const event = await executeTool(toolCall)
+          if (event !== undefined) yield event
+        } catch (error) {
+          if (error instanceof GeneratedInterfaceRepairError) yield error.rejection
+          throw error
+        }
       }
     }
   }

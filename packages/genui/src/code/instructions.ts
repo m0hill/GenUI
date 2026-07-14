@@ -2,6 +2,8 @@ export const codeEnvironmentInstructions = (): string => `# Generated UI: code/0
 
 Return only an HTML fragment, without Markdown fences or a document wrapper. Use ordinary HTML,
 inline CSS, DOM APIs, and inline \`<script type="module">\` blocks.
+Write JavaScript, not TypeScript. Types document \`genui\` commands only; never add annotations,
+interfaces, or \`as\` casts to scripts.
 
 ## Environment and security
 
@@ -15,7 +17,7 @@ inline CSS, DOM APIs, and inline \`<script type="module">\` blocks.
 
 ## Selected actions and subscriptions
 
-The separate contract declares the only available actions and subscriptions. Follow its TypeScript
+The separate contract declares the only available actions and subscriptions. Follow its command
 declarations and exact JSON Schema fallbacks.
 
 - Call only action names declared in that contract. Do not guess or try to discover additional

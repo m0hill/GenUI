@@ -84,8 +84,14 @@ void test("chat repairs an invalid generated interface before emitting a surface
   const surfaces = events.flatMap((event) =>
     event.type === "surface_result" ? [event.surface] : [],
   )
+  const rejections = events.filter((event) => event.type === "generated_interface_rejection")
 
   assert.equal(faux.state.callCount, 3)
+  assert.equal(rejections.length, 1)
+  assert.equal(rejections[0]?.attempt, 1)
+  assert.equal(rejections[0]?.terminal, false)
+  assert.equal(rejections[0]?.content, invalidContent)
+  assert.match(rejections[0]?.diagnostics[0]?.message ?? "", /capabilities/)
   assert.equal(surfaces.length, 1)
   const surface = surfaces[0]
   assert(surface)
@@ -114,6 +120,7 @@ void test("chat stops after a bounded number of invalid generated interfaces", a
   faux.setResponses([
     renderUiResponse(terminalContent, "invalid-one"),
     renderUiResponse(terminalContent, "invalid-two"),
+    renderUiResponse(terminalContent, "invalid-three"),
   ])
   const events: ChatStreamEvent[] = []
   const stream = await streamChatWithProvider(
@@ -137,14 +144,23 @@ void test("chat stops after a bounded number of invalid generated interfaces", a
       assert(error instanceof Error)
       assert.equal(
         error.message,
-        "The model could not produce a valid generated interface after 2 attempts.",
+        "The model could not produce a valid generated interface after 3 attempts.",
       )
       assert.doesNotMatch(error.message, new RegExp(marker))
       return true
     },
   )
 
-  assert.equal(faux.state.callCount, 2)
+  const rejections = events.filter((event) => event.type === "generated_interface_rejection")
+  assert.equal(faux.state.callCount, 3)
+  assert.deepEqual(
+    rejections.map(({ attempt, terminal }) => ({ attempt, terminal })),
+    [
+      { attempt: 1, terminal: false },
+      { attempt: 2, terminal: false },
+      { attempt: 3, terminal: true },
+    ],
+  )
   assert.equal(
     events.some((event) => event.type === "surface_result"),
     false,

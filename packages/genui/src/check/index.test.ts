@@ -101,6 +101,59 @@ void test("checker accepts ordinary DOM code using selected commands", async () 
   assert.deepEqual(result, { ok: true })
 })
 
+void test("checker ignores DOM element specialization in a web-search panel", async () => {
+  const result = await checkGeneratedInterface(generation, {
+    content: `<section>
+  <form id="search-form">
+    <input id="query" name="query" type="search" />
+    <button id="search" type="submit">Search</button>
+  </form>
+  <p id="loading" hidden>Searching…</p>
+  <output id="results"></output>
+  <p id="error" hidden></p>
+  <script type="module">
+    const form = document.getElementById("search-form")
+    const query = document.getElementById("query")
+    const search = document.getElementById("search")
+    const loading = document.getElementById("loading")
+    const results = document.getElementById("results")
+    const error = document.getElementById("error")
+    let state = { query: "", ids: [] }
+
+    genui.snapshot((restored) => {
+      if (restored) {
+        state.query = typeof restored.query === "string" ? restored.query : ""
+        state.ids = Array.isArray(restored.ids) ? restored.ids : []
+      }
+      return state
+    })
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault()
+      const formValue = new FormData(form).get("query")
+      const value = typeof formValue === "string" ? formValue.trim() : ""
+      error.hidden = true
+      loading.hidden = false
+      search.disabled = true
+      try {
+        const found = await genui.call("web.search", { query: value })
+        state = { query: value, ids: [...found.ids] }
+        results.textContent = found.ids.join(", ")
+      } catch (cause) {
+        error.textContent = cause.message
+        error.hidden = false
+      } finally {
+        loading.hidden = true
+        search.disabled = false
+      }
+    })
+  </script>
+</section>`,
+  })
+
+  assert.deepEqual(result, { ok: true })
+})
+
 void test("checker rejects nonexistent guest properties and unknown commands", async () => {
   const result = assertInvalid(
     await checkGeneratedInterface(generation, {

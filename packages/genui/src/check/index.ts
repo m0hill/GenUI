@@ -73,11 +73,15 @@ interface GenuiSubscriptionHandle {
   >
 }
 
-// Generated interfaces use selectors dynamically. Keep DOM checking useful without requiring casts
-// for ordinary HTML event, style, and dataset properties.
+// The checker validates syntax and the GenUI contract, not DOM element specialization. Generated
+// interfaces commonly select controls by dynamic IDs, where lib.dom cannot infer the element type.
 interface ParentNode {
-  querySelector(selectors: string): HTMLElement | null
-  querySelectorAll(selectors: string): NodeListOf<HTMLElement>
+  querySelector(selectors: string): any
+  querySelectorAll(selectors: string): NodeListOf<any>
+}
+
+interface Document {
+  getElementById(elementId: string): any
 }
 
 interface Genui {
@@ -90,8 +94,12 @@ interface Genui {
     readonly structuredContent?: Readonly<Record<string, GenuiJson>>
   }) => Promise<void>
   onHostContextChange(handler: (partial: GenuiHostContext) => void | Promise<void>): void
-  snapshot(provider: (restored?: GenuiJson) => GenuiJson | Promise<GenuiJson>): void
+  snapshot(provider: (restored?: any) => GenuiJson | Promise<GenuiJson>): void
   teardown(handler: (context: { readonly reason?: string }) => void | Promise<void>): void
+}
+
+interface Window {
+  readonly genui: Readonly<Genui>
 }
 
 declare const genui: Readonly<Genui>

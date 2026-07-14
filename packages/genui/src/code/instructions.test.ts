@@ -58,6 +58,8 @@ void test("code environment instructions retain portable host integration rules"
 void test("code environment instructions describe a command-only guest API", () => {
   const instructions = codeEnvironmentInstructions()
 
+  assert.match(instructions, /JavaScript, not TypeScript/)
+  assert.match(instructions, /never add annotations,\s+interfaces, or `as` casts/)
   assert.match(instructions, /Call only action names declared in that contract/)
   assert.match(instructions, /Subscribe only to names declared in that contract/)
   assert.doesNotMatch(instructions, /genui\.(actions|subscriptions|capabilities)/)

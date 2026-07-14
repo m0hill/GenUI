@@ -492,6 +492,21 @@ app.post("/chat", async (c) => {
           )
         }
 
+        if (item.type === "generated_interface_rejection") {
+          await session
+            .appendGeneratedInterfaceRejection({
+              turnId,
+              prompt,
+              attempt: item.attempt,
+              terminal: item.terminal,
+              content: item.content,
+              diagnostics: item.diagnostics,
+            })
+            .catch((error: unknown) => {
+              console.error("Generated interface rejection could not be recorded.", error)
+            })
+        }
+
         if (item.type === "error") {
           throw new Error(item.error.errorMessage ?? "The model could not finish this response")
         }
