@@ -1,6 +1,12 @@
 export { action, Genui, subscription } from "./registry.js"
 export { memoryStore } from "./surface-runtime.js"
 export type {
+  CreateSurfaceOptions,
+  Generation,
+  GenerationGuidance,
+  GenerationOptions,
+} from "./generation.js"
+export type {
   CallAuditEntry,
   CallErrorEvent,
   CallErrorPhase,

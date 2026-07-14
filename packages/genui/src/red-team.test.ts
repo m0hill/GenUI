@@ -12,26 +12,24 @@ void test("red team: subject mismatch is denied before validation or execution",
   const store = memoryStore()
   let validations = 0
   let executions = 0
+  const readProfile = action({
+    name: "profile.read",
+    description: "Read the current profile.",
+    effect: "read",
+    input: testSchema<Readonly<Record<string, never>>>((value) => {
+      validations += 1
+      return isRecord(value)
+        ? { ok: true, value: {} }
+        : { ok: false, message: "Expected an object." }
+    }),
+    execute: () => ({ execution: ++executions }),
+  })
   const runtime = new Genui({
     store,
-    actions: [
-      action({
-        name: "profile.read",
-        description: "Read the current profile.",
-        effect: "read",
-        input: testSchema<Readonly<Record<string, never>>>((value) => {
-          validations += 1
-          return isRecord(value)
-            ? { ok: true, value: {} }
-            : { ok: false, message: "Expected an object." }
-        }),
-        execute: () => ({ execution: ++executions }),
-      }),
-    ],
+    actions: [readProfile],
   })
-  const surface = await runtime.surface({
+  const surface = await runtime.generation({ actions: [readProfile] }).createSurface({
     content: "<button>Read profile</button>",
-    actions: ["profile.read"],
     subject: "session-1",
   })
 
@@ -83,22 +81,20 @@ void test("red team: subject mismatch is denied before validation or execution",
 
 void test("red team: current block policy overrides an older surface grant", async () => {
   const store = memoryStore()
+  const resetSystem = action({
+    name: "system.reset",
+    description: "Reset the system.",
+    effect: "dangerous",
+    policy: "allow",
+    input: emptyInput,
+    execute: () => ({ reset: true }),
+  })
   const grantedRuntime = new Genui({
     store,
-    actions: [
-      action({
-        name: "system.reset",
-        description: "Reset the system.",
-        effect: "dangerous",
-        policy: "allow",
-        input: emptyInput,
-        execute: () => ({ reset: true }),
-      }),
-    ],
+    actions: [resetSystem],
   })
-  const surface = await grantedRuntime.surface({
+  const surface = await grantedRuntime.generation({ actions: [resetSystem] }).createSurface({
     content: "<button>Reset</button>",
-    actions: ["system.reset"],
   })
   let executed = false
   const blockedRuntime = new Genui({
@@ -134,26 +130,24 @@ void test("red team: invalid input never asks approval or executes", async () =>
   let validated = 0
   let approvals = 0
   let executions = 0
-  const runtime = new Genui({
-    actions: [
-      action({
-        name: "notes.create",
-        description: "Create a note.",
-        effect: "write",
-        input: testSchema<Readonly<{ text: string }>>(() => {
-          validated += 1
-          return { ok: false, message: "Expected note text." }
-        }),
-        execute: () => {
-          executions += 1
-          return { created: true }
-        },
-      }),
-    ],
+  const createNote = action({
+    name: "notes.create",
+    description: "Create a note.",
+    effect: "write",
+    input: testSchema<Readonly<{ text: string }>>(() => {
+      validated += 1
+      return { ok: false, message: "Expected note text." }
+    }),
+    execute: () => {
+      executions += 1
+      return { created: true }
+    },
   })
-  const surface = await runtime.surface({
+  const runtime = new Genui({
+    actions: [createNote],
+  })
+  const surface = await runtime.generation({ actions: [createNote] }).createSurface({
     content: "<button>Create</button>",
-    actions: ["notes.create"],
   })
 
   const result = await runtime.execute(
@@ -175,23 +169,21 @@ void test("red team: invalid input never asks approval or executes", async () =>
 
 void test("red team: approval denial returns approval_denied without execution", async () => {
   let executions = 0
-  const runtime = new Genui({
-    actions: [
-      action({
-        name: "notes.create",
-        description: "Create a note.",
-        effect: "write",
-        input: emptyInput,
-        execute: () => {
-          executions += 1
-          return { created: true }
-        },
-      }),
-    ],
+  const createNote = action({
+    name: "notes.create",
+    description: "Create a note.",
+    effect: "write",
+    input: emptyInput,
+    execute: () => {
+      executions += 1
+      return { created: true }
+    },
   })
-  const surface = await runtime.surface({
+  const runtime = new Genui({
+    actions: [createNote],
+  })
+  const surface = await runtime.generation({ actions: [createNote] }).createSurface({
     content: "<button>Create</button>",
-    actions: ["notes.create"],
   })
 
   const result = await runtime.execute(
@@ -214,25 +206,23 @@ void test("red team: a surface cannot exceed eight in-flight calls", async () =>
   const eightStarted = new Promise<void>((resolve) => {
     markEightStarted = resolve
   })
-  const runtime = new Genui({
-    actions: [
-      action({
-        name: "reports.read",
-        description: "Read a report.",
-        effect: "read",
-        input: emptyInput,
-        execute: async () => {
-          executions += 1
-          if (executions === 8) markEightStarted?.()
-          if (executions <= 8) await gate
-          return { ready: true }
-        },
-      }),
-    ],
+  const readReports = action({
+    name: "reports.read",
+    description: "Read a report.",
+    effect: "read",
+    input: emptyInput,
+    execute: async () => {
+      executions += 1
+      if (executions === 8) markEightStarted?.()
+      if (executions <= 8) await gate
+      return { ready: true }
+    },
   })
-  const surface = await runtime.surface({
+  const runtime = new Genui({
+    actions: [readReports],
+  })
+  const surface = await runtime.generation({ actions: [readReports] }).createSurface({
     content: "<button>Read</button>",
-    actions: ["reports.read"],
   })
   const calls = Array.from({ length: 9 }, (_, index) =>
     runtime.execute(
@@ -262,28 +252,26 @@ void test("red team: inputs over 64 KiB are rejected before validation", async (
   let validations = 0
   let approvals = 0
   let executions = 0
-  const runtime = new Genui({
-    actions: [
-      action({
-        name: "notes.create",
-        description: "Create a note.",
-        effect: "write",
-        input: testSchema<Readonly<{ text: string }>>((value) => {
-          validations += 1
-          return isRecord(value) && typeof value.text === "string"
-            ? { ok: true, value: { text: value.text } }
-            : { ok: false, message: "Expected note text." }
-        }),
-        execute: () => {
-          executions += 1
-          return { created: true }
-        },
-      }),
-    ],
+  const createNote = action({
+    name: "notes.create",
+    description: "Create a note.",
+    effect: "write",
+    input: testSchema<Readonly<{ text: string }>>((value) => {
+      validations += 1
+      return isRecord(value) && typeof value.text === "string"
+        ? { ok: true, value: { text: value.text } }
+        : { ok: false, message: "Expected note text." }
+    }),
+    execute: () => {
+      executions += 1
+      return { created: true }
+    },
   })
-  const surface = await runtime.surface({
+  const runtime = new Genui({
+    actions: [createNote],
+  })
+  const surface = await runtime.generation({ actions: [createNote] }).createSurface({
     content: "<button>Create</button>",
-    actions: ["notes.create"],
   })
 
   const result = await runtime.execute(

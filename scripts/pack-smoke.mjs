@@ -145,11 +145,11 @@ const readTopic = action({
   execute: () => ({ message: "ready" }),
 })
 const genui = new Genui({ actions: [readTopic], subscriptions: [updates], store: memoryStore() })
-const surface = await genui.surface({
-  content: "<p>pack smoke</p>",
-  actions: [readTopic.name],
-  subscriptions: [updates.name],
-})
+const generation = genui.generation({ actions: [readTopic], subscriptions: [updates] })
+const guidance = generation.guidance()
+assert.match(guidance.environment, /genui.call/)
+assert.match(guidance.capabilityContract, /pack.read_topic/)
+const surface = await generation.createSurface({ content: "<p>pack smoke</p>" })
 assert.equal(parseSurface(JSON.parse(JSON.stringify(surface)))?.id, surface.id)
 assert.deepEqual(surface.grant.actions[0]?.outputSchema, readTopic.outputJsonSchema)
 assert.equal(surface.grant.subscriptions[0]?.name, updates.name)
@@ -192,6 +192,10 @@ assert.equal((await events.next()).done, true)
   memoryStore,
   subscription,
   type ActionDefinition,
+  type CreateSurfaceOptions,
+  type Generation,
+  type GenerationGuidance,
+  type GenerationOptions,
   type GenuiOptions,
   type StandardSchemaV1,
   type SubscriptionDefinition,
@@ -331,6 +335,17 @@ const genuiOptions: GenuiOptions<PackContext> = {
   store: new PackSurfaceStore(),
 }
 const genui = new Genui(genuiOptions)
+const generationOptions: GenerationOptions<PackContext> = {
+  actions: [readTopic],
+  subscriptions: [updates],
+}
+const generation: Generation = genui.generation(generationOptions)
+const generationGuidance: GenerationGuidance = generation.guidance()
+const createSurfaceOptions: CreateSurfaceOptions = {
+  content: "<p>pack type smoke</p>",
+  subject: "pack-subject",
+}
+const generatedSurface: Promise<Surface> = generation.createSurface(createSurfaceOptions)
 const call: ActionCall = {
   surfaceId: "surface",
   callId: "call",
@@ -401,6 +416,8 @@ const resultOutcome = (result: ActionResult): string =>
   result.ok ? "ok" : result.error.code
 
 void genui
+void generationGuidance
+void generatedSurface
 void actionDefinition
 void projectedOutputSchema
 void invalidOutputContract

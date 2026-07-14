@@ -1,86 +1,10 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { mcpUiStyleVariableKeys } from "../host-context.js"
-import { subscriptionEventByteLimit } from "../protocol/index.js"
-import type { Action, Subscription } from "../protocol/index.js"
-import { codeInstructions } from "./instructions.js"
-
-void test("code instructions include every granted action name and declared schema", () => {
-  const actions = [
-    {
-      name: "orders.search",
-      description: "Search orders.",
-      effect: "read",
-      requiresApproval: false,
-      inputSchema: {
-        type: "object",
-        properties: { status: { enum: ["open", "shipped"] } },
-        additionalProperties: false,
-      },
-      outputSchema: {
-        type: "array",
-        items: { type: "object", properties: { id: { type: "string" } } },
-      },
-    },
-    {
-      name: "orders.update_status",
-      description: "Update an order status.",
-      effect: "write",
-      requiresApproval: true,
-      intent: "Set {input.id} to {input.status}",
-      inputSchema: {
-        type: "object",
-        required: ["id", "status"],
-        properties: {
-          id: { type: "string" },
-          status: { type: "string" },
-        },
-      },
-    },
-  ] satisfies readonly Action[]
-
-  const instructions = codeInstructions(actions)
-
-  for (const action of actions) {
-    assert.equal(instructions.includes(action.name), true)
-    assert.equal(instructions.includes(JSON.stringify(action.inputSchema, null, 2)), true)
-  }
-  assert.equal(instructions.includes(JSON.stringify(actions[0]?.outputSchema, null, 2)), true)
-  assert.match(instructions, /Output JSON Schema:/)
-})
-
-void test("code instructions include granted subscription input and event schemas", () => {
-  const subscriptions = [
-    {
-      name: "orders.changes",
-      description: "Receive matching order changes.",
-      confidentiality: "normal",
-      maxEventBytes: subscriptionEventByteLimit,
-      inputSchema: {
-        type: "object",
-        properties: { status: { enum: ["processing", "shipped"] } },
-        additionalProperties: false,
-      },
-      eventSchema: {
-        type: "object",
-        properties: { summary: { type: "string" } },
-        required: ["summary"],
-        additionalProperties: false,
-      },
-    },
-  ] satisfies readonly Subscription[]
-
-  const instructions = codeInstructions([], subscriptions)
-
-  assert.match(instructions, /## Granted subscriptions/)
-  assert.match(instructions, /orders\.changes/)
-  assert.equal(instructions.includes(JSON.stringify(subscriptions[0]?.inputSchema, null, 2)), true)
-  assert.equal(instructions.includes(JSON.stringify(subscriptions[0]?.eventSchema, null, 2)), true)
-  assert.match(instructions, /Maximum event size: 65536 bytes/)
-})
+import { codeEnvironmentInstructions } from "./instructions.js"
 
 void test("code instructions teach the read-only subscription guest contract", () => {
-  const instructions = codeInstructions([])
+  const instructions = codeEnvironmentInstructions()
 
   assert.match(instructions, /## Subscriptions/)
   assert.match(instructions, /genui\.subscriptions/)
@@ -95,7 +19,7 @@ void test("code instructions teach the read-only subscription guest contract", (
 })
 
 void test("code instructions teach portable host styling", () => {
-  const instructions = codeInstructions([])
+  const instructions = codeEnvironmentInstructions()
 
   assert.match(instructions, /## Host styling/)
   assert.match(instructions, /Use a standardized token for\s+every visual property it covers/)
@@ -109,7 +33,7 @@ void test("code instructions teach portable host styling", () => {
 })
 
 void test("code instructions teach optional host capabilities", () => {
-  const instructions = codeInstructions([])
+  const instructions = codeEnvironmentInstructions()
 
   assert.match(instructions, /## Host capabilities/)
   assert.match(instructions, /genui\.capabilities/)
@@ -123,7 +47,7 @@ void test("code instructions teach optional host capabilities", () => {
 })
 
 void test("code instructions teach graceful teardown", () => {
-  const instructions = codeInstructions([])
+  const instructions = codeEnvironmentInstructions()
 
   assert.match(instructions, /genui\.teardown\(/)
   assert.match(instructions, /cleanup handler/)
@@ -131,7 +55,7 @@ void test("code instructions teach graceful teardown", () => {
 })
 
 void test("code instructions teach portable host context", () => {
-  const instructions = codeInstructions([])
+  const instructions = codeEnvironmentInstructions()
 
   assert.match(instructions, /genui\.hostContext/)
   assert.match(instructions, /genui\.onHostContextChange\(/)
@@ -145,7 +69,7 @@ void test("code instructions teach portable host context", () => {
 })
 
 void test("code instructions list every standardized host style variable", () => {
-  const instructions = codeInstructions([])
+  const instructions = codeEnvironmentInstructions()
 
   for (const key of mcpUiStyleVariableKeys) {
     assert.equal(instructions.includes(`\`${key}\``), true, `missing ${key}`)

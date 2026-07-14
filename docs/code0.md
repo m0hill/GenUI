@@ -7,24 +7,36 @@ Treat the dialect identifier as the wire version. The current contract is
 `code/0`; npm package versions do not replace it.
 
 ```ts
-import { codeDialect } from "genui/protocol"
-
-const surface = await genui.surface({
-  dialect: codeDialect,
-  content: generatedFragment,
-  actions: ["orders.search", "orders.update_status"],
-  subscriptions: ["orders.changes"],
+const ordersUi = genui.generation({
+  actions: [searchOrders, updateOrderStatus],
+  subscriptions: [orderChanges],
 })
+
+const guidance = ordersUi.guidance()
+const modelInstructions = `${guidance.environment}\n\n${guidance.capabilityContract}`
+const surface = await ordersUi.createSurface({ content: generatedFragment })
 ```
 
 The runtime stores `content` verbatim. It does not sanitize, rewrite, compile,
-or resolve dependencies in the fragment. Grant projection still removes
-unknown, blocked, duplicate, and confidential actions and subscriptions. Use
-`genui.diagnostics(surface.id)` to inspect both projection decisions.
+or resolve dependencies in the fragment. `generation()` selects registered
+definitions once so model guidance and surface creation cannot drift to
+different capability sets. It rejects duplicate or unregistered definitions.
+Grant projection still omits blocked and confidential actions and
+subscriptions. Use `genui.diagnostics(surface.id)` to inspect both projection
+decisions.
 
-Use `genui.instructions()` to give a model the code/0 contract and the current
-action and subscription descriptors. The output includes action input schemas
-and subscription input and event schemas.
+Call `guidance()` when preparing the model request. `environment` is the stable
+code/0 sandbox, bridge, lifecycle, and styling contract.
+`capabilityContract` contains only the selected capabilities that current
+policy permits the model to see. It renders schemas as compact TypeScript-like
+declarations. Constraints that TypeScript cannot express remain as comments;
+if a schema cannot be represented safely, its declaration becomes `unknown`
+and the exact JSON Schema is included as a fallback.
+
+The generation retains selected capability names, not an authorization
+snapshot. Both `guidance()` and `createSurface()` project current policy when
+called. Applications decide where to place the two guidance sections in their
+provider-specific prompt; GenUI does not invoke a model.
 
 ## Guest content
 

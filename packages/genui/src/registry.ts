@@ -13,12 +13,12 @@ import {
   type SubscriptionOpenResult,
   type SubscriptionRequest,
   type Surface,
-  type SurfaceInput,
   type SurfaceRecord,
 } from "./protocol/index.js"
-import { actionPolicy, projectGrantedActions, publicActions } from "./action-projections.js"
+import { actionPolicy, publicActions } from "./action-projections.js"
 import { parseWithSchema } from "./schema.js"
-import { projectGrantedSubscriptions, publicSubscriptions } from "./subscription-projections.js"
+import { createGeneration, type Generation, type GenerationOptions } from "./generation.js"
+import { publicSubscriptions } from "./subscription-projections.js"
 import {
   createSubscriptionRuntime,
   type SubscriptionAuditEntry,
@@ -174,8 +174,13 @@ export class Genui<Ctx> {
     })
   }
 
-  surface(input: SurfaceInput): Promise<Surface> {
-    return this.#surfaceRuntime.surface(input)
+  generation(options: GenerationOptions<Ctx>): Generation {
+    return createGeneration({
+      selection: options,
+      byName: this.#byName,
+      subscriptionsByName: this.#subscriptionsByName,
+      surfaceRuntime: this.#surfaceRuntime,
+    })
   }
 
   reproject(id: string): Promise<Surface | undefined> {
@@ -399,20 +404,5 @@ export class Genui<Ctx> {
 
   subscriptions(): Subscription[] {
     return publicSubscriptions(this.#subscriptionsByName.values())
-  }
-
-  instructions(): string {
-    const projection = projectGrantedActions({
-      actions: Array.from(this.#byName.keys()),
-      byName: this.#byName,
-    })
-    const subscriptionProjection = projectGrantedSubscriptions({
-      subscriptions: Array.from(this.#subscriptionsByName.keys()),
-      byName: this.#subscriptionsByName,
-    })
-    return this.#surfaceRuntime.instructions(
-      projection.actions,
-      subscriptionProjection.subscriptions,
-    )
   }
 }

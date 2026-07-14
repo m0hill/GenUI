@@ -2,7 +2,6 @@ import { readFile } from "node:fs/promises"
 import { Genui, type CallAuditEntry } from "genui"
 import {
   actionError,
-  codeDialect,
   parseSubscriptionRequest,
   type SubscriptionErrorCode,
   type SubscriptionOpenResult,
@@ -70,6 +69,10 @@ const genui = new Genui<Readonly<Record<string, never>>>({
     callAudits.set(key, entries)
   },
 })
+const playgroundGeneration = genui.generation({
+  actions: demoActions,
+  subscriptions: demoSubscriptions,
+})
 
 export const app = new Hono()
 
@@ -91,7 +94,10 @@ app.get("/client.js", async (context) => {
   })
 })
 
-app.get("/genui/instructions", (context) => context.text(genui.instructions()))
+app.get("/genui/instructions", (context) => {
+  const guidance = playgroundGeneration.guidance()
+  return context.text(`${guidance.environment}\n\n${guidance.capabilityContract}`)
+})
 
 app.post("/genui/surface", async (context) => {
   const subject = sessionSubject(context.req.raw)
@@ -103,11 +109,8 @@ app.post("/genui/surface", async (context) => {
     return context.json(actionError("invalid_input", "Surface content must be a string."), 400)
   }
 
-  const surface = await genui.surface({
-    dialect: codeDialect,
+  const surface = await playgroundGeneration.createSurface({
     content: request.content,
-    actions: demoActions.map((definition) => definition.name),
-    subscriptions: demoSubscriptions.map((definition) => definition.name),
     subject,
   })
   return context.json(surface)

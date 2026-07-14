@@ -92,30 +92,27 @@ void test("subscription validates canonical input and every event without retain
   let receivedInput: Filter | undefined
   let receivedSignal: AbortSignal | undefined
   const audit: SubscriptionAuditEntry[] = []
+  const changes = subscription({
+    name: "orders.changes",
+    description: "Receive order changes.",
+    input: filterSchema,
+    event: changeSchema,
+    subscribe: (_ctx, input, { signal }) => {
+      receivedInput = input
+      receivedSignal = signal
+      return source.events
+    },
+  })
   const registry = new Genui({
     actions: [],
-    subscriptions: [
-      subscription({
-        name: "orders.changes",
-        description: "Receive order changes.",
-        input: filterSchema,
-        event: changeSchema,
-        subscribe: (_ctx, input, { signal }) => {
-          receivedInput = input
-          receivedSignal = signal
-          return source.events
-        },
-      }),
-    ],
+    subscriptions: [changes],
     onSubscription: (entry) => {
       audit.push(entry)
     },
   })
-  const surface = await registry.surface({
-    content: "",
-    actions: [],
-    subscriptions: ["orders.changes"],
-  })
+  const surface = await registry
+    .generation({ actions: [], subscriptions: [changes] })
+    .createSurface({ content: "" })
   const request = {
     surfaceId: surface.id,
     subscriptionId: "subscription-1",
@@ -158,34 +155,30 @@ void test("subscription validates canonical input and every event without retain
 void test("subscription enforces subject, input size, duplicate IDs, and four active streams", async () => {
   const sources: ControlledSource[] = []
   const audit: SubscriptionAuditEntry[] = []
+  const changes = subscription({
+    name: "orders.changes",
+    description: "Receive order changes.",
+    input: testSchema<Record<string, unknown>>((value) =>
+      isRecord(value) ? { ok: true, value: { ...value } } : { ok: false, message: "object" },
+    ),
+    event: changeSchema,
+    subscribe: (_ctx, _input, { signal }) => {
+      const source = controlledSource()
+      sources.push(source)
+      signal.addEventListener("abort", () => source.complete(), { once: true })
+      return source.events
+    },
+  })
   const registry = new Genui({
     actions: [],
-    subscriptions: [
-      subscription({
-        name: "orders.changes",
-        description: "Receive order changes.",
-        input: testSchema<Record<string, unknown>>((value) =>
-          isRecord(value) ? { ok: true, value: { ...value } } : { ok: false, message: "object" },
-        ),
-        event: changeSchema,
-        subscribe: (_ctx, _input, { signal }) => {
-          const source = controlledSource()
-          sources.push(source)
-          signal.addEventListener("abort", () => source.complete(), { once: true })
-          return source.events
-        },
-      }),
-    ],
+    subscriptions: [changes],
     onSubscription: (entry) => {
       audit.push(entry)
     },
   })
-  const surface = await registry.surface({
-    content: "",
-    actions: [],
-    subscriptions: ["orders.changes"],
-    subject: "session-1",
-  })
+  const surface = await registry
+    .generation({ actions: [], subscriptions: [changes] })
+    .createSurface({ content: "", subject: "session-1" })
   const request = (subscriptionId: string, input: unknown = {}) => ({
     surfaceId: surface.id,
     subscriptionId,
@@ -234,25 +227,22 @@ void test("subscription enforces subject, input size, duplicate IDs, and four ac
   )
   await registry.revoke(surface.id)
 
+  const oversizedChanges = subscription({
+    name: "orders.changes",
+    description: "Receive order changes.",
+    input: testSchema<Record<string, unknown>>((value) =>
+      isRecord(value) ? { ok: true, value } : { ok: false, message: "object" },
+    ),
+    event: changeSchema,
+    subscribe: async function* () {},
+  })
   const oversizedRegistry = new Genui({
     actions: [],
-    subscriptions: registry.subscriptions().map(() =>
-      subscription({
-        name: "orders.changes",
-        description: "Receive order changes.",
-        input: testSchema<Record<string, unknown>>((value) =>
-          isRecord(value) ? { ok: true, value } : { ok: false, message: "object" },
-        ),
-        event: changeSchema,
-        subscribe: async function* () {},
-      }),
-    ),
+    subscriptions: [oversizedChanges],
   })
-  const oversizedSurface = await oversizedRegistry.surface({
-    content: "",
-    actions: [],
-    subscriptions: ["orders.changes"],
-  })
+  const oversizedSurface = await oversizedRegistry
+    .generation({ actions: [], subscriptions: [oversizedChanges] })
+    .createSurface({ content: "" })
   const oversized = await oversizedRegistry.subscribe(
     {
       surfaceId: oversizedSurface.id,
@@ -269,39 +259,36 @@ void test("subscription cancellation before the first pull releases its active s
   const signals: AbortSignal[] = []
   const audit: SubscriptionAuditEntry[] = []
   let returned = 0
-  const registry = new Genui({
-    actions: [],
-    subscriptions: [
-      subscription({
-        name: "orders.changes",
-        description: "Receive order changes.",
-        input: filterSchema,
-        event: changeSchema,
-        subscribe: (_ctx, _input, { signal }) => {
-          signals.push(signal)
+  const changes = subscription({
+    name: "orders.changes",
+    description: "Receive order changes.",
+    input: filterSchema,
+    event: changeSchema,
+    subscribe: (_ctx, _input, { signal }) => {
+      signals.push(signal)
+      return {
+        [Symbol.asyncIterator]() {
           return {
-            [Symbol.asyncIterator]() {
-              return {
-                next: () => new Promise<IteratorResult<unknown>>(() => undefined),
-                return: async () => {
-                  returned += 1
-                  return { done: true, value: undefined }
-                },
-              }
+            next: () => new Promise<IteratorResult<unknown>>(() => undefined),
+            return: async () => {
+              returned += 1
+              return { done: true, value: undefined }
             },
           }
         },
-      }),
-    ],
+      }
+    },
+  })
+  const registry = new Genui({
+    actions: [],
+    subscriptions: [changes],
     onSubscription: (entry) => {
       audit.push(entry)
     },
   })
-  const surface = await registry.surface({
-    content: "",
-    actions: [],
-    subscriptions: ["orders.changes"],
-  })
+  const surface = await registry
+    .generation({ actions: [], subscriptions: [changes] })
+    .createSurface({ content: "" })
   const open = (subscriptionId: string): Promise<SubscriptionOpenResult> =>
     registry.subscribe(
       {
@@ -372,11 +359,8 @@ void test("subscription reauthorizes and fails closed before delivering later ev
   })
   const creator = new Genui({ actions: [], subscriptions: [definition], store })
   const executor = new Genui({ actions: [], subscriptions: [definition], store })
-  const surface = await creator.surface({
-    content: "",
-    actions: [],
-    subscriptions: [definition.name],
-  })
+  const generation = creator.generation({ actions: [], subscriptions: [definition] })
+  const surface = await generation.createSurface({ content: "" })
   const result = await executor.subscribe(
     {
       surfaceId: surface.id,
@@ -430,11 +414,7 @@ void test("subscription reauthorizes and fails closed before delivering later ev
     "not_granted",
   )
 
-  const revokedSurface = await creator.surface({
-    content: "",
-    actions: [],
-    subscriptions: [definition.name],
-  })
+  const revokedSurface = await generation.createSurface({ content: "" })
   const revokedResult = await executor.subscribe(
     {
       surfaceId: revokedSurface.id,
@@ -460,26 +440,23 @@ void test("subscription reauthorizes and fails closed before delivering later ev
 void test("subscription terminates malformed, oversized, throwing, and accessor-hostile sources", async () => {
   const errors: Array<{ readonly type: string; readonly phase: string }> = []
   const source = controlledSource()
+  const changes = subscription({
+    name: "orders.changes",
+    description: "Receive order changes.",
+    input: filterSchema,
+    event: changeSchema,
+    subscribe: () => source.events,
+  })
   const registry = new Genui({
     actions: [],
-    subscriptions: [
-      subscription({
-        name: "orders.changes",
-        description: "Receive order changes.",
-        input: filterSchema,
-        event: changeSchema,
-        subscribe: () => source.events,
-      }),
-    ],
+    subscriptions: [changes],
     onError: (event) => {
       errors.push({ type: event.type, phase: event.phase })
     },
   })
-  const surface = await registry.surface({
-    content: "",
-    actions: [],
-    subscriptions: ["orders.changes"],
-  })
+  const surface = await registry
+    .generation({ actions: [], subscriptions: [changes] })
+    .createSurface({ content: "" })
   const result = await registry.subscribe(
     {
       surfaceId: surface.id,
@@ -502,27 +479,24 @@ void test("subscription terminates malformed, oversized, throwing, and accessor-
   const exactSource = controlledSource()
   const throwingSource = controlledSource()
   const sizedSources = [exactSource, throwingSource]
+  const sizedChanges = subscription({
+    name: "orders.sized",
+    description: "Sized events.",
+    input: filterSchema,
+    event: changeSchema,
+    subscribe: () => {
+      const nextSource = sizedSources.shift()
+      if (nextSource === undefined) throw new Error("missing source")
+      return nextSource.events
+    },
+  })
   const sizedRegistry = new Genui({
     actions: [],
-    subscriptions: [
-      subscription({
-        name: "orders.sized",
-        description: "Sized events.",
-        input: filterSchema,
-        event: changeSchema,
-        subscribe: () => {
-          const nextSource = sizedSources.shift()
-          if (nextSource === undefined) throw new Error("missing source")
-          return nextSource.events
-        },
-      }),
-    ],
+    subscriptions: [sizedChanges],
   })
-  const sizedSurface = await sizedRegistry.surface({
-    content: "",
-    actions: [],
-    subscriptions: ["orders.sized"],
-  })
+  const sizedSurface = await sizedRegistry
+    .generation({ actions: [], subscriptions: [sizedChanges] })
+    .createSurface({ content: "" })
   const eventOverhead = new TextEncoder().encode(JSON.stringify({ id: "" })).byteLength
   const exactResult = await sizedRegistry.subscribe(
     {
@@ -584,11 +558,9 @@ void test("subscription terminates malformed, oversized, throwing, and accessor-
     return value
   })
   const hostileRegistry = new Genui({ actions: [], subscriptions: [hostile] })
-  const hostileSurface = await hostileRegistry.surface({
-    content: "",
-    actions: [],
-    subscriptions: [hostile.name],
-  })
+  const hostileSurface = await hostileRegistry
+    .generation({ actions: [], subscriptions: [hostile] })
+    .createSurface({ content: "" })
   const hostileResult = await hostileRegistry.subscribe(
     {
       surfaceId: hostileSurface.id,
@@ -605,29 +577,25 @@ void test("local revocation and exact expiry abort quiet subscription sources", 
   const sources: ControlledSource[] = []
   const signals: AbortSignal[] = []
   const store = memoryStore()
+  const changes = subscription({
+    name: "orders.changes",
+    description: "Receive order changes.",
+    input: filterSchema,
+    event: changeSchema,
+    subscribe: (_ctx, _input, { signal }) => {
+      const source = controlledSource()
+      sources.push(source)
+      signals.push(signal)
+      return source.events
+    },
+  })
   const registry = new Genui({
     store,
     actions: [],
-    subscriptions: [
-      subscription({
-        name: "orders.changes",
-        description: "Receive order changes.",
-        input: filterSchema,
-        event: changeSchema,
-        subscribe: (_ctx, _input, { signal }) => {
-          const source = controlledSource()
-          sources.push(source)
-          signals.push(signal)
-          return source.events
-        },
-      }),
-    ],
+    subscriptions: [changes],
   })
-  const revokedSurface = await registry.surface({
-    content: "",
-    actions: [],
-    subscriptions: ["orders.changes"],
-  })
+  const generation = registry.generation({ actions: [], subscriptions: [changes] })
+  const revokedSurface = await generation.createSurface({ content: "" })
   const revoked = await registry.subscribe(
     {
       surfaceId: revokedSurface.id,
@@ -648,12 +616,7 @@ void test("local revocation and exact expiry abort quiet subscription sources", 
     "revoked",
   )
 
-  const expiringSurface = await registry.surface({
-    content: "",
-    actions: [],
-    subscriptions: ["orders.changes"],
-    ttlMs: 20,
-  })
+  const expiringSurface = await generation.createSurface({ content: "", ttlMs: 20 })
   const expiring = await registry.subscribe(
     {
       surfaceId: expiringSurface.id,
@@ -709,11 +672,9 @@ void test("revocation overlapping initial authorization prevents a stale open", 
     },
   })
   const registry = new Genui({ actions: [], subscriptions: [definition], store })
-  const surface = await registry.surface({
-    content: "",
-    actions: [],
-    subscriptions: [definition.name],
-  })
+  const surface = await registry
+    .generation({ actions: [], subscriptions: [definition] })
+    .createSurface({ content: "" })
   const opening = registry.subscribe(
     {
       surfaceId: surface.id,
@@ -782,11 +743,9 @@ void test("an open started reentrantly during revocation cannot capture stale au
     },
   })
   registry = new Genui({ actions: [], subscriptions: [definition], store })
-  const surface = await registry.surface({
-    content: "",
-    actions: [],
-    subscriptions: [definition.name],
-  })
+  const surface = await registry
+    .generation({ actions: [], subscriptions: [definition] })
+    .createSurface({ content: "" })
   surfaceId = surface.id
   const active = await registry.subscribe(
     {
@@ -832,11 +791,9 @@ void test("a failed authoritative revoke leaves later opens fail closed until re
     },
   })
   const registry = new Genui({ actions: [], subscriptions: [definition], store })
-  const surface = await registry.surface({
-    content: "",
-    actions: [],
-    subscriptions: [definition.name],
-  })
+  const surface = await registry
+    .generation({ actions: [], subscriptions: [definition] })
+    .createSurface({ content: "" })
   await assert.rejects(registry.revoke(surface.id), /revoke store offline/)
 
   const blocked = await registry.subscribe(
@@ -888,11 +845,9 @@ void test("concurrent revocation tickets keep the guard until every attempt fini
     subscribe: async function* () {},
   })
   const registry = new Genui({ actions: [], subscriptions: [definition], store })
-  const surface = await registry.surface({
-    content: "",
-    actions: [],
-    subscriptions: [definition.name],
-  })
+  const surface = await registry
+    .generation({ actions: [], subscriptions: [definition] })
+    .createSurface({ content: "" })
 
   const first = registry.revoke(surface.id)
   await started[0]
@@ -937,24 +892,21 @@ void test("subscription terminates when per-event store reauthorization fails", 
     },
   } satisfies SurfaceStore
   const source = controlledSource()
+  const changes = subscription({
+    name: "orders.changes",
+    description: "Receive order changes.",
+    input: filterSchema,
+    event: changeSchema,
+    subscribe: () => source.events,
+  })
   const registry = new Genui({
     store,
     actions: [],
-    subscriptions: [
-      subscription({
-        name: "orders.changes",
-        description: "Receive order changes.",
-        input: filterSchema,
-        event: changeSchema,
-        subscribe: () => source.events,
-      }),
-    ],
+    subscriptions: [changes],
   })
-  const surface = await registry.surface({
-    content: "",
-    actions: [],
-    subscriptions: ["orders.changes"],
-  })
+  const surface = await registry
+    .generation({ actions: [], subscriptions: [changes] })
+    .createSurface({ content: "" })
   const result = await registry.subscribe(
     {
       surfaceId: surface.id,
@@ -994,11 +946,9 @@ void test("subscription accepts function-valued AsyncIterables and iterators", a
   })
   Reflect.set(definition, "subscribe", () => source)
   const registry = new Genui({ actions: [], subscriptions: [definition] })
-  const surface = await registry.surface({
-    content: "",
-    actions: [],
-    subscriptions: [definition.name],
-  })
+  const surface = await registry
+    .generation({ actions: [], subscriptions: [definition] })
+    .createSurface({ content: "" })
   const result = await registry.subscribe(
     {
       surfaceId: surface.id,
@@ -1078,11 +1028,9 @@ void test("subscription converts malformed iterator results and hostile getters 
       }
     },
   })
-  const surface = await registry.surface({
-    content: "",
-    actions: [],
-    subscriptions: [definition.name],
-  })
+  const surface = await registry
+    .generation({ actions: [], subscriptions: [definition] })
+    .createSurface({ content: "" })
 
   for (let index = 0; index < results.length; index += 1) {
     const result = await registry.subscribe(
@@ -1142,11 +1090,9 @@ void test("subscription reads normal iterator-result getters only once", async (
   })
   Reflect.set(definition, "subscribe", () => source)
   const registry = new Genui({ actions: [], subscriptions: [definition] })
-  const surface = await registry.surface({
-    content: "",
-    actions: [],
-    subscriptions: [definition.name],
-  })
+  const surface = await registry
+    .generation({ actions: [], subscriptions: [definition] })
+    .createSurface({ content: "" })
   const result = await registry.subscribe(
     {
       surfaceId: surface.id,
@@ -1212,11 +1158,8 @@ void test("subscription isolates throwing and rejected iterator cleanup", async 
       }
     },
   })
-  const firstSurface = await registry.surface({
-    content: "",
-    actions: [],
-    subscriptions: [definition.name],
-  })
+  const generation = registry.generation({ actions: [], subscriptions: [definition] })
+  const firstSurface = await generation.createSurface({ content: "" })
   const first = await registry.subscribe(
     {
       surfaceId: firstSurface.id,
@@ -1236,11 +1179,7 @@ void test("subscription isolates throwing and rejected iterator cleanup", async 
     "revoked",
   )
 
-  const secondSurface = await registry.surface({
-    content: "",
-    actions: [],
-    subscriptions: [definition.name],
-  })
+  const secondSurface = await generation.createSurface({ content: "" })
   const controller = new AbortController()
   const second = await registry.subscribe(
     {
@@ -1291,11 +1230,9 @@ void test("late source startup cleanup isolates a hostile return accessor", asyn
       }
     },
   })
-  const surface = await registry.surface({
-    content: "",
-    actions: [],
-    subscriptions: [definition.name],
-  })
+  const surface = await registry
+    .generation({ actions: [], subscriptions: [definition] })
+    .createSurface({ content: "" })
   const controller = new AbortController()
   const opening = registry.subscribe(
     {

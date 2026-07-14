@@ -11,21 +11,19 @@ const emptyInput = testSchema<Readonly<Record<string, never>>>((value) =>
 void test("expired surface grant rejects execution and removes its authority", async () => {
   const store = memoryStore()
   let executions = 0
+  const readRecords = action({
+    name: "records.read",
+    description: "Read records.",
+    effect: "read",
+    input: emptyInput,
+    execute: () => ({ execution: ++executions }),
+  })
   const runtime = new Genui({
     store,
-    actions: [
-      action({
-        name: "records.read",
-        description: "Read records.",
-        effect: "read",
-        input: emptyInput,
-        execute: () => ({ execution: ++executions }),
-      }),
-    ],
+    actions: [readRecords],
   })
-  const surface = await runtime.surface({
+  const surface = await runtime.generation({ actions: [readRecords] }).createSurface({
     content: "",
-    actions: ["records.read"],
     ttlMs: 0,
   })
 
@@ -48,19 +46,20 @@ void test("expired surface grant rejects execution and removes its authority", a
 void test("explicit revocation rejects later calls without executing the action", async () => {
   const store = memoryStore()
   let executions = 0
+  const readRecords = action({
+    name: "records.read",
+    description: "Read records.",
+    effect: "read",
+    input: emptyInput,
+    execute: () => ({ execution: ++executions }),
+  })
   const runtime = new Genui({
     store,
-    actions: [
-      action({
-        name: "records.read",
-        description: "Read records.",
-        effect: "read",
-        input: emptyInput,
-        execute: () => ({ execution: ++executions }),
-      }),
-    ],
+    actions: [readRecords],
   })
-  const surface = await runtime.surface({ content: "", actions: ["records.read"] })
+  const surface = await runtime
+    .generation({ actions: [readRecords] })
+    .createSurface({ content: "" })
 
   await runtime.revoke(surface.id)
   const result = await runtime.execute(

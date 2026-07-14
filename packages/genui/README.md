@@ -11,6 +11,11 @@ Define one-shot authority with `action()` and read-only event authority with
 persist authoritative surface records, validate calls and every subscription
 event, apply policy and approval, and run app-owned code.
 
+Select definitions once with `genui.generation()`. The resulting generation
+produces the model's stable environment guidance and selected capability
+contract, then creates surfaces from that same selection while reapplying
+current policy.
+
 Generated content is ordinary fragment HTML with inline JavaScript. The
 runtime stores it verbatim. `mount()` runs it in an opaque-origin iframe with a
 network-denying CSP. Its trusted `window.genui` bridge exposes granted action

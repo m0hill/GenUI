@@ -34,25 +34,23 @@ for (const effect of ["write", "dangerous"] satisfies readonly Effect[]) {
     const started = new Promise<void>((resolve) => {
       markStarted = resolve
     })
-    const runtime = new Genui({
-      actions: [
-        action({
-          name: "records.change",
-          description: "Change a record.",
-          effect,
-          input: valueInput,
-          execute: async (_context, input) => {
-            executions += 1
-            markStarted?.()
-            await gate
-            return { execution: executions, value: input.value }
-          },
-        }),
-      ],
+    const changeRecord = action({
+      name: "records.change",
+      description: "Change a record.",
+      effect,
+      input: valueInput,
+      execute: async (_context, input) => {
+        executions += 1
+        markStarted?.()
+        await gate
+        return { execution: executions, value: input.value }
+      },
     })
-    const surface = await runtime.surface({
+    const runtime = new Genui({
+      actions: [changeRecord],
+    })
+    const surface = await runtime.generation({ actions: [changeRecord] }).createSurface({
       content: "<button>Change</button>",
-      actions: ["records.change"],
     })
     const call = {
       surfaceId: surface.id,
@@ -98,19 +96,20 @@ for (const effect of ["write", "dangerous"] satisfies readonly Effect[]) {
 
 void test("idempotency ignores recursive JSON object key order", async () => {
   let executions = 0
-  const runtime = new Genui({
-    actions: [
-      action({
-        name: "records.change",
-        description: "Change a record.",
-        effect: "write",
-        policy: "allow",
-        input: objectInput,
-        execute: () => ({ execution: ++executions }),
-      }),
-    ],
+  const changeRecord = action({
+    name: "records.change",
+    description: "Change a record.",
+    effect: "write",
+    policy: "allow",
+    input: objectInput,
+    execute: () => ({ execution: ++executions }),
   })
-  const surface = await runtime.surface({ content: "", actions: ["records.change"] })
+  const runtime = new Genui({
+    actions: [changeRecord],
+  })
+  const surface = await runtime
+    .generation({ actions: [changeRecord] })
+    .createSurface({ content: "" })
   const call = {
     surfaceId: surface.id,
     callId: "call-reordered",
@@ -149,19 +148,18 @@ void test("approval-required retries execute an effectful call exactly once", as
   let approval: boolean | undefined
   let approvalChecks = 0
   let executions = 0
-  const runtime = new Genui({
-    actions: [
-      action({
-        name: "notes.create",
-        description: "Create a note.",
-        effect: "write",
-        intent: "Create note {input.text}",
-        input: canonicalTextInput,
-        execute: (_context, input) => ({ execution: ++executions, text: input.text }),
-      }),
-    ],
+  const createNote = action({
+    name: "notes.create",
+    description: "Create a note.",
+    effect: "write",
+    intent: "Create note {input.text}",
+    input: canonicalTextInput,
+    execute: (_context, input) => ({ execution: ++executions, text: input.text }),
   })
-  const surface = await runtime.surface({ content: "", actions: ["notes.create"] })
+  const runtime = new Genui({
+    actions: [createNote],
+  })
+  const surface = await runtime.generation({ actions: [createNote] }).createSurface({ content: "" })
   const call = {
     surfaceId: surface.id,
     callId: "call-pending-approval",
@@ -190,20 +188,18 @@ void test("approval-required retries execute an effectful call exactly once", as
 
 void test("read actions are not deduplicated by call id", async () => {
   let executions = 0
-  const runtime = new Genui({
-    actions: [
-      action({
-        name: "records.read",
-        description: "Read a record.",
-        effect: "read",
-        input: valueInput,
-        execute: () => ({ execution: ++executions }),
-      }),
-    ],
+  const readRecord = action({
+    name: "records.read",
+    description: "Read a record.",
+    effect: "read",
+    input: valueInput,
+    execute: () => ({ execution: ++executions }),
   })
-  const surface = await runtime.surface({
+  const runtime = new Genui({
+    actions: [readRecord],
+  })
+  const surface = await runtime.generation({ actions: [readRecord] }).createSurface({
     content: "<button>Read</button>",
-    actions: ["records.read"],
   })
   const call = {
     surfaceId: surface.id,
@@ -219,18 +215,19 @@ void test("read actions are not deduplicated by call id", async () => {
 void test("effectful call ids replay authoritative denials", async () => {
   let approvals = 0
   let executions = 0
-  const runtime = new Genui({
-    actions: [
-      action({
-        name: "records.change",
-        description: "Change a record.",
-        effect: "write",
-        input: valueInput,
-        execute: () => ({ execution: ++executions }),
-      }),
-    ],
+  const changeRecord = action({
+    name: "records.change",
+    description: "Change a record.",
+    effect: "write",
+    input: valueInput,
+    execute: () => ({ execution: ++executions }),
   })
-  const surface = await runtime.surface({ content: "", actions: ["records.change"] })
+  const runtime = new Genui({
+    actions: [changeRecord],
+  })
+  const surface = await runtime
+    .generation({ actions: [changeRecord] })
+    .createSurface({ content: "" })
   const call = {
     surfaceId: surface.id,
     callId: "call-denied",
@@ -293,23 +290,24 @@ void test("idempotency store failures return storage_unavailable", async () => {
   } satisfies SurfaceStore
   let executions = 0
   const errors: CallErrorEvent[] = []
+  const changeRecord = action({
+    name: "records.change",
+    description: "Change a record.",
+    effect: "write",
+    policy: "allow",
+    input: valueInput,
+    execute: () => ({ execution: ++executions }),
+  })
   const runtime = new Genui({
     store,
     onError: (event) => {
       if (event.type === "call") errors.push(event)
     },
-    actions: [
-      action({
-        name: "records.change",
-        description: "Change a record.",
-        effect: "write",
-        policy: "allow",
-        input: valueInput,
-        execute: () => ({ execution: ++executions }),
-      }),
-    ],
+    actions: [changeRecord],
   })
-  const surface = await runtime.surface({ content: "", actions: ["records.change"] })
+  const surface = await runtime
+    .generation({ actions: [changeRecord] })
+    .createSurface({ content: "" })
   const result = await runtime.execute(
     {
       surfaceId: surface.id,

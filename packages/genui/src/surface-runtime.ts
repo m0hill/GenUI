@@ -12,7 +12,6 @@ import {
   type SurfaceRecord,
 } from "./protocol/index.js"
 import { projectGrantedActions } from "./action-projections.js"
-import { codeInstructions } from "./code/instructions.js"
 import { projectGrantedSubscriptions } from "./subscription-projections.js"
 import { copyJsonSchema } from "./schema.js"
 import type {
@@ -51,7 +50,6 @@ export interface SurfaceRuntime {
   revoke(id: string): Promise<void>
   getRecord(id: string): Promise<SurfaceRecord | undefined>
   diagnostics(id: string): Promise<SurfaceProjectionDiagnostics | undefined>
-  instructions(actions: readonly Action[], subscriptions: readonly Subscription[]): string
   runIdempotent(
     request: SurfaceStoreIdempotencyRequest,
     operation: () => Promise<ActionResult>,
@@ -322,7 +320,6 @@ export const createSurfaceRuntime = <Ctx>({
     revoke: async (id) => store.revoke(id),
     getRecord: storedRecord,
     diagnostics,
-    instructions: (actions, subscriptions) => codeInstructions(actions, subscriptions),
     runIdempotent: async (request, operation) => store.runIdempotent(request, operation),
   }
 }

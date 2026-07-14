@@ -75,32 +75,30 @@ const assertErrorCode = (result: ActionResult, code: ActionErrorCode): void => {
   assert.equal(result.error.message.includes("\n"), false)
 }
 
-void test("registry projects a grant without rewriting generated code", async () => {
+void test("generation projects a grant without rewriting generated code", async () => {
+  const rollDice = action({
+    name: "dice.roll",
+    description: "Roll a die.",
+    effect: "read",
+    input: rollInput,
+    output: rollOutput,
+    execute: (_ctx: TestCtx, input) => ({ total: input.sides }),
+  })
+  const blockedDemo = action({
+    name: "demo.blocked",
+    description: "Blocked test capability.",
+    effect: "dangerous",
+    policy: "block",
+    input: emptyInput,
+    execute: () => ({}),
+  })
   const registry = new Genui<TestCtx>({
-    actions: [
-      action({
-        name: "dice.roll",
-        description: "Roll a die.",
-        effect: "read",
-        input: rollInput,
-        output: rollOutput,
-        execute: (_ctx, input) => ({ total: input.sides }),
-      }),
-      action({
-        name: "demo.blocked",
-        description: "Blocked test capability.",
-        effect: "dangerous",
-        policy: "block",
-        input: emptyInput,
-        execute: () => ({}),
-      }),
-    ],
+    actions: [rollDice, blockedDemo],
   })
 
   const content = `<button>Roll</button><script type="module">genui.call("dice.roll", { sides: 6 })</script>`
-  const surface = await registry.surface({
+  const surface = await registry.generation({ actions: [rollDice, blockedDemo] }).createSurface({
     content,
-    actions: ["dice.roll", "missing.action", "dice.roll", "demo.blocked"],
     meta: { source: "test" },
   })
 
@@ -114,13 +112,9 @@ void test("registry projects a grant without rewriting generated code", async ()
   assert.equal(surface.content, content)
   assert.deepEqual(JSON.parse(JSON.stringify(surface)), surface)
   assert.deepEqual(await registry.diagnostics(surface.id), {
-    actions: ["dice.roll", "missing.action", "dice.roll", "demo.blocked"],
+    actions: ["dice.roll", "demo.blocked"],
     granted: ["dice.roll"],
-    dropped: [
-      { name: "missing.action", reason: "unknown" },
-      { name: "dice.roll", reason: "duplicate" },
-      { name: "demo.blocked", reason: "blocked" },
-    ],
+    dropped: [{ name: "demo.blocked", reason: "blocked" }],
     subscriptions: [],
     grantedSubscriptions: [],
     droppedSubscriptions: [],
@@ -129,25 +123,20 @@ void test("registry projects a grant without rewriting generated code", async ()
 
 void test("registry stores code surface content verbatim under its projected grant", async () => {
   const store = memoryStore()
+  const rollDice = action({
+    name: "dice.roll",
+    description: "Roll a die.",
+    effect: "read",
+    input: rollInput,
+    execute: (_ctx: TestCtx, input) => ({ total: input.sides }),
+  })
   const registry = new Genui<TestCtx>({
     store,
-    actions: [
-      action({
-        name: "dice.roll",
-        description: "Roll a die.",
-        effect: "read",
-        input: rollInput,
-        execute: (_ctx, input) => ({ total: input.sides }),
-      }),
-    ],
+    actions: [rollDice],
   })
   const content = `<button onclick="run()">Roll</button><script type="module">window.run = () => genui.call("dice.roll", { sides: 6 })</script>`
 
-  const surface = await registry.surface({
-    dialect: codeDialect,
-    content,
-    actions: ["dice.roll"],
-  })
+  const surface = await registry.generation({ actions: [rollDice] }).createSurface({ content })
 
   assert.equal(surface.dialect, codeDialect)
   assert.equal(surface.content, content)
@@ -160,6 +149,7 @@ void test("registry stores code surface content verbatim under its projected gra
     dialect: codeDialect,
     content,
     actions: ["dice.roll"],
+    subscriptions: [],
   })
 })
 
@@ -175,21 +165,20 @@ void test("surface dialect type permits future dialect identifiers", () => {
 })
 
 void test("same HTML receives different authority from different grants", async () => {
+  const rollDice = action({
+    name: "dice.roll",
+    description: "Roll a die.",
+    effect: "read",
+    input: rollInput,
+    output: rollOutput,
+    execute: (_ctx: TestCtx, input) => ({ total: input.sides }),
+  })
   const registry = new Genui<TestCtx>({
-    actions: [
-      action({
-        name: "dice.roll",
-        description: "Roll a die.",
-        effect: "read",
-        input: rollInput,
-        output: rollOutput,
-        execute: (_ctx, input) => ({ total: input.sides }),
-      }),
-    ],
+    actions: [rollDice],
   })
   const html = `<button>Roll</button><script type="module">genui.call("dice.roll", { sides: 6 })</script>`
-  const armed = await registry.surface({ content: html, actions: ["dice.roll"] })
-  const defanged = await registry.surface({ content: html, actions: [] })
+  const armed = await registry.generation({ actions: [rollDice] }).createSurface({ content: html })
+  const defanged = await registry.generation({ actions: [] }).createSurface({ content: html })
 
   assert.notEqual(armed.id, defanged.id)
   assert.equal(armed.grant.surfaceId, armed.id)
@@ -227,10 +216,9 @@ void test("registry executes surfaces restored from a shared store", async () =>
   ]
   const creator = new Genui<TestCtx>({ actions, store })
   const executor = new Genui<TestCtx>({ actions, store })
-  const surface = await creator.surface({
-    content: `<button>Roll</button>`,
-    actions: ["dice.roll"],
-  })
+  const surface = await creator
+    .generation({ actions })
+    .createSurface({ content: `<button>Roll</button>` })
 
   assert.deepEqual(
     await executor.execute(
@@ -284,21 +272,20 @@ void test("registry returns a structured result when the surface store is unavai
 void test("registry reprojects stored surface source under current policy", async () => {
   const store = memoryStore()
   const html = `<button>Roll</button><script type="module">genui.call("dice.roll", { sides: 6 })</script>`
+  const rollDice = action({
+    name: "dice.roll",
+    description: "Roll a die.",
+    effect: "read",
+    input: rollInput,
+    output: rollOutput,
+    execute: (_ctx: TestCtx, input) => ({ total: input.sides }),
+  })
   const creator = new Genui<TestCtx>({
     store: store,
-    actions: [
-      action({
-        name: "dice.roll",
-        description: "Roll a die.",
-        effect: "read",
-        input: rollInput,
-        output: rollOutput,
-        execute: (_ctx, input) => ({ total: input.sides }),
-      }),
-    ],
+    actions: [rollDice],
   })
 
-  const created = await creator.surface({ content: html, actions: ["dice.roll"] })
+  const created = await creator.generation({ actions: [rollDice] }).createSurface({ content: html })
   const hardened = new Genui<TestCtx>({
     store: store,
     actions: [
@@ -331,21 +318,19 @@ void test("registry reprojects stored surface source under current policy", asyn
 })
 
 void test("returned surface mutations cannot change registry authority", async () => {
+  const rollDice = action({
+    name: "dice.roll",
+    description: "Roll a die.",
+    effect: "read",
+    input: emptyInput,
+    execute: () => ({ total: 6 }),
+  })
   const registry = new Genui<TestCtx>({
-    actions: [
-      action({
-        name: "dice.roll",
-        description: "Roll a die.",
-        effect: "read",
-        input: emptyInput,
-        execute: () => ({ total: 6 }),
-      }),
-    ],
+    actions: [rollDice],
   })
-  const surface = await registry.surface({
-    content: `<button>Roll</button>`,
-    actions: [],
-  })
+  const surface = await registry
+    .generation({ actions: [] })
+    .createSurface({ content: `<button>Roll</button>` })
   const forgedDescriptor = {
     name: "dice.roll",
     description: "Forged descriptor.",
@@ -366,33 +351,32 @@ void test("returned surface mutations cannot change registry authority", async (
 })
 
 void test("descriptors expose only the public capability projection", () => {
+  const rollDice = action({
+    name: "dice.roll",
+    description: "Roll a die.",
+    effect: "read",
+    input: rollInput,
+    output: rollOutput,
+    execute: (_ctx: TestCtx, input) => ({ total: input.sides }),
+  })
+  const writeDemo = action({
+    name: "demo.write",
+    description: "Write data after approval.",
+    effect: "write",
+    policy: "ask",
+    input: textInput,
+    execute: (_ctx: TestCtx, input) => ({ accepted: input.text }),
+  })
+  const blockedDemo = action({
+    name: "demo.blocked",
+    description: "Blocked test capability.",
+    effect: "dangerous",
+    policy: "block",
+    input: emptyInput,
+    execute: () => ({}),
+  })
   const registry = new Genui<TestCtx>({
-    actions: [
-      action({
-        name: "dice.roll",
-        description: "Roll a die.",
-        effect: "read",
-        input: rollInput,
-        output: rollOutput,
-        execute: (_ctx, input) => ({ total: input.sides }),
-      }),
-      action({
-        name: "demo.write",
-        description: "Write data after approval.",
-        effect: "write",
-        policy: "ask",
-        input: textInput,
-        execute: (_ctx, input) => ({ accepted: input.text }),
-      }),
-      action({
-        name: "demo.blocked",
-        description: "Blocked test capability.",
-        effect: "dangerous",
-        policy: "block",
-        input: emptyInput,
-        execute: () => ({}),
-      }),
-    ],
+    actions: [rollDice, writeDemo, blockedDemo],
   })
 
   const descriptors = registry.actions()
@@ -408,11 +392,14 @@ void test("descriptors expose only the public capability projection", () => {
     "requiresApproval",
   ])
   assert.equal(descriptors[1]?.requiresApproval, true)
-  assert.match(registry.instructions(), /dice\.roll/)
-  assert.doesNotMatch(registry.instructions(), /demo\.blocked/)
+  const contract = registry
+    .generation({ actions: [rollDice, writeDemo, blockedDemo] })
+    .guidance().capabilityContract
+  assert.match(contract, /dice\.roll/)
+  assert.doesNotMatch(contract, /demo\.blocked/)
 })
 
-void test("action descriptors and instructions carry declared JSON Schemas", async () => {
+void test("action descriptors and generation guidance carry declared JSON Schemas", async () => {
   const inputJsonSchema = {
     type: "object",
     properties: { sides: { type: "number", minimum: 2 } },
@@ -425,30 +412,27 @@ void test("action descriptors and instructions carry declared JSON Schemas", asy
     required: ["total"],
     additionalProperties: false,
   } as const
-  const registry = new Genui<TestCtx>({
-    actions: [
-      action({
-        name: "dice.roll",
-        description: "Roll a die.",
-        effect: "read",
-        input: rollInput,
-        inputJsonSchema,
-        output: rollOutput,
-        outputJsonSchema,
-        execute: (_ctx, input) => ({ total: input.sides }),
-      }),
-    ],
+  const rollDice = action({
+    name: "dice.roll",
+    description: "Roll a die.",
+    effect: "read",
+    input: rollInput,
+    inputJsonSchema,
+    output: rollOutput,
+    outputJsonSchema,
+    execute: (_ctx: TestCtx, input) => ({ total: input.sides }),
   })
+  const registry = new Genui<TestCtx>({ actions: [rollDice] })
 
   assert.deepEqual(registry.actions()[0]?.inputSchema, inputJsonSchema)
   assert.deepEqual(registry.actions()[0]?.outputSchema, outputJsonSchema)
-  assert.match(registry.instructions(), /Output JSON Schema:/)
-  assert.equal(registry.instructions().includes(JSON.stringify(outputJsonSchema, null, 2)), true)
+  const contract = registry.generation({ actions: [rollDice] }).guidance().capabilityContract
+  assert.match(contract, /type DiceRollOutput/)
+  assert.match(contract, /total: number/)
 
-  const surface = await registry.surface({
-    content: `<button>Roll</button>`,
-    actions: ["dice.roll"],
-  })
+  const surface = await registry
+    .generation({ actions: [rollDice] })
+    .createSurface({ content: `<button>Roll</button>` })
   assert.deepEqual(surface.grant.actions[0]?.inputSchema, inputJsonSchema)
   assert.deepEqual(surface.grant.actions[0]?.outputSchema, outputJsonSchema)
 })
@@ -474,11 +458,9 @@ void test("registry projects separate read-only subscriptions", async () => {
     subscribe: async function* () {},
   })
   const registry = new Genui({ actions: [], subscriptions: [changes, blocked] })
-  const surface = await registry.surface({
-    content: "<p>Orders</p>",
-    actions: [],
-    subscriptions: [changes.name, "orders.missing", changes.name, blocked.name],
-  })
+  const surface = await registry
+    .generation({ actions: [], subscriptions: [changes, blocked] })
+    .createSurface({ content: "<p>Orders</p>" })
 
   assert.deepEqual(registry.subscriptions(), [
     {
@@ -498,13 +480,9 @@ void test("registry projects separate read-only subscriptions", async () => {
     actions: [],
     granted: [],
     dropped: [],
-    subscriptions: [changes.name, "orders.missing", changes.name, blocked.name],
+    subscriptions: [changes.name, blocked.name],
     grantedSubscriptions: [changes.name],
-    droppedSubscriptions: [
-      { name: "orders.missing", reason: "unknown" },
-      { name: changes.name, reason: "duplicate" },
-      { name: blocked.name, reason: "blocked" },
-    ],
+    droppedSubscriptions: [{ name: blocked.name, reason: "blocked" }],
   })
 })
 
@@ -534,31 +512,29 @@ void test("registry requires globally unique action and subscription names", () 
 })
 
 void test("surface grants carry action intent only when defined", async () => {
+  const rollDice = action({
+    name: "dice.roll",
+    description: "Roll a die.",
+    effect: "read",
+    input: emptyInput,
+    execute: () => ({ total: 6 }),
+  })
+  const createNote = action({
+    name: "notes.create",
+    description: "Create a note.",
+    intent: "Create note {input.text}",
+    effect: "write",
+    policy: "ask",
+    input: textInput,
+    execute: (_ctx: TestCtx, input) => ({ accepted: input.text }),
+  })
   const registry = new Genui<TestCtx>({
-    actions: [
-      action({
-        name: "dice.roll",
-        description: "Roll a die.",
-        effect: "read",
-        input: emptyInput,
-        execute: () => ({ total: 6 }),
-      }),
-      action({
-        name: "notes.create",
-        description: "Create a note.",
-        intent: "Create note {input.text}",
-        effect: "write",
-        policy: "ask",
-        input: textInput,
-        execute: (_ctx, input) => ({ accepted: input.text }),
-      }),
-    ],
+    actions: [rollDice, createNote],
   })
 
-  const surface = await registry.surface({
-    content: `<button>Roll</button><button>Create</button>`,
-    actions: ["dice.roll", "notes.create"],
-  })
+  const surface = await registry
+    .generation({ actions: [rollDice, createNote] })
+    .createSurface({ content: `<button>Roll</button><button>Create</button>` })
 
   const roll = surface.grant.actions.find((item) => item.name === "dice.roll")
   const create = surface.grant.actions.find((item) => item.name === "notes.create")
@@ -571,22 +547,20 @@ void test("surface grants carry action intent only when defined", async () => {
 })
 
 void test("registry executes granted capabilities and validates inputs and outputs", async () => {
+  const rollDice = action({
+    name: "dice.roll",
+    description: "Roll a die.",
+    effect: "read",
+    input: rollInput,
+    output: rollOutput,
+    execute: (ctx: TestCtx, input) => ({ total: input.sides + ctx.userId.length }),
+  })
   const registry = new Genui<TestCtx>({
-    actions: [
-      action({
-        name: "dice.roll",
-        description: "Roll a die.",
-        effect: "read",
-        input: rollInput,
-        output: rollOutput,
-        execute: (ctx, input) => ({ total: input.sides + ctx.userId.length }),
-      }),
-    ],
+    actions: [rollDice],
   })
-  const surface = await registry.surface({
-    content: `<button>Roll</button>`,
-    actions: ["dice.roll"],
-  })
+  const surface = await registry
+    .generation({ actions: [rollDice] })
+    .createSurface({ content: `<button>Roll</button>` })
 
   assert.deepEqual(
     await registry.execute(
@@ -617,25 +591,23 @@ void test("registry executes granted capabilities and validates inputs and outpu
 
 void test("registry approval is the authoritative execution gate", async () => {
   let executed = 0
+  const createNote = action({
+    name: "notes.create",
+    description: "Create a note.",
+    effect: "write",
+    policy: "ask",
+    input: textInput,
+    execute: (_ctx: TestCtx, input) => {
+      executed += 1
+      return { accepted: input.text }
+    },
+  })
   const registry = new Genui<TestCtx>({
-    actions: [
-      action({
-        name: "notes.create",
-        description: "Create a note.",
-        effect: "write",
-        policy: "ask",
-        input: textInput,
-        execute: (_ctx, input) => {
-          executed += 1
-          return { accepted: input.text }
-        },
-      }),
-    ],
+    actions: [createNote],
   })
-  const surface = await registry.surface({
-    content: `<button>Create</button>`,
-    actions: ["notes.create"],
-  })
+  const surface = await registry
+    .generation({ actions: [createNote] })
+    .createSurface({ content: `<button>Create</button>` })
   const call = {
     surfaceId: surface.id,
     callId: "call-1",
@@ -679,25 +651,23 @@ void test("registry approval receives canonical validated input", async () => {
   })
   let approvedInput: unknown
   let executedInput: unknown
+  const createNote = action({
+    name: "notes.create",
+    description: "Create a note.",
+    effect: "write",
+    policy: "ask",
+    input: normalizedTextInput,
+    execute: (_ctx: TestCtx, input) => {
+      executedInput = input
+      return { accepted: input.text }
+    },
+  })
   const registry = new Genui<TestCtx>({
-    actions: [
-      action({
-        name: "notes.create",
-        description: "Create a note.",
-        effect: "write",
-        policy: "ask",
-        input: normalizedTextInput,
-        execute: (_ctx, input) => {
-          executedInput = input
-          return { accepted: input.text }
-        },
-      }),
-    ],
+    actions: [createNote],
   })
-  const surface = await registry.surface({
-    content: `<button>Create</button>`,
-    actions: ["notes.create"],
-  })
+  const surface = await registry
+    .generation({ actions: [createNote] })
+    .createSurface({ content: `<button>Create</button>` })
 
   const result = await registry.execute(
     {
@@ -722,24 +692,22 @@ void test("registry approval receives canonical validated input", async () => {
 
 void test("dangerous actions require approval by default", async () => {
   let executed = false
+  const destroySystem = action({
+    name: "system.destroy",
+    description: "Destroy the test system.",
+    effect: "dangerous",
+    input: emptyInput,
+    execute: () => {
+      executed = true
+      return { destroyed: true }
+    },
+  })
   const registry = new Genui<TestCtx>({
-    actions: [
-      action({
-        name: "system.destroy",
-        description: "Destroy the test system.",
-        effect: "dangerous",
-        input: emptyInput,
-        execute: () => {
-          executed = true
-          return { destroyed: true }
-        },
-      }),
-    ],
+    actions: [destroySystem],
   })
-  const surface = await registry.surface({
-    content: `<button>Destroy</button>`,
-    actions: ["system.destroy"],
-  })
+  const surface = await registry
+    .generation({ actions: [destroySystem] })
+    .createSurface({ content: `<button>Destroy</button>` })
   const descriptor = surface.grant.actions[0]
   assert.notEqual(descriptor, undefined)
   assert.equal(descriptor?.requiresApproval, true)
@@ -767,30 +735,27 @@ void test("dangerous actions require approval by default", async () => {
 })
 
 void test("sensitive actions never enter a surface grant", async () => {
+  const readProfile = action({
+    name: "profile.read",
+    description: "Read a public profile.",
+    effect: "read",
+    input: emptyInput,
+    execute: () => ({ name: "Ada" }),
+  })
+  const readSecrets = action({
+    name: "secrets.read",
+    description: "Read a sensitive secret.",
+    effect: "read",
+    confidentiality: "sensitive",
+    input: emptyInput,
+    execute: () => ({ secret: "hidden" }),
+  })
   const registry = new Genui<TestCtx>({
-    actions: [
-      action({
-        name: "profile.read",
-        description: "Read a public profile.",
-        effect: "read",
-        input: emptyInput,
-        execute: () => ({ name: "Ada" }),
-      }),
-      action({
-        name: "secrets.read",
-        description: "Read a sensitive secret.",
-        effect: "read",
-        confidentiality: "sensitive",
-        input: emptyInput,
-        execute: () => ({ secret: "hidden" }),
-      }),
-    ],
+    actions: [readProfile, readSecrets],
   })
   const content = `<button>Profile</button><script type="module">genui.call("secrets.read", {})</script>`
-  const surface = await registry.surface({
-    content,
-    actions: ["profile.read", "secrets.read"],
-  })
+  const generation = registry.generation({ actions: [readProfile, readSecrets] })
+  const surface = await generation.createSurface({ content })
 
   assert.deepEqual(
     registry.actions().map((descriptor) => [descriptor.name, descriptor.confidentiality]),
@@ -803,8 +768,8 @@ void test("sensitive actions never enter a surface grant", async () => {
     surface.grant.actions.map((descriptor) => descriptor.name),
     ["profile.read"],
   )
-  assert.match(registry.instructions(), /profile\.read/)
-  assert.doesNotMatch(registry.instructions(), /secrets\.read/)
+  assert.match(generation.guidance().capabilityContract, /profile\.read/)
+  assert.doesNotMatch(generation.guidance().capabilityContract, /secrets\.read/)
   assert.equal(surface.content, content)
   assert.deepEqual(await registry.diagnostics(surface.id), {
     actions: ["profile.read", "secrets.read"],
@@ -817,77 +782,86 @@ void test("sensitive actions never enter a surface grant", async () => {
 })
 
 void test("registry returns every expected capability error as a value", async () => {
+  const rollDice = action({
+    name: "dice.roll",
+    description: "Roll a die.",
+    effect: "read",
+    input: rollInput,
+    output: rollOutput,
+    execute: (_ctx: TestCtx, input) => ({ total: input.sides }),
+  })
+  const approveDemo = action({
+    name: "demo.approve",
+    description: "Approval-gated capability.",
+    effect: "write",
+    policy: "ask",
+    input: textInput,
+    execute: (_ctx: TestCtx, input) => ({ accepted: input.text }),
+  })
+  const blockedDemo = action({
+    name: "demo.blocked",
+    description: "Blocked capability.",
+    effect: "dangerous",
+    policy: "block",
+    input: emptyInput,
+    execute: () => ({}),
+  })
+  const badOutput = action({
+    name: "demo.bad_output",
+    description: "Returns invalid output.",
+    effect: "read",
+    input: emptyInput,
+    output: invalidOutput,
+    execute: () => ({ total: "wrong" }),
+  })
+  const throwDuringExecution = action({
+    name: "demo.throws",
+    description: "Throws during execution.",
+    effect: "read",
+    input: emptyInput,
+    execute: () => {
+      throw new Error("internal detail")
+    },
+  })
+  const throwDuringInputValidation = action({
+    name: "demo.throw_input_schema",
+    description: "Throws during input validation.",
+    effect: "read",
+    input: throwingSchema<Readonly<Record<string, never>>>(),
+    execute: () => ({}),
+  })
+  const throwDuringOutputValidation = action({
+    name: "demo.throw_output_schema",
+    description: "Throws during output validation.",
+    effect: "read",
+    input: emptyInput,
+    output: throwingSchema<unknown>(),
+    execute: () => ({}),
+  })
   const registry = new Genui<TestCtx>({
     actions: [
-      action({
-        name: "dice.roll",
-        description: "Roll a die.",
-        effect: "read",
-        input: rollInput,
-        output: rollOutput,
-        execute: (_ctx, input) => ({ total: input.sides }),
-      }),
-      action({
-        name: "demo.approve",
-        description: "Approval-gated capability.",
-        effect: "write",
-        policy: "ask",
-        input: textInput,
-        execute: (_ctx, input) => ({ accepted: input.text }),
-      }),
-      action({
-        name: "demo.blocked",
-        description: "Blocked capability.",
-        effect: "dangerous",
-        policy: "block",
-        input: emptyInput,
-        execute: () => ({}),
-      }),
-      action({
-        name: "demo.bad_output",
-        description: "Returns invalid output.",
-        effect: "read",
-        input: emptyInput,
-        output: invalidOutput,
-        execute: () => ({ total: "wrong" }),
-      }),
-      action({
-        name: "demo.throws",
-        description: "Throws during execution.",
-        effect: "read",
-        input: emptyInput,
-        execute: () => {
-          throw new Error("internal detail")
-        },
-      }),
-      action({
-        name: "demo.throw_input_schema",
-        description: "Throws during input validation.",
-        effect: "read",
-        input: throwingSchema<Readonly<Record<string, never>>>(),
-        execute: () => ({}),
-      }),
-      action({
-        name: "demo.throw_output_schema",
-        description: "Throws during output validation.",
-        effect: "read",
-        input: emptyInput,
-        output: throwingSchema<unknown>(),
-        execute: () => ({}),
-      }),
+      rollDice,
+      approveDemo,
+      blockedDemo,
+      badOutput,
+      throwDuringExecution,
+      throwDuringInputValidation,
+      throwDuringOutputValidation,
     ],
   })
-  const surface = await registry.surface({
-    content: `<button>Roll</button>`,
-    actions: [
-      "dice.roll",
-      "demo.approve",
-      "demo.bad_output",
-      "demo.throws",
-      "demo.throw_input_schema",
-      "demo.throw_output_schema",
-    ],
-  })
+  const surface = await registry
+    .generation({
+      actions: [
+        rollDice,
+        approveDemo,
+        blockedDemo,
+        badOutput,
+        throwDuringExecution,
+        throwDuringInputValidation,
+        throwDuringOutputValidation,
+      ],
+    })
+    .createSurface({ content: `<button>Roll</button>` })
 
   assertErrorCode(
     await registry.execute(

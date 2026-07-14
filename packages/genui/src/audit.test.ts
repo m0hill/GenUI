@@ -10,27 +10,25 @@ const emptyInput = testSchema<Readonly<Record<string, never>>>((value) =>
 void test("audit records a successful call after execution", async () => {
   const entries: CallAuditEntry[] = []
   let executed = false
+  const readProfile = action({
+    name: "profile.read",
+    description: "Read a profile.",
+    effect: "read",
+    input: emptyInput,
+    execute: () => {
+      executed = true
+      return { name: "Ada" }
+    },
+  })
   const runtime = new Genui({
     onCall: (entry) => {
       assert.equal(executed, true)
       entries.push(entry)
     },
-    actions: [
-      action({
-        name: "profile.read",
-        description: "Read a profile.",
-        effect: "read",
-        input: emptyInput,
-        execute: () => {
-          executed = true
-          return { name: "Ada" }
-        },
-      }),
-    ],
+    actions: [readProfile],
   })
-  const surface = await runtime.surface({
+  const surface = await runtime.generation({ actions: [readProfile] }).createSurface({
     content: "",
-    actions: ["profile.read"],
     subject: "session-1",
   })
 
@@ -62,21 +60,20 @@ void test("audit records a successful call after execution", async () => {
 void test("audit records denied and invalid call outcomes", async () => {
   const entries: CallAuditEntry[] = []
   let executions = 0
+  const createNote = action({
+    name: "notes.create",
+    description: "Create a note.",
+    effect: "write",
+    input: emptyInput,
+    execute: () => ({ execution: ++executions }),
+  })
   const runtime = new Genui({
     onCall: (entry) => {
       entries.push(entry)
     },
-    actions: [
-      action({
-        name: "notes.create",
-        description: "Create a note.",
-        effect: "write",
-        input: emptyInput,
-        execute: () => ({ execution: ++executions }),
-      }),
-    ],
+    actions: [createNote],
   })
-  const surface = await runtime.surface({ content: "", actions: ["notes.create"] })
+  const surface = await runtime.generation({ actions: [createNote] }).createSurface({ content: "" })
 
   const denied = await runtime.execute(
     {
@@ -117,6 +114,13 @@ void test("audit records denied and invalid call outcomes", async () => {
 void test("a throwing audit hook cannot change the action result", async () => {
   const errors: CallErrorEvent[] = []
   let executions = 0
+  const readProfile = action({
+    name: "profile.read",
+    description: "Read a profile.",
+    effect: "read",
+    input: emptyInput,
+    execute: () => ({ execution: ++executions }),
+  })
   const runtime = new Genui({
     onError: (event) => {
       if (event.type === "call") errors.push(event)
@@ -124,17 +128,11 @@ void test("a throwing audit hook cannot change the action result", async () => {
     onCall: () => {
       throw new Error("Audit backend failed")
     },
-    actions: [
-      action({
-        name: "profile.read",
-        description: "Read a profile.",
-        effect: "read",
-        input: emptyInput,
-        execute: () => ({ execution: ++executions }),
-      }),
-    ],
+    actions: [readProfile],
   })
-  const surface = await runtime.surface({ content: "", actions: ["profile.read"] })
+  const surface = await runtime
+    .generation({ actions: [readProfile] })
+    .createSurface({ content: "" })
 
   const result = await runtime.execute(
     { surfaceId: surface.id, callId: "call-1", action: "profile.read", input: {} },
@@ -149,6 +147,13 @@ void test("a throwing audit hook cannot change the action result", async () => {
 
 void test("a rejecting audit hook cannot change the action result", async () => {
   const errors: CallErrorEvent[] = []
+  const readProfile = action({
+    name: "profile.read",
+    description: "Read a profile.",
+    effect: "read",
+    input: emptyInput,
+    execute: () => ({ name: "Ada" }),
+  })
   const runtime = new Genui({
     onError: (event) => {
       if (event.type === "call") errors.push(event)
@@ -156,17 +161,11 @@ void test("a rejecting audit hook cannot change the action result", async () => 
     onCall: async () => {
       throw new Error("Audit backend rejected")
     },
-    actions: [
-      action({
-        name: "profile.read",
-        description: "Read a profile.",
-        effect: "read",
-        input: emptyInput,
-        execute: () => ({ name: "Ada" }),
-      }),
-    ],
+    actions: [readProfile],
   })
-  const surface = await runtime.surface({ content: "", actions: ["profile.read"] })
+  const surface = await runtime
+    .generation({ actions: [readProfile] })
+    .createSurface({ content: "" })
 
   assert.deepEqual(
     await runtime.execute(
@@ -188,7 +187,7 @@ void test("audit marks unregistered action effects as unknown", async () => {
       entries.push(entry)
     },
   })
-  const surface = await runtime.surface({ content: "", actions: [] })
+  const surface = await runtime.generation({ actions: [] }).createSurface({ content: "" })
 
   const result = await runtime.execute(
     { surfaceId: surface.id, callId: "call-1", action: "missing.action", input: {} },
@@ -203,22 +202,21 @@ void test("audit marks unregistered action effects as unknown", async () => {
 void test("audit records each idempotent replay while the effect executes once", async () => {
   const entries: CallAuditEntry[] = []
   let executions = 0
+  const createNote = action({
+    name: "notes.create",
+    description: "Create a note.",
+    effect: "write",
+    policy: "allow",
+    input: emptyInput,
+    execute: () => ({ execution: ++executions }),
+  })
   const runtime = new Genui({
     onCall: (entry) => {
       entries.push(entry)
     },
-    actions: [
-      action({
-        name: "notes.create",
-        description: "Create a note.",
-        effect: "write",
-        policy: "allow",
-        input: emptyInput,
-        execute: () => ({ execution: ++executions }),
-      }),
-    ],
+    actions: [createNote],
   })
-  const surface = await runtime.surface({ content: "", actions: ["notes.create"] })
+  const surface = await runtime.generation({ actions: [createNote] }).createSurface({ content: "" })
   const call = { surfaceId: surface.id, callId: "call-1", action: "notes.create", input: {} }
 
   await runtime.execute(call, {})

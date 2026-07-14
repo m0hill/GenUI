@@ -3,10 +3,10 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 import { JsonPreferenceStore } from "../preferences.js"
-import { createGeneratedSurface, openGeneratedUiSubscription } from "./genui.js"
+import { generatedUi, openGeneratedUiSubscription } from "./genui.js"
 
 void test("time.tick emits immediately and stops when its transport is cancelled", async () => {
-  const surface = await createGeneratedSurface("<p>Clock</p>")
+  const surface = await generatedUi.createSurface({ content: "<p>Clock</p>" })
   assert.deepEqual(
     surface.grant.subscriptions.map((subscription) => subscription.name),
     ["time.tick"],

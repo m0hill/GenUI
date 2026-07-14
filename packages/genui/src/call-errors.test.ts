@@ -12,25 +12,23 @@ const emptyInput = testSchema<Readonly<Record<string, never>>>((value) =>
 void test("onError receives action failures hidden from the caller", async () => {
   const cause = new Error("Database connection failed")
   const errors: CallErrorEvent[] = []
+  const readProfile = action({
+    name: "profile.read",
+    description: "Read a profile.",
+    effect: "read",
+    input: emptyInput,
+    execute: () => {
+      throw cause
+    },
+  })
   const runtime = new Genui({
     onError: (event) => {
       if (event.type === "call") errors.push(event)
     },
-    actions: [
-      action({
-        name: "profile.read",
-        description: "Read a profile.",
-        effect: "read",
-        input: emptyInput,
-        execute: () => {
-          throw cause
-        },
-      }),
-    ],
+    actions: [readProfile],
   })
-  const surface = await runtime.surface({
+  const surface = await runtime.generation({ actions: [readProfile] }).createSurface({
     content: "",
-    actions: ["profile.read"],
     subject: "session-1",
   })
 
@@ -72,42 +70,42 @@ void test("onError identifies validation, approval, and storage failure phases",
     revoke: (id: string) => backing.revoke(id),
     runIdempotent: (request, operation) => backing.runIdempotent(request, operation),
   } satisfies SurfaceStore
+  const validateRecords = action({
+    name: "records.validate",
+    description: "Validate a record.",
+    effect: "read",
+    input: testSchema(() => {
+      throw inputCause
+    }),
+    execute: () => ({}),
+  })
+  const createRecord = action({
+    name: "records.create",
+    description: "Create a record.",
+    effect: "write",
+    input: emptyInput,
+    execute: () => ({}),
+  })
+  const outputRecord = action({
+    name: "records.output",
+    description: "Return a record.",
+    effect: "read",
+    input: emptyInput,
+    output: testSchema(() => ({ ok: false, message: "Expected a record." })),
+    execute: () => null,
+  })
   const runtime = new Genui({
     store,
     onError: (event) => {
       if (event.type === "call") errors.push(event)
     },
-    actions: [
-      action({
-        name: "records.validate",
-        description: "Validate a record.",
-        effect: "read",
-        input: testSchema(() => {
-          throw inputCause
-        }),
-        execute: () => ({}),
-      }),
-      action({
-        name: "records.create",
-        description: "Create a record.",
-        effect: "write",
-        input: emptyInput,
-        execute: () => ({}),
-      }),
-      action({
-        name: "records.output",
-        description: "Return a record.",
-        effect: "read",
-        input: emptyInput,
-        output: testSchema(() => ({ ok: false, message: "Expected a record." })),
-        execute: () => null,
-      }),
-    ],
+    actions: [validateRecords, createRecord, outputRecord],
   })
-  const surface = await runtime.surface({
-    content: "",
-    actions: ["records.validate", "records.create", "records.output"],
-  })
+  const surface = await runtime
+    .generation({ actions: [validateRecords, createRecord, outputRecord] })
+    .createSurface({
+      content: "",
+    })
 
   await runtime.execute(
     { surfaceId: surface.id, callId: "input", action: "records.validate", input: {} },
@@ -148,23 +146,24 @@ void test("onError identifies validation, approval, and storage failure phases",
 })
 
 void test("onError failures cannot change action results", async () => {
+  const readProfile = action({
+    name: "profile.read",
+    description: "Read a profile.",
+    effect: "read",
+    input: emptyInput,
+    execute: () => {
+      throw new Error("Action failed")
+    },
+  })
   const runtime = new Genui({
     onError: () => {
       throw new Error("Diagnostic backend failed")
     },
-    actions: [
-      action({
-        name: "profile.read",
-        description: "Read a profile.",
-        effect: "read",
-        input: emptyInput,
-        execute: () => {
-          throw new Error("Action failed")
-        },
-      }),
-    ],
+    actions: [readProfile],
   })
-  const surface = await runtime.surface({ content: "", actions: ["profile.read"] })
+  const surface = await runtime
+    .generation({ actions: [readProfile] })
+    .createSurface({ content: "" })
 
   assert.deepEqual(
     await runtime.execute(

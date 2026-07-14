@@ -71,31 +71,40 @@ two connections to the real backend. Follow [stores.md](stores.md) for the
 Postgres and Redis coordination algorithms, crash limits, and downstream
 idempotency requirements.
 
-## Create code surfaces
+## Prepare generation and create code surfaces
 
-Accept generated content as a string. Choose the action and subscription names
-the surface may request. The runtime projects the actual grant and stores
-content verbatim.
+Select the action and subscription definitions for one generation task. The
+same reusable generation produces model guidance and creates every surface for
+that task, preventing the model contract and eventual grant from naming
+different capabilities.
 
 ```ts
-import { codeDialect } from "genui/protocol"
+const ordersUi = genui.generation({
+  actions: [searchOrders, updateOrderStatus],
+  subscriptions: [orderChanges],
+})
 
-const surface = await genui.surface({
-  dialect: codeDialect,
+const guidance = ordersUi.guidance()
+const surface = await ordersUi.createSurface({
   content,
-  actions: ["orders.search", "orders.update_status"],
-  subscriptions: ["orders.changes"],
   subject: currentSession.id,
 })
 ```
 
+Pass `guidance.environment` and `guidance.capabilityContract` to the model in
+the positions appropriate for the model provider. The environment section is
+stable code/0 guidance. The capability contract is a compact TypeScript-like
+view of only the selected, currently model-visible capabilities. GenUI does
+not call the model or prescribe a provider prompt API.
+
 Return the serializable `Surface` to the browser. Do not let the browser supply
 or mutate the authoritative grant.
 
-`GenuiOptions.subscriptions` and `SurfaceInput.subscriptions` are optional and
-default to empty. Every serialized grant still carries separate `actions` and
-`subscriptions` arrays. Action and subscription names must be globally unique
-inside one `Genui` instance.
+`GenuiOptions.subscriptions` and `GenerationOptions.subscriptions` are optional
+and default to empty. Every serialized grant still carries separate `actions`
+and `subscriptions` arrays. Action and subscription names must be globally
+unique inside one `Genui` instance. A generation selection accepts only the
+same definition objects registered with that instance and rejects duplicates.
 
 Set `ttlMs` when authority should expire automatically. The runtime projects
 one absolute `grant.expiresAt` value. Call `await genui.reproject(surface.id)`
@@ -105,11 +114,8 @@ its stored surface and idempotency state. Active subscriptions also stop at the
 exact expiry time, including while their app source is quiet.
 
 ```ts
-const temporarySurface = await genui.surface({
-  content,
-  actions: ["orders.search"],
-  ttlMs: 15 * 60_000,
-})
+const searchUi = genui.generation({ actions: [searchOrders] })
+const temporarySurface = await searchUi.createSurface({ content, ttlMs: 15 * 60_000 })
 ```
 
 Call `await genui.revoke(surface.id)` to remove authority before its expiry.
@@ -118,8 +124,9 @@ calls return `unknown_surface`. The same `Genui` instance immediately aborts
 its active subscriptions for that surface. Another replica observes revocation
 before delivering its next event.
 
-Use `genui.instructions()` for a copyable model prompt. It includes the code/0
-contract and the grantable, non-confidential action and subscription schemas.
+The generation stores capability names rather than frozen grant descriptors.
+Calling `guidance()` again reflects current policy, and `createSurface()`
+independently projects current policy into the authoritative stored grant.
 
 ## Execute through a server endpoint
 

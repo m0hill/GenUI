@@ -1,12 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises"
 import { action, type ExecuteOptions, Genui, subscription } from "genui"
-import {
-  codeDialect,
-  type ActionCall,
-  type ActionResult,
-  type SubscriptionRequest,
-  type Surface,
-} from "genui/protocol"
+import { type ActionCall, type ActionResult, type SubscriptionRequest } from "genui/protocol"
 import { Type, type Tool } from "@earendil-works/pi-ai"
 import { z } from "zod"
 import { type JsonPreferenceStore, PreferredTripName } from "../preferences.js"
@@ -83,6 +77,10 @@ const runtime = new Genui<GenuiContext>({
   actions: [webSearchAction, savePreferenceAction],
   subscriptions: [timeTickSubscription],
 })
+export const generatedUi = runtime.generation({
+  actions: [webSearchAction, savePreferenceAction],
+  subscriptions: [timeTickSubscription],
+})
 
 export const renderUiTool: Tool = {
   name: "render_ui",
@@ -97,16 +95,6 @@ export const renderUiTool: Tool = {
     }),
   }),
 }
-
-export const generatedUiInstructions = runtime.instructions()
-
-export const createGeneratedSurface = (content: string): Promise<Surface> =>
-  runtime.surface({
-    dialect: codeDialect,
-    content,
-    actions: [webSearchAction.name, savePreferenceAction.name],
-    subscriptions: [timeTickSubscription.name],
-  })
 
 export const executeGeneratedUiAction = (
   call: ActionCall,

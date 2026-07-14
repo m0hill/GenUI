@@ -88,13 +88,13 @@ void test("playground creates verbatim code surfaces with projected demo grants"
   )
 })
 
-void test("playground instructions expose granted schemas but not confidential actions", async () => {
+void test("playground guidance exposes selected contracts but not confidential actions", async () => {
   const response = await app.request("/genui/instructions")
   const instructions = await response.text()
 
   assert.equal(response.status, 200)
   assert.equal(instructions.includes("orders.search"), true)
-  assert.equal(instructions.includes('"query"'), true)
+  assert.equal(instructions.includes("query?: string"), true)
   assert.equal(instructions.includes("orders.export_private"), false)
   assert.equal(instructions.includes("genui.capabilities"), true)
   assert.equal(instructions.includes("genui.sendMessage"), true)

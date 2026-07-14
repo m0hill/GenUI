@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { codeDialect, type ActionCall, type ActionResult, type Surface } from "./protocol/index.js"
+import type { ActionCall, ActionResult, Surface } from "./protocol/index.js"
 import { action, Genui } from "./registry.js"
 import { createSurfaceBroker, type SurfaceBrokerEffect } from "./dom/surface-broker.js"
 import type { SurfaceBrokerTask } from "./dom/surface-broker.js"
@@ -192,46 +192,41 @@ const ordersResultValue = (result: ActionResult): OrdersResult => {
 }
 
 void test("code/0 orders-admin proof exercises grants, approval, nested data, and mutations", async () => {
+  const searchOrders = action({
+    name: "orders.search",
+    description: "Search orders by customer.",
+    effect: "read",
+    input: testSchema(parseSearchOrdersInput),
+    output: testSchema(parseOrdersResult),
+    execute: (ctx: OrdersContext, input) => ctx.store.search(input.query),
+  })
+  const refundOrder = action({
+    name: "orders.refund",
+    description: "Refund an order and return the refreshed order list.",
+    effect: "write",
+    policy: "ask",
+    input: testSchema(parseRefundOrderInput),
+    output: testSchema(parseOrdersResult),
+    execute: (ctx: OrdersContext, input) => ctx.store.refund(input.id),
+  })
+  const addOrderNote = action({
+    name: "orders.add_note",
+    description: "Add a note to an order and return the refreshed order list.",
+    effect: "write",
+    input: testSchema(parseAddOrderNoteInput),
+    output: testSchema(parseOrdersResult),
+    execute: (ctx: OrdersContext, input) => ctx.store.addNote(input),
+  })
   const registry = new Genui<OrdersContext>({
-    actions: [
-      action({
-        name: "orders.search",
-        description: "Search orders by customer.",
-        effect: "read",
-        input: testSchema(parseSearchOrdersInput),
-        output: testSchema(parseOrdersResult),
-        execute: (ctx, input) => ctx.store.search(input.query),
-      }),
-      action({
-        name: "orders.refund",
-        description: "Refund an order and return the refreshed order list.",
-        effect: "write",
-        policy: "ask",
-        input: testSchema(parseRefundOrderInput),
-        output: testSchema(parseOrdersResult),
-        execute: (ctx, input) => ctx.store.refund(input.id),
-      }),
-      action({
-        name: "orders.add_note",
-        description: "Add a note to an order and return the refreshed order list.",
-        effect: "write",
-        input: testSchema(parseAddOrderNoteInput),
-        output: testSchema(parseOrdersResult),
-        execute: (ctx, input) => ctx.store.addNote(input),
-      }),
-    ],
+    actions: [searchOrders, refundOrder, addOrderNote],
   })
   const ctx: OrdersContext = { userId: "user-1", store: new OrdersStore() }
-  const surface = await registry.surface({
-    dialect: codeDialect,
-    content: ordersSurfaceHtml,
-    actions: ["orders.search", "orders.refund", "orders.add_note"],
-  })
-  const limitedSurface = await registry.surface({
-    dialect: codeDialect,
-    content: ordersSurfaceHtml,
-    actions: ["orders.search"],
-  })
+  const surface = await registry
+    .generation({ actions: [searchOrders, refundOrder, addOrderNote] })
+    .createSurface({ content: ordersSurfaceHtml })
+  const limitedSurface = await registry
+    .generation({ actions: [searchOrders] })
+    .createSurface({ content: ordersSurfaceHtml })
   const transportCalls: ActionCall[] = []
   const brokerApprovals: ActionCall[] = []
   const registryApprovalInputs: unknown[] = []

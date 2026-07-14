@@ -1,55 +1,8 @@
 import { mcpUiStyleVariableKeys } from "../host-context.js"
-import type { Action, Subscription } from "../protocol/index.js"
 
 const hostStyleVariableInstructions = mcpUiStyleVariableKeys.map((key) => `- \`${key}\``).join("\n")
 
-const actionInstructions = (action: Action): string => {
-  const details = [
-    `### ${action.name}`,
-    action.description,
-    `Effect: ${action.effect}`,
-    `Requires approval: ${String(action.requiresApproval)}`,
-  ]
-  if (action.intent !== undefined) details.push(`Approval intent: ${action.intent}`)
-  details.push(
-    "Input JSON Schema:",
-    "```json",
-    JSON.stringify(action.inputSchema ?? {}, null, 2),
-    "```",
-  )
-  if (action.outputSchema !== undefined) {
-    details.push(
-      "Output JSON Schema:",
-      "```json",
-      JSON.stringify(action.outputSchema, null, 2),
-      "```",
-    )
-  }
-  return details.join("\n")
-}
-
-const subscriptionInstructions = (subscription: Subscription): string => {
-  const details = [
-    `### ${subscription.name}`,
-    subscription.description,
-    `Confidentiality: ${subscription.confidentiality}`,
-    `Maximum event size: ${subscription.maxEventBytes} bytes`,
-    "Input JSON Schema:",
-    "```json",
-    JSON.stringify(subscription.inputSchema ?? {}, null, 2),
-    "```",
-    "Event JSON Schema:",
-    "```json",
-    JSON.stringify(subscription.eventSchema ?? {}, null, 2),
-    "```",
-  ]
-  return details.join("\n")
-}
-
-export const codeInstructions = (
-  actions: readonly Action[],
-  subscriptions: readonly Subscription[] = [],
-): string => `# Generated UI: code/0
+export const codeEnvironmentInstructions = (): string => `# Generated UI: code/0
 
 Return only an HTML fragment, without Markdown fences or a document wrapper. Use ordinary HTML,
 inline CSS, and inline \`<script type="module">\` blocks. Standard browser DOM APIs are available.
@@ -62,8 +15,8 @@ external resource URLs, external scripts, external stylesheets, or direct naviga
 The trusted bridge available as \`window.genui\` has exactly this API:
 
 - \`genui.surfaceId\`: this surface's string identifier.
-- \`genui.actions\`: the granted action descriptors listed below.
-- \`genui.subscriptions\`: the frozen granted read-only subscription descriptors listed below.
+- \`genui.actions\`: the granted action descriptors from the separate capability contract.
+- \`genui.subscriptions\`: the frozen granted read-only subscription descriptors from that contract.
 - \`genui.hostContext\`: the current deeply frozen host environment.
 - \`genui.onHostContextChange(handler)\`: registers one live-context handler.
 - \`await genui.call(name, input)\`: resolves to the action output or rejects with a
@@ -78,8 +31,8 @@ The trusted bridge available as \`window.genui\` has exactly this API:
 - \`genui.teardown(handler)\`: registers one cleanup handler that receives \`{ reason }\`. Keep it
   fast because the host proceeds with teardown after its deadline.
 
-Handle action failures in the interface. Call only granted actions and shape inputs from their JSON
-Schemas. Example:
+Handle action failures in the interface. Call only actions in the separate capability contract and
+shape inputs from its declarations or exact JSON Schema fallbacks. Example:
 
 \`\`\`html
 <button id="search">Search open orders</button>
@@ -198,16 +151,4 @@ Reference every token through \`var(--token, fallback)\` with a sensible fallbac
 uses the exact name \`--border-radius-sm\`. The complete standardized set is:
 
 ${hostStyleVariableInstructions}
-
-## Granted actions
-
-${actions.length === 0 ? "No actions are granted." : actions.map(actionInstructions).join("\n\n")}
-
-## Granted subscriptions
-
-${
-  subscriptions.length === 0
-    ? "No subscriptions are granted."
-    : subscriptions.map(subscriptionInstructions).join("\n\n")
-}
 `

@@ -57,8 +57,9 @@ grant with a projection diagnostic, matching actions.
 
 ## Configure and grant subscriptions
 
-Configure subscriptions separately from actions. Both the registry option and
-surface input subscription arrays are optional and default to no subscriptions.
+Configure subscriptions separately from actions. Select their definitions with
+the actions that generated code may use. The generation selection and registry
+subscription arrays are optional and default to no subscriptions.
 
 ```ts
 const genui = new Genui({
@@ -66,10 +67,13 @@ const genui = new Genui({
   subscriptions: [orderChanges],
 })
 
-const surface = await genui.surface({
+const ordersUi = genui.generation({
+  actions: [searchOrders, updateOrder],
+  subscriptions: [orderChanges],
+})
+
+const surface = await ordersUi.createSurface({
   content,
-  actions: ["orders.search", "orders.update_status"],
-  subscriptions: ["orders.changes"],
   subject: session.id,
   ttlMs: 15 * 60_000,
 })
