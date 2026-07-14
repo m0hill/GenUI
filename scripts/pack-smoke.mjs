@@ -606,7 +606,7 @@ void parseSurface
   await writeFile(
     join(checkerProject, "smoke.mjs"),
     `import assert from "node:assert/strict"
-import { checkGeneratedInterface } from "@genui/check"
+import { checkGeneratedInterface, GeneratedInterfaceCheckError } from "@genui/check"
 import { action, Genui } from "genui"
 
 const input = {
@@ -644,6 +644,12 @@ const invalid = await checkGeneratedInterface(generation, {
 })
 assert.equal(invalid.ok, false)
 assert.match(invalid.report, /missing/)
+
+await assert.rejects(
+  checkGeneratedInterface({}, { content: "<p>Counterfeit</p>" }),
+  (error) =>
+    error instanceof GeneratedInterfaceCheckError && error.code === "incompatible_generation",
+)
 `,
   )
 
@@ -651,6 +657,7 @@ assert.match(invalid.report, /missing/)
     join(checkerProject, "smoke.ts"),
     `import {
   checkGeneratedInterface,
+  GeneratedInterfaceCheckError,
   type CheckGeneratedInterfaceOptions,
   type GeneratedInterfaceCheckResult,
   type GeneratedInterfaceDiagnostic,
@@ -701,12 +708,28 @@ const diagnostic: GeneratedInterfaceDiagnostic = {
 }
 const report = (result: GeneratedInterfaceCheckResult): string | undefined =>
   result.ok ? undefined : result.report
+const describeCheckError = (error: unknown): string | undefined => {
+  if (!(error instanceof GeneratedInterfaceCheckError)) return undefined
+  switch (error.code) {
+    case "incompatible_generation":
+      return "incompatible"
+    case "compiler_unavailable":
+      return "compiler"
+    case "invalid_configuration":
+      return "configuration"
+    case "internal_error":
+      return "internal"
+  }
+  const unreachable: never = error.code
+  return unreachable
+}
 
 void contractVersion
 void capabilityInput
 void checked
 void diagnostic
 void report
+void describeCheckError
 `,
   )
 

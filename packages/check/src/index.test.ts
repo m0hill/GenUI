@@ -1,7 +1,23 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { action, Genui, subscription, type StandardSchemaV1 } from "genui"
-import { checkGeneratedInterface, type GeneratedInterfaceCheckResult } from "./index.js"
+import {
+  action,
+  Genui,
+  readGenerationCheckerContract,
+  subscription,
+  type Generation,
+  type StandardSchemaV1,
+} from "genui"
+import {
+  createGeneratedInterfaceChecker,
+  typescriptGeneratedInterfaceCompiler,
+  type GeneratedInterfaceCompiler,
+} from "./checker.js"
+import {
+  checkGeneratedInterface,
+  GeneratedInterfaceCheckError,
+  type GeneratedInterfaceCheckResult,
+} from "./index.js"
 
 type TestParseResult<Value> =
   | { readonly ok: true; readonly value: Value }
@@ -97,6 +113,16 @@ const assertInvalid = (
   return result
 }
 
+const assertOperationalError =
+  (code: GeneratedInterfaceCheckError["code"], cause?: unknown): ((error: unknown) => boolean) =>
+  (error) => {
+    assert.ok(error instanceof GeneratedInterfaceCheckError)
+    assert.equal(error.name, "GeneratedInterfaceCheckError")
+    assert.equal(error.code, code)
+    if (cause !== undefined) assert.equal(error.cause, cause)
+    return true
+  }
+
 void test("checker accepts ordinary DOM code using selected commands", async () => {
   const result = await checkGeneratedInterface(generation, {
     content: `<section>
@@ -173,7 +199,7 @@ void test("checker ignores DOM element specialization in a web-search panel", as
   assert.deepEqual(result, { ok: true })
 })
 
-void test("checker rejects nonexistent guest properties and unknown commands", async () => {
+void test("PREFLIGHT-CAPABILITY-003 rejects selected-contract mistakes", async () => {
   const result = assertInvalid(
     await checkGeneratedInterface(generation, {
       content: `<script type="module">
@@ -247,9 +273,9 @@ void test("checker reads the current capability projection", async () => {
   assert.match(result.report, /orders\.current/)
 })
 
-void test("checker honors an already-aborted signal", async () => {
+void test("PREFLIGHT-OPERATIONAL-008 preserves a pre-aborted signal reason", async () => {
   const controller = new AbortController()
-  const reason = new Error("generation request ended")
+  const reason = { code: "generation_request_ended" }
   controller.abort(reason)
 
   await assert.rejects(
@@ -258,6 +284,116 @@ void test("checker honors an already-aborted signal", async () => {
       signal: controller.signal,
     }),
     (error) => error === reason,
+  )
+})
+
+void test("PREFLIGHT-OPERATIONAL-008 preserves cancellation after compiler work", async () => {
+  const controller = new AbortController()
+  const reason = { code: "generation_request_ended" }
+  const compiler: GeneratedInterfaceCompiler = {
+    check: async () => {
+      controller.abort(reason)
+      return { ok: true, diagnostics: [] }
+    },
+  }
+  const check = createGeneratedInterfaceChecker({
+    compiler,
+    readContract: readGenerationCheckerContract,
+  })
+
+  await assert.rejects(
+    check(generation, {
+      content: `<script type="module">document.body.textContent = "done"</script>`,
+      signal: controller.signal,
+    }),
+    (error) => error === reason,
+  )
+})
+
+void test("PREFLIGHT-OPERATIONAL-008 rejects incompatible Generation contracts", async () => {
+  const counterfeitGeneration = {
+    guidance: () => ({ environment: "", capabilityContract: "" }),
+    createSurface: async () => {
+      throw new Error("not implemented")
+    },
+  } satisfies Generation
+
+  await assert.rejects(
+    checkGeneratedInterface(counterfeitGeneration, { content: "<p>Counterfeit</p>" }),
+    assertOperationalError("incompatible_generation"),
+  )
+
+  for (const [property, value] of [
+    ["version", 2],
+    ["dialect", "code/unknown"],
+  ] as const) {
+    const contract = readGenerationCheckerContract(generation)
+    assert.ok(contract)
+    Reflect.set(contract, property, value)
+    const check = createGeneratedInterfaceChecker({
+      compiler: {
+        check: async () => {
+          throw new Error("incompatible contracts must not reach the compiler")
+        },
+      },
+      readContract: () => contract,
+    })
+
+    await assert.rejects(
+      check(generation, { content: `<script type="module"></script>` }),
+      assertOperationalError("incompatible_generation"),
+    )
+  }
+})
+
+void test("PREFLIGHT-OPERATIONAL-008 classifies expected compiler failures", async () => {
+  for (const code of ["compiler_unavailable", "invalid_configuration"] as const) {
+    const cause = new Error(`${code} cause`)
+    const check = createGeneratedInterfaceChecker({
+      compiler: { check: async () => ({ ok: false, code, cause }) },
+      readContract: readGenerationCheckerContract,
+    })
+
+    await assert.rejects(
+      check(generation, { content: `<script type="module"></script>` }),
+      assertOperationalError(code, cause),
+    )
+  }
+
+  const malformedContract = readGenerationCheckerContract(generation)
+  assert.ok(malformedContract)
+  Reflect.set(malformedContract, "guestDeclarations", "interface {")
+  const checkMalformedDeclarations = createGeneratedInterfaceChecker({
+    compiler: typescriptGeneratedInterfaceCompiler,
+    readContract: () => malformedContract,
+  })
+  await assert.rejects(
+    checkMalformedDeclarations(generation, {
+      content: `<script type="module"></script>`,
+    }),
+    assertOperationalError("invalid_configuration"),
+  )
+})
+
+void test("PREFLIGHT-OPERATIONAL-008 bounds unexpected implementation failures", async () => {
+  const cause = new Error("private compiler stack detail")
+  const check = createGeneratedInterfaceChecker({
+    compiler: {
+      check: async () => {
+        throw cause
+      },
+    },
+    readContract: readGenerationCheckerContract,
+  })
+
+  await assert.rejects(
+    check(generation, { content: `<script type="module"></script>` }),
+    (error: unknown) => {
+      assertOperationalError("internal_error", cause)(error)
+      assert.ok(error instanceof GeneratedInterfaceCheckError)
+      assert.doesNotMatch(error.message, /private compiler stack detail/)
+      return true
+    },
   )
 })
 

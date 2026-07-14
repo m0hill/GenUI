@@ -1,0 +1,28 @@
+<section aria-labelledby="order-updates-title">
+  <h1 id="order-updates-title">Order updates</h1>
+  <button id="toggle-updates" type="button">Start updates</button>
+
+  <script type="module">
+    const button = document.querySelector("#toggle-updates")
+    let handle = null
+
+    button.addEventListener("click", async () => {
+      if (handle === null) {
+        handle = await genui.subscribe("orders.changes", {}, () => {})
+        button.textContent = "Stop updates"
+        void handle.done.finally(() => {
+          handle = null
+          button.textContent = "Start updates"
+        })
+      } else {
+        await handle.unsubscribe()
+        handle = null
+        button.textContent = "Start updates"
+      }
+    })
+
+    genui.teardown(async () => {
+      if (handle !== null) await handle.unsubscribe()
+    })
+  </script>
+</section>
