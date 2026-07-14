@@ -24,6 +24,7 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@genui/check": "workspace:*",
     "esbuild": "^0.28.1",
     "playwright": "^1.61.1"
   }

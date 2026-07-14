@@ -11,7 +11,7 @@ import {
   type ToolCall,
 } from "@earendil-works/pi-ai"
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex"
-import { checkGeneratedInterface, type GeneratedInterfaceDiagnostic } from "genui/check"
+import { checkGeneratedInterface, type GeneratedInterfaceDiagnostic } from "@genui/check"
 import type { Surface } from "genui/protocol"
 import { getCodexApiKey } from "./auth.js"
 import { generatedUi } from "./genui.js"

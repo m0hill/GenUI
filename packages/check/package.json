@@ -1,0 +1,33 @@
+{
+  "name": "@genui/check",
+  "version": "0.0.0",
+  "private": true,
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc --project tsconfig.build.json",
+    "check": "nub run lint && nub run format:check && nub run typecheck && nub run test",
+    "format": "oxfmt src *.json",
+    "format:check": "oxfmt --check src *.json",
+    "lint": "oxlint src --type-aware",
+    "lint:fix": "oxlint src --type-aware --fix",
+    "test": "nub --test $(find src -name '*.test.ts' -print)",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "parse5": "^8.0.1",
+    "typescript": "^7.0.2"
+  },
+  "peerDependencies": {
+    "genui": "0.0.0"
+  }
+}

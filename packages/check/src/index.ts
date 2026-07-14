@@ -1,8 +1,12 @@
 import { parseFragment, type DefaultTreeAdapterTypes, type ParserError } from "parse5"
 import { API, type Diagnostic } from "typescript/unstable/async"
 import { createVirtualFileSystem } from "typescript/unstable/fs"
-import { generationCapabilityDeclarations, type Generation } from "../generation.js"
-import { genuiGuestDeclarations } from "../code/guest-contract.js"
+import {
+  generationCheckerContractVersion,
+  readGenerationCheckerContract,
+  type Generation,
+  type GenerationCheckerContract,
+} from "genui"
 
 export interface CheckGeneratedInterfaceOptions {
   readonly content: string
@@ -65,11 +69,19 @@ export const checkGeneratedInterface = async (
 ): Promise<GeneratedInterfaceCheckResult> => {
   const signal = options.signal ?? new AbortController().signal
   throwIfAborted(signal)
+  const contract = readGenerationCheckerContract(generation)
+  if (
+    contract === undefined ||
+    contract.version !== generationCheckerContractVersion ||
+    contract.dialect !== "code/0"
+  ) {
+    throw new Error("Generated-interface checking requires a compatible GenUI Generation.")
+  }
   const parsed = parseGeneratedContent(options.content)
   throwIfAborted(signal)
 
   const compilerDiagnostics =
-    parsed.modules.length === 0 ? [] : await checkModules(generation, parsed.modules, signal)
+    parsed.modules.length === 0 ? [] : await checkModules(contract, parsed.modules, signal)
   const diagnostics = [...parsed.diagnostics, ...compilerDiagnostics].sort(compareDiagnostics)
   if (diagnostics.length === 0) return { ok: true }
 
@@ -158,12 +170,12 @@ const parseGeneratedContent = (content: string): ParsedContent => {
 }
 
 const checkModules = async (
-  generation: Generation,
+  contract: GenerationCheckerContract,
   modules: readonly InlineModule[],
   signal: AbortSignal,
 ): Promise<readonly GeneratedInterfaceDiagnostic[]> => {
   const files: Record<string, string> = {
-    [contractPath]: `${genuiGuestDeclarations}\n${checkerDomDeclarations}\n${generationCapabilityDeclarations(generation)}`,
+    [contractPath]: `${contract.guestDeclarations}\n${checkerDomDeclarations}\n${contract.capabilityDeclarations}`,
     [tsconfigPath]: JSON.stringify(
       {
         compilerOptions: {

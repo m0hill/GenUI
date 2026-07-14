@@ -4,8 +4,8 @@
 code surfaces.
 
 Import serialized wire types and codecs from `genui/protocol`.
-Check generated fragments before surface creation with the optional
-`genui/check` entrypoint.
+Install the server-side [`@genui/check`](../check/README.md) package separately
+to check generated fragments before surface creation.
 Verify shared `SurfaceStore` adapters with `genui/testing`.
 
 Define one-shot authority with `action()` and read-only event authority with
@@ -22,9 +22,9 @@ produces the model's stable environment guidance and selected capability
 contract, then creates surfaces from that same selection while reapplying
 current policy.
 
-`checkGeneratedInterface()` parses inline module scripts and checks them against
-the selected generation contract. It returns bounded diagnostics for a model
-retry but never replaces authoritative surface creation or runtime validation.
+`@genui/check` parses inline module scripts and checks them against the selected
+generation contract. It returns bounded diagnostics for a model retry but never
+replaces authoritative surface creation or runtime validation.
 
 Generated content is ordinary fragment HTML with inline JavaScript. The
 runtime stores it verbatim. `mount()` runs it in an opaque-origin iframe with a

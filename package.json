@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "nub run build && nub run --filter @genui/playground dev",
     "eval": "nub run build && nub run --filter @genui/playground eval",
-    "build": "nub run --filter genui build",
+    "build": "nub run --filter genui build && nub run --filter @genui/check build",
     "test": "nub run build && nub run --recursive test",
     "check": "nub run build && nub run format:check && nub run --recursive check && nub run test:pack",
     "test:pack": "node scripts/pack-smoke.mjs",
@@ -17,8 +17,8 @@
     "typecheck": "nub run build && nub run --recursive typecheck",
     "lint": "nub run --recursive lint",
     "lint:fix": "nub run --recursive lint:fix",
-    "format": "oxfmt *.json .*.json scripts packages/genui/*.json packages/genui/src examples/playground/*.json examples/playground/src examples/playground/scripts",
-    "format:check": "oxfmt --check *.json .*.json scripts packages/genui/*.json packages/genui/src examples/playground/*.json examples/playground/src examples/playground/scripts"
+    "format": "oxfmt *.json .*.json scripts packages/check/*.json packages/check/src packages/genui/*.json packages/genui/src examples/playground/*.json examples/playground/src examples/playground/scripts",
+    "format:check": "oxfmt --check *.json .*.json scripts packages/check/*.json packages/check/src packages/genui/*.json packages/genui/src examples/playground/*.json examples/playground/src examples/playground/scripts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
+import { generationCheckerContractVersion, readGenerationCheckerContract } from "./generation.js"
 import { action, Genui, subscription } from "./registry.js"
 import { isRecord, testSchema } from "./test-schema.test-support.js"
 
@@ -116,6 +117,29 @@ void test("generation binds selected guidance to surface creation", async () => 
     grantedSubscriptions: ["orders.changes"],
     droppedSubscriptions: [],
   })
+
+  const checkerContract = readGenerationCheckerContract(ordersUi)
+  assert.ok(checkerContract)
+  assert.equal(checkerContract.version, generationCheckerContractVersion)
+  assert.equal(checkerContract.dialect, "code/0")
+  assert.match(checkerContract.guestDeclarations, /interface Genui/)
+  assert.match(checkerContract.capabilityDeclarations, /orders\.search/)
+  assert.deepEqual(checkerContract.capabilityInputs, [
+    {
+      kind: "action",
+      name: "orders.search",
+      schema: {
+        type: "object",
+        properties: { status: { type: "string", enum: ["open", "shipped"] } },
+        additionalProperties: false,
+      },
+    },
+    {
+      kind: "subscription",
+      name: "orders.changes",
+      schema: { type: "object", additionalProperties: false },
+    },
+  ])
 })
 
 void test("generation retains identities and reprojects current policy", async () => {
@@ -130,11 +154,33 @@ void test("generation retains identities and reprojects current policy", async (
   const ordersUi = genui.generation({ actions: [searchOrders] })
 
   assert.match(ordersUi.guidance().capabilityContract, /orders\.search/)
+  const firstContract = readGenerationCheckerContract(ordersUi)
+  assert.ok(firstContract)
+  Reflect.set(firstContract.capabilityInputs[0]?.schema ?? {}, "mutated", true)
+  assert.equal(
+    Reflect.get(
+      readGenerationCheckerContract(ordersUi)?.capabilityInputs[0]?.schema ?? {},
+      "mutated",
+    ),
+    undefined,
+  )
   Reflect.set(searchOrders, "policy", "block")
 
   assert.doesNotMatch(ordersUi.guidance().capabilityContract, /orders\.search/)
+  assert.deepEqual(readGenerationCheckerContract(ordersUi)?.capabilityInputs, [])
   const surface = await ordersUi.createSurface({ content: "<p>Orders</p>" })
   assert.deepEqual(surface.grant.actions, [])
+})
+
+void test("checker contract rejects structural Generation lookalikes", () => {
+  const lookalike = {
+    guidance: () => ({ environment: "", capabilityContract: "" }),
+    createSurface: async () => {
+      throw new Error("not implemented")
+    },
+  }
+
+  assert.equal(readGenerationCheckerContract(lookalike), undefined)
 })
 
 void test("generation rejects duplicate and unregistered definitions", () => {

@@ -3,10 +3,11 @@
 This example integrates GenUI into a streaming chat application while keeping
 model-provider and retry policy outside the SDK.
 
-The `render_ui` model tool checks each generated code/0 fragment through
-`genui/check` before creating a surface. Invalid fragments return bounded
-diagnostics as error tool results so the model can repair them. Three
-consecutive invalid fragments end the attempt without mounting any of them.
+The `render_ui` model tool checks each generated code/0 fragment through the
+separately installed `@genui/check` package before creating a surface. Invalid
+fragments return bounded diagnostics as error tool results so the model can
+repair them. Three consecutive invalid fragments end the attempt without
+mounting any of them.
 Request cancellation reaches both model streaming and generated-code checking.
 
 Each checker-rejected attempt is appended to `data/chat.jsonl` with its

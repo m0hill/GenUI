@@ -1,8 +1,27 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { action, Genui, subscription } from "../registry.js"
-import { isRecord, testSchema } from "../test-schema.test-support.js"
+import { action, Genui, subscription, type StandardSchemaV1 } from "genui"
 import { checkGeneratedInterface, type GeneratedInterfaceCheckResult } from "./index.js"
+
+type TestParseResult<Value> =
+  | { readonly ok: true; readonly value: Value }
+  | { readonly ok: false; readonly message: string }
+
+const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+const testSchema = <Value>(
+  parse: (value: unknown) => TestParseResult<Value>,
+): StandardSchemaV1<unknown, Value> => ({
+  "~standard": {
+    version: 1,
+    vendor: "genui-check-test",
+    validate(value) {
+      const result = parse(value)
+      return result.ok ? { value: result.value } : { issues: [{ message: result.message }] }
+    },
+  },
+})
 
 const searchOrders = action({
   name: "orders.search",

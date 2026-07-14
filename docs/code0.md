@@ -7,7 +7,7 @@ Treat the dialect identifier as the wire version. The current contract is
 `code/0`; npm package versions do not replace it.
 
 ```ts
-import { checkGeneratedInterface } from "genui/check"
+import { checkGeneratedInterface } from "@genui/check"
 
 const ordersUi = genui.generation({
   actions: [searchOrders, updateOrderStatus],
@@ -52,7 +52,8 @@ provider supports tool-specific instructions. This keeps unrelated model turns
 free of capability details and lets providers cache the stable section. GenUI
 does not invoke a model or prescribe a provider interface.
 
-`checkGeneratedInterface()` is an optional generation-side preflight. It parses
+Install `@genui/check` separately in server-side generation code that wants
+preflight. `checkGeneratedInterface()` parses
 the fragment, requires scripts to be inline `type="module"` blocks, and checks
 their JavaScript against the generation's currently visible action and
 subscription declarations. An invalid result contains bounded, serializable
