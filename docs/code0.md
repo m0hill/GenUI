@@ -57,8 +57,9 @@ preflight. `checkGeneratedInterface()` parses
 the fragment, requires scripts to be inline `type="module"` blocks, and checks
 their JavaScript against the generation's currently visible action and
 subscription declarations. An invalid result contains bounded, serializable
-diagnostics and a report suitable for a model retry. Cancellation rejects with
-the supplied signal's reason.
+diagnostics and a report suitable for a model retry. Failures outside model
+content reject with `GeneratedInterfaceCheckError`; do not present them as
+repair instructions. Cancellation rejects with the supplied signal's reason.
 
 The check improves feedback; it does not grant authority or make generated code
 trusted. `createSurface()`, the browser broker, and the kernel still apply their

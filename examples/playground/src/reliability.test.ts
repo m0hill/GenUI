@@ -2,7 +2,8 @@ import assert from "node:assert/strict"
 import { readFile } from "node:fs/promises"
 import { test } from "node:test"
 import { serve } from "@hono/node-server"
-import { checkGeneratedInterface } from "@genui/check"
+import { checkGeneratedInterface, GeneratedInterfaceCheckError } from "@genui/check"
+import type { Generation } from "genui"
 import { chromium } from "playwright"
 import { app, playgroundGeneration, resetPlaygroundState } from "./app.js"
 import { resetDemoOrders } from "./actions.js"
@@ -12,6 +13,55 @@ import { reliabilityScenarios } from "./reliability-scenarios.js"
 for (const scenario of reliabilityScenarios) {
   void test(scenario.id, async () => {
     const fragment = await readFile(scenario.fragment, "utf8")
+
+    if (scenario.kind === "checker") {
+      const checked = await checkGeneratedInterface(playgroundGeneration, { content: fragment })
+      const { expected } = scenario
+      if (expected.ok) {
+        assert.deepEqual(checked, { ok: true })
+        return
+      }
+
+      assert.equal(checked.ok, false)
+      if (checked.ok) throw new Error(`${scenario.id} should produce checker diagnostics.`)
+      assert.equal(checked.diagnostics.length, expected.diagnosticCount)
+      assert.equal(
+        checked.diagnostics.every(({ code }) => code.startsWith(expected.diagnosticPrefix)),
+        true,
+      )
+      for (const text of expected.reportIncludes) assert.match(checked.report, new RegExp(text))
+      return
+    }
+
+    if (scenario.kind === "operational") {
+      const controller = new AbortController()
+      const reason = { code: scenario.expected.cancellationReason }
+      controller.abort(reason)
+      await assert.rejects(
+        checkGeneratedInterface(playgroundGeneration, {
+          content: fragment,
+          signal: controller.signal,
+        }),
+        (error) => error === reason,
+      )
+
+      const counterfeitGeneration = {
+        guidance: () => ({ environment: "", capabilityContract: "" }),
+        createSurface: async () => {
+          throw new Error("not implemented")
+        },
+      } satisfies Generation
+      await assert.rejects(
+        checkGeneratedInterface(counterfeitGeneration, { content: fragment }),
+        (error: unknown) => {
+          assert.ok(error instanceof GeneratedInterfaceCheckError)
+          assert.equal(error.code, scenario.expected.incompatibleGenerationCode)
+          return true
+        },
+      )
+      return
+    }
+
     assert.deepEqual(await checkGeneratedInterface(playgroundGeneration, { content: fragment }), {
       ok: true,
     })
