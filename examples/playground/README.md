@@ -40,9 +40,24 @@ uses a streaming server endpoint while generated code receives only
 it is not part of `genui/protocol` and does not expose fetch, SSE, WebSocket, or
 the app source to the iframe.
 
+## Run deterministic reliability conformance
+
+Run `nub run test:reliability` from the repository root.
+
+The canonical corpus combines focused authored fixtures with privacy-reviewed,
+sanitized model outputs. It records stable scenario IDs, generation context,
+checker outcomes, browser expectations, trusted calls and events, and relevant
+model provenance. CI uses only retained fixtures and never invokes a live model.
+
+Browser scenarios cross `@genui/check`, authoritative Surface creation, the
+real Playground server, the opaque-origin iframe, the broker, scripted user
+interaction, and the kernel. `PREFLIGHT-AUTHORITY-007` revokes a checked and
+mounted Surface before interaction to prove current trusted authority remains
+decisive.
+
 ## Evaluate model output
 
-Use the file-based loop with any LLM:
+Use the separate file-based loop for ad hoc output from any LLM:
 
 1. Run `nub run dev`, open `http://localhost:3000`, and choose **Copy model
    instructions**.
@@ -78,4 +93,5 @@ Markdown table.
 
 A failed fixture makes `nub run eval` exit nonzero. Its report includes every
 failing assertion and the complete event log. Paste that section back to the
-model when requesting a repair.
+model when requesting a repair. This incoming-fixture evaluator is a manual
+experiment, not the deterministic conformance corpus.

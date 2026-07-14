@@ -26,6 +26,11 @@ current policy.
 generation contract. It returns bounded diagnostics for a model retry but never
 replaces authoritative surface creation or runtime validation.
 
+Run `nub run test:reliability` in this repository to exercise the retained
+checker-to-browser corpus. Its authority scenario checks and mounts a fragment,
+then revokes the Surface before interaction and verifies that the kernel denies
+the call.
+
 Generated content is ordinary fragment HTML with inline JavaScript. The
 runtime stores it verbatim. `mount()` runs it in an opaque-origin iframe with a
 network-denying CSP. Its trusted `window.genui` bridge exposes granted action
@@ -44,6 +49,8 @@ Security comes from isolation and trusted-side enforcement:
 - The browser broker rejects ungranted calls before transport.
 - The kernel reloads the surface record and rechecks policy and grant before
   action execution and every subscription event.
+- Checker acceptance and an earlier mounted grant never preserve revoked
+  authority.
 - Input is validated before authoritative approval and execution.
 - Every subscription event is validated, size-bounded, and delivered with
   bounded backpressure.
