@@ -1,9 +1,14 @@
 import { randomUUID } from "node:crypto"
 import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname } from "node:path"
-import type { GeneratedInterfaceDiagnostic } from "@genui/check"
-import { codeDialect, parseSurface, type Surface } from "genui/protocol"
+import { codeDialect, maxSurfaceContentBytes, parseSurface, type Surface } from "genui/protocol"
 import { z } from "zod"
+import {
+  generatedInterfaceRepairOutcomeReasons,
+  maxGeneratedInterfaceSubmissions,
+  type GeneratedInterfaceAttempt,
+  type GeneratedInterfaceRepairOutcome,
+} from "./ai/generated-interface-repair.js"
 
 const StoredSurface = z.custom<Surface>(
   (value) => parseSurface(value)?.dialect === codeDialect,
@@ -112,15 +117,60 @@ const GeneratedInterfaceDiagnostic = z
   })
   .strict()
 
-const GeneratedInterfaceRejectionEntry = z
+const GeneratedInterfaceSubmissionEvidence = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("content"),
+      content: z
+        .string()
+        .max(maxSurfaceContentBytes)
+        .refine(
+          (content) => Buffer.byteLength(content, "utf8") <= maxSurfaceContentBytes,
+          "Generated UI content is too large.",
+        ),
+      utf8Bytes: z.number().int().min(0).max(maxSurfaceContentBytes),
+      digest: z.string().regex(/^[a-f0-9]{64}$/),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("oversized"),
+      valueType: z.literal("string"),
+      utf8Bytes: z
+        .number()
+        .int()
+        .min(maxSurfaceContentBytes + 1),
+      digest: z.string().regex(/^[a-f0-9]{64}$/),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("malformed"),
+      valueType: z.string().min(1).max(32),
+      utf8Bytes: z.number().int().min(0),
+      digest: z.string().regex(/^[a-f0-9]{64}$/),
+    })
+    .strict(),
+])
+
+const GeneratedInterfaceAttemptEntry = z
   .object({
-    type: z.literal("generated_interface_rejection"),
+    type: z.literal("generated_interface_attempt"),
     turnId: z.string().min(1).max(256),
-    prompt: z.string().min(1).max(8_000),
-    attempt: z.number().int().min(1).max(5),
-    terminal: z.boolean(),
-    content: z.string().min(1).max(100_000),
+    submission: z.number().int().min(1).max(maxGeneratedInterfaceSubmissions),
+    evidence: GeneratedInterfaceSubmissionEvidence,
     diagnostics: z.array(GeneratedInterfaceDiagnostic).min(1).max(8),
+    timestamp: z.iso.datetime(),
+  })
+  .strict()
+
+const GeneratedInterfaceRepairOutcomeEntry = z
+  .object({
+    type: z.literal("generated_interface_repair_outcome"),
+    turnId: z.string().min(1).max(256),
+    submissionCount: z.number().int().min(1).max(maxGeneratedInterfaceSubmissions),
+    reason: z.enum(generatedInterfaceRepairOutcomeReasons),
+    diagnosticCodes: z.array(z.string().min(1).max(128)).min(1).max(8),
     timestamp: z.iso.datetime(),
   })
   .strict()
@@ -128,7 +178,8 @@ const GeneratedInterfaceRejectionEntry = z
 const SessionEntry = z.discriminatedUnion("type", [
   MessageEntry,
   SurfaceSnapshotEntry,
-  GeneratedInterfaceRejectionEntry,
+  GeneratedInterfaceAttemptEntry,
+  GeneratedInterfaceRepairOutcomeEntry,
 ])
 
 export type SurfaceSnapshot = z.infer<typeof SurfaceSnapshot>
@@ -155,14 +206,14 @@ export interface SurfaceSnapshotInput {
   readonly snapshot: SurfaceSnapshot
 }
 
-export interface AppendGeneratedInterfaceRejectionInput {
+export type AppendGeneratedInterfaceAttemptInput = Omit<GeneratedInterfaceAttempt, "type"> & {
   readonly turnId: string
-  readonly prompt: string
-  readonly attempt: number
-  readonly terminal: boolean
-  readonly content: string
-  readonly diagnostics: readonly GeneratedInterfaceDiagnostic[]
 }
+
+export type AppendGeneratedInterfaceRepairOutcomeInput = Omit<
+  GeneratedInterfaceRepairOutcome,
+  "type"
+> & { readonly turnId: string }
 
 const parseLine = (line: string): unknown => {
   try {
@@ -308,10 +359,26 @@ export class JsonlChatSession {
     return write
   }
 
-  appendGeneratedInterfaceRejection(input: AppendGeneratedInterfaceRejectionInput): Promise<void> {
+  appendGeneratedInterfaceAttempt(input: AppendGeneratedInterfaceAttemptInput): Promise<void> {
     const write = this.writeQueue.then(async () => {
-      const entry = GeneratedInterfaceRejectionEntry.parse({
-        type: "generated_interface_rejection",
+      const entry = GeneratedInterfaceAttemptEntry.parse({
+        type: "generated_interface_attempt",
+        ...input,
+        timestamp: new Date().toISOString(),
+      })
+      await appendFile(this.filePath, `${JSON.stringify(entry)}\n`, "utf8")
+    })
+
+    this.writeQueue = write.catch(() => undefined)
+    return write
+  }
+
+  appendGeneratedInterfaceRepairOutcome(
+    input: AppendGeneratedInterfaceRepairOutcomeInput,
+  ): Promise<void> {
+    const write = this.writeQueue.then(async () => {
+      const entry = GeneratedInterfaceRepairOutcomeEntry.parse({
+        type: "generated_interface_repair_outcome",
         ...input,
         timestamp: new Date().toISOString(),
       })

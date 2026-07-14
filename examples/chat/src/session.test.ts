@@ -3,6 +3,11 @@ import { appendFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
+import {
+  GeneratedInterfaceRepairCycle,
+  generatedInterfaceDiagnosticReport,
+  parseGeneratedInterfaceSubmission,
+} from "./ai/generated-interface-repair.js"
 import { JsonlChatSession, maxSurfaceSnapshotBytes } from "./session.js"
 
 void test("JSONL session persists and restores completed turns", async () => {
@@ -92,48 +97,115 @@ void test("JSONL session skips malformed trailing records", async () => {
   }
 })
 
-void test("JSONL session records rejected generated interfaces outside chat history", async () => {
+void test("JSONL session keeps generated-interface attempts and outcomes outside history", async () => {
   const directory = await mkdtemp(join(tmpdir(), "genui-chat-"))
   const filePath = join(directory, "chat.jsonl")
 
   try {
     const session = await JsonlChatSession.open(filePath)
-    await session.appendGeneratedInterfaceRejection({
+    const repair = new GeneratedInterfaceRepairCycle()
+    const submission = parseGeneratedInterfaceSubmission(
+      '<script type="module">genui.missing()</script>',
+    )
+    const diagnostics = [
+      {
+        code: "TS2339",
+        line: 1,
+        column: 29,
+        message: "Property missing does not exist.",
+      },
+    ] as const
+    const rejection = repair.reject(
+      submission,
+      diagnostics,
+      generatedInterfaceDiagnosticReport(diagnostics),
+    )
+    const outcome = repair.modelStopped()
+    assert(outcome)
+
+    await session.appendGeneratedInterfaceAttempt({
       turnId: "turn-1",
-      prompt: "Build a search panel",
-      attempt: 1,
-      terminal: false,
-      content: '<script type="module">genui.missing()</script>',
-      diagnostics: [
-        {
-          code: "TS2339",
-          line: 1,
-          column: 29,
-          message: "Property missing does not exist.",
-        },
-      ],
+      submission: rejection.attempt.submission,
+      evidence: rejection.attempt.evidence,
+      diagnostics: rejection.attempt.diagnostics,
+    })
+    await session.appendGeneratedInterfaceRepairOutcome({
+      turnId: "turn-1",
+      submissionCount: outcome.submissionCount,
+      reason: outcome.reason,
+      diagnosticCodes: outcome.diagnosticCodes,
     })
 
     const lines = (await readFile(filePath, "utf8")).trim().split("\n")
-    assert.equal(lines.length, 2)
-    assert.deepEqual(JSON.parse(lines[1] ?? "{}"), {
-      type: "generated_interface_rejection",
+    assert.equal(lines.length, 3)
+    const attempt = JSON.parse(lines[1] ?? "{}")
+    assert.deepEqual(attempt, {
+      type: "generated_interface_attempt",
       turnId: "turn-1",
-      prompt: "Build a search panel",
-      attempt: 1,
-      terminal: false,
-      content: '<script type="module">genui.missing()</script>',
-      diagnostics: [
-        {
-          code: "TS2339",
-          line: 1,
-          column: 29,
-          message: "Property missing does not exist.",
-        },
-      ],
-      timestamp: JSON.parse(lines[1] ?? "{}").timestamp,
+      submission: 1,
+      evidence: submission.evidence,
+      diagnostics,
+      timestamp: attempt.timestamp,
     })
+    const terminal = JSON.parse(lines[2] ?? "{}")
+    assert.deepEqual(terminal, {
+      type: "generated_interface_repair_outcome",
+      turnId: "turn-1",
+      submissionCount: 1,
+      reason: "model_stopped",
+      diagnosticCodes: ["TS2339"],
+      timestamp: terminal.timestamp,
+    })
+    assert.equal("terminal" in attempt, false)
+    assert.equal("prompt" in attempt, false)
     assert.equal((await JsonlChatSession.open(filePath)).getHistory().length, 0)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+void test("JSONL session never persists oversized or malformed generated-interface payloads", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "genui-chat-"))
+  const filePath = join(directory, "chat.jsonl")
+
+  try {
+    const session = await JsonlChatSession.open(filePath)
+    const repair = new GeneratedInterfaceRepairCycle()
+    const values = ["界".repeat(40_000), { privateMarker: "PRIVATE_MALFORMED_PAYLOAD" }]
+
+    for (const value of values) {
+      const submission = parseGeneratedInterfaceSubmission(value)
+      assert(submission.diagnostic)
+      const diagnostics = [submission.diagnostic]
+      const rejection = repair.reject(
+        submission,
+        diagnostics,
+        generatedInterfaceDiagnosticReport(diagnostics),
+      )
+      await session.appendGeneratedInterfaceAttempt({
+        turnId: "turn-bounded",
+        submission: rejection.attempt.submission,
+        evidence: rejection.attempt.evidence,
+        diagnostics: rejection.attempt.diagnostics,
+      })
+    }
+
+    const persisted = await readFile(filePath, "utf8")
+    assert.doesNotMatch(persisted, /界界/)
+    assert.doesNotMatch(persisted, /PRIVATE_MALFORMED_PAYLOAD/)
+    const records = persisted
+      .trim()
+      .split("\n")
+      .slice(1)
+      .map((line) => JSON.parse(line))
+    assert.deepEqual(
+      records.map((record) => record.evidence.kind),
+      ["oversized", "malformed"],
+    )
+    assert.equal(
+      records.every((record) => !("content" in record.evidence)),
+      true,
+    )
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
@@ -253,6 +325,29 @@ void test("JSONL session reset deletes the conversation and starts a new session
       assistantId: "assistant-1",
       prompt: "Hello",
       assistantContent: [{ type: "text", text: "Hi there" }],
+    })
+    const repair = new GeneratedInterfaceRepairCycle()
+    const submission = parseGeneratedInterfaceSubmission("")
+    assert(submission.diagnostic)
+    const diagnostics = [submission.diagnostic]
+    const rejection = repair.reject(
+      submission,
+      diagnostics,
+      generatedInterfaceDiagnosticReport(diagnostics),
+    )
+    const outcome = repair.modelStopped()
+    assert(outcome)
+    await session.appendGeneratedInterfaceAttempt({
+      turnId: "turn-reset",
+      submission: rejection.attempt.submission,
+      evidence: rejection.attempt.evidence,
+      diagnostics: rejection.attempt.diagnostics,
+    })
+    await session.appendGeneratedInterfaceRepairOutcome({
+      turnId: "turn-reset",
+      submissionCount: outcome.submissionCount,
+      reason: outcome.reason,
+      diagnosticCodes: outcome.diagnosticCodes,
     })
 
     await session.reset()

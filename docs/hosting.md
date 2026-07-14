@@ -113,6 +113,13 @@ storage. `parseSurface()` returns `undefined` for an oversized transport value.
 Browser `mount()` and `replace()` reject before iframe injection, even when a
 caller bypasses the protocol decoder.
 
+Treat model repair as application policy. GenUI surface creation and
+`@genui/check` each process one fragment; neither retries a model response or
+stores repair state. The chat example illustrates one bounded policy with
+three submissions and explicit terminal outcomes. Other applications may use
+no retry or a different policy. Do not feed operational failures or runtime
+`SurfaceEvent` values into a pre-surface repair loop.
+
 `GenuiOptions.subscriptions` and `GenerationOptions.subscriptions` are optional
 and default to empty. Every serialized grant still carries separate `actions`
 and `subscriptions` arrays. Action and subscription names must be globally
