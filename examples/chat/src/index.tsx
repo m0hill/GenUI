@@ -9,6 +9,10 @@ import { stream } from "hono/streaming"
 import { actionError, parseSubscriptionRequest, subscriptionOpenError } from "genui/protocol"
 import { z } from "zod"
 import { executeGeneratedUiAction, openGeneratedUiSubscription } from "./ai/genui.js"
+import {
+  generatedInterfaceOutcomeMessage,
+  type GeneratedInterfaceRepairOutcome,
+} from "./ai/generated-interface-repair.js"
 import { type GeneratedUiModelContext, modelId, streamChat } from "./ai/index.js"
 import { parseExecuteRequest, pendingApprovals, type ExecuteEnvelope } from "./approval.js"
 import { renderMarkdown } from "./markdown.js"
@@ -478,6 +482,7 @@ app.post("/chat", async (c) => {
     yield event.patch(<p id="composer-error" role="alert" />)
 
     let finalContent: AssistantContentBlock[] | undefined
+    let repairOutcome: GeneratedInterfaceRepairOutcome | undefined
     const completedToolContent: AssistantContentBlock[] = []
     const activeSearches: ActiveWebSearch[] = []
     try {
@@ -562,19 +567,31 @@ app.post("/chat", async (c) => {
           )
         }
 
-        if (item.type === "generated_interface_rejection") {
-          await session
-            .appendGeneratedInterfaceRejection({
-              turnId,
-              prompt,
-              attempt: item.attempt,
-              terminal: item.terminal,
-              content: item.content,
-              diagnostics: item.diagnostics,
-            })
-            .catch((error: unknown) => {
-              console.error("Generated interface rejection could not be recorded.", error)
-            })
+        if (item.type === "generated_interface_attempt") {
+          await session.appendGeneratedInterfaceAttempt({
+            turnId,
+            submission: item.submission,
+            evidence: item.evidence,
+            diagnostics: item.diagnostics,
+          })
+        }
+
+        if (item.type === "generated_interface_repair_outcome") {
+          repairOutcome = item
+          await session.appendGeneratedInterfaceRepairOutcome({
+            turnId,
+            submissionCount: item.submissionCount,
+            reason: item.reason,
+            diagnosticCodes: item.diagnosticCodes,
+          })
+          yield event.patch(
+            <AssistantMessage
+              id={assistantId}
+              content={completedToolContent}
+              activeSearches={activeSearches}
+              error={generatedInterfaceOutcomeMessage(item.reason)}
+            />,
+          )
         }
 
         if (item.type === "error") {
@@ -586,8 +603,12 @@ app.post("/chat", async (c) => {
         yield event.patch(
           <AssistantMessage
             id={assistantId}
-            content={[]}
-            error="The model returned no response."
+            content={completedToolContent}
+            error={
+              repairOutcome === undefined
+                ? "The model returned no response."
+                : generatedInterfaceOutcomeMessage(repairOutcome.reason)
+            }
           />,
         )
         return
@@ -611,15 +632,25 @@ app.post("/chat", async (c) => {
         return
       }
 
-      yield event.patch(<AssistantMessage id={assistantId} content={finalContent} />)
+      yield event.patch(
+        <AssistantMessage
+          id={assistantId}
+          content={finalContent}
+          error={
+            repairOutcome === undefined
+              ? undefined
+              : generatedInterfaceOutcomeMessage(repairOutcome.reason)
+          }
+        />,
+      )
     } catch (error) {
-      const message = error instanceof Error ? error.message : "The model request failed"
+      console.error("Chat response could not be completed.", error)
       yield event.patch(
         <AssistantMessage
           id={assistantId}
           content={completedToolContent}
           activeSearches={activeSearches}
-          error={message}
+          error="The response could not be completed."
         />,
       )
     }

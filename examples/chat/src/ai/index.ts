@@ -11,9 +11,16 @@ import {
   type ToolCall,
 } from "@earendil-works/pi-ai"
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex"
-import { checkGeneratedInterface, type GeneratedInterfaceDiagnostic } from "@genui/check"
-import type { Surface } from "genui/protocol"
+import { checkGeneratedInterface } from "@genui/check"
+import { maxSurfaceContentBytes, type Surface } from "genui/protocol"
 import { getCodexApiKey } from "./auth.js"
+import {
+  GeneratedInterfaceRepairCycle,
+  generatedInterfaceDiagnosticReport,
+  parseGeneratedInterfaceSubmission,
+  type GeneratedInterfaceAttempt,
+  type GeneratedInterfaceRepairOutcome,
+} from "./generated-interface-repair.js"
 import { generatedUi } from "./genui.js"
 import { searchWeb, webSearchTool } from "./web-search.js"
 import type { JsonPreferenceStore } from "../preferences.js"
@@ -46,13 +53,8 @@ export type ChatStreamEvent =
       type: "surface_result"
       surface: Surface
     }
-  | {
-      type: "generated_interface_rejection"
-      attempt: number
-      terminal: boolean
-      content: string
-      diagnostics: readonly GeneratedInterfaceDiagnostic[]
-    }
+  | GeneratedInterfaceAttempt
+  | GeneratedInterfaceRepairOutcome
 
 const provider = openaiCodexProvider()
 const findModel = () => {
@@ -65,21 +67,6 @@ const findModel = () => {
 
 const model = findModel()
 const maxToolRounds = 5
-const maxGeneratedInterfaceContentLength = 100_000
-const maxConsecutiveGeneratedInterfaceAttempts = 3
-
-type GeneratedInterfaceRejectionEvent = Extract<
-  ChatStreamEvent,
-  { type: "generated_interface_rejection" }
->
-
-class GeneratedInterfaceRepairError extends Error {
-  constructor(readonly rejection: GeneratedInterfaceRejectionEvent) {
-    super(
-      `The model could not produce a valid generated interface after ${String(maxConsecutiveGeneratedInterfaceAttempts)} attempts.`,
-    )
-  }
-}
 
 const preferenceReadTool: Tool = {
   name: "preferences_get",
@@ -165,7 +152,7 @@ export async function streamChatWithProvider<TApi extends Api>(
     parameters: Type.Object({
       content: Type.String({
         minLength: 1,
-        maxLength: maxGeneratedInterfaceContentLength,
+        maxLength: maxSurfaceContentBytes,
         description: "A complete code/0 HTML fragment following the generated UI instructions.",
       }),
     }),
@@ -179,14 +166,18 @@ export async function streamChatWithProvider<TApi extends Api>(
     tools: [webSearchTool, preferenceReadTool, renderUiTool],
   }
 
-  let consecutiveGeneratedInterfaceFailures = 0
+  const generatedInterfaceRepair = new GeneratedInterfaceRepairCycle()
 
-  async function executeTool(
-    toolCall: ToolCall,
-  ): Promise<Exclude<ChatStreamEvent, AssistantMessageEvent> | undefined> {
+  interface ToolExecution {
+    readonly events: readonly Exclude<ChatStreamEvent, AssistantMessageEvent>[]
+    readonly stop: boolean
+  }
+
+  async function executeTool(toolCall: ToolCall): Promise<ToolExecution> {
     let text: string
     let isError = false
-    let event: Exclude<ChatStreamEvent, AssistantMessageEvent> | undefined
+    let events: readonly Exclude<ChatStreamEvent, AssistantMessageEvent>[] = []
+    let stop = false
 
     try {
       if (toolCall.name === webSearchTool.name) {
@@ -194,77 +185,97 @@ export async function streamChatWithProvider<TApi extends Api>(
         const query = typeof argument === "string" ? argument.trim() : ""
         if (query.length === 0) throw new Error("Web search requires a query")
         text = await searchWeb(query, signal)
-        event = {
-          type: "tool_result",
-          toolCallId: toolCall.id,
-          tool: "web_search",
-          query,
-          status: "complete",
-        }
+        events = [
+          {
+            type: "tool_result",
+            toolCallId: toolCall.id,
+            tool: "web_search",
+            query,
+            status: "complete",
+          },
+        ]
       } else if (toolCall.name === preferenceReadTool.name) {
         const preference = await preferences.get()
         text = JSON.stringify({ preferredTrip: preference?.preferredTrip ?? null })
-        event = {
-          type: "tool_result",
-          toolCallId: toolCall.id,
-          tool: "preferences_get",
-          status: "complete",
-        }
+        events = [
+          {
+            type: "tool_result",
+            toolCallId: toolCall.id,
+            tool: "preferences_get",
+            status: "complete",
+          },
+        ]
       } else if (toolCall.name === renderUiTool.name) {
-        const argument = toolCall.arguments.content
-        const content = typeof argument === "string" ? argument.trim() : ""
-        if (content.length === 0) throw new Error("Generated UI requires HTML content")
-        if (content.length > maxGeneratedInterfaceContentLength) {
-          throw new Error("Generated UI content exceeds the 100,000-character limit")
+        const submission = parseGeneratedInterfaceSubmission(toolCall.arguments.content)
+        const previous = generatedInterfaceRepair.getPreviousRejection(submission.fingerprint)
+        let diagnostics = previous?.diagnostics
+        let report = previous?.report
+
+        if (diagnostics === undefined || report === undefined) {
+          if (submission.diagnostic === undefined) {
+            const content = submission.content
+            if (content === undefined) throw new Error("Generated UI submission was not parsed")
+            const checked = await checkGeneratedInterface(generatedUi, { content, signal })
+            if (checked.ok) {
+              generatedInterfaceRepair.accept()
+              const surface = await generatedUi.createSurface({ content })
+              text = "The generated interface was rendered in the conversation."
+              events = [{ type: "surface_result", surface }]
+              context.messages.push({
+                role: "toolResult",
+                toolCallId: toolCall.id,
+                toolName: toolCall.name,
+                content: [{ type: "text", text }],
+                isError,
+                timestamp: Date.now(),
+              })
+              return { events, stop }
+            }
+            diagnostics = checked.diagnostics
+            report = checked.report
+          } else {
+            diagnostics = [submission.diagnostic]
+            report = generatedInterfaceDiagnosticReport(diagnostics)
+          }
         }
-        const checked = await checkGeneratedInterface(generatedUi, { content, signal })
-        if (!checked.ok) {
-          consecutiveGeneratedInterfaceFailures += 1
-          const rejection = {
-            type: "generated_interface_rejection",
-            attempt: consecutiveGeneratedInterfaceFailures,
-            terminal:
-              consecutiveGeneratedInterfaceFailures >= maxConsecutiveGeneratedInterfaceAttempts,
-            content,
-            diagnostics: checked.diagnostics,
-          } satisfies GeneratedInterfaceRejectionEvent
-          if (rejection.terminal) throw new GeneratedInterfaceRepairError(rejection)
-          text = checked.report
-          isError = true
-          event = rejection
-        } else {
-          consecutiveGeneratedInterfaceFailures = 0
-          const surface = await generatedUi.createSurface({ content })
-          text = "The generated interface was rendered in the conversation."
-          event = { type: "surface_result", surface }
-        }
+
+        const rejection = generatedInterfaceRepair.reject(submission, diagnostics, report)
+        text = report
+        isError = true
+        events = [
+          rejection.attempt,
+          ...(rejection.outcome === undefined ? [] : [rejection.outcome]),
+        ]
+        stop = rejection.outcome !== undefined
       } else {
         throw new Error(`Unknown tool: ${toolCall.name}`)
       }
     } catch (error) {
-      if (signal.aborted) {
-        throw signal.reason instanceof Error ? signal.reason : new Error("Request aborted")
-      }
-      if (error instanceof GeneratedInterfaceRepairError) throw error
+      if (signal.aborted) throw signal.reason
+      if (toolCall.name === renderUiTool.name) throw error
       text = error instanceof Error ? error.message : "Tool failed"
       isError = true
       if (toolCall.name === webSearchTool.name) {
         const argument = toolCall.arguments.query
         const query = typeof argument === "string" ? argument.trim() : "Invalid search query"
-        event = {
-          type: "tool_result",
-          toolCallId: toolCall.id,
-          tool: "web_search",
-          query: query || "Invalid search query",
-          status: "error",
-        }
+        events = [
+          {
+            type: "tool_result",
+            toolCallId: toolCall.id,
+            tool: "web_search",
+            query: query || "Invalid search query",
+            status: "error",
+          },
+        ]
       } else if (toolCall.name === preferenceReadTool.name) {
-        event = {
-          type: "tool_result",
-          toolCallId: toolCall.id,
-          tool: "preferences_get",
-          status: "error",
-        }
+        events = [
+          {
+            type: "tool_result",
+            toolCallId: toolCall.id,
+            tool: "preferences_get",
+            status: "error",
+          },
+        ]
       }
     }
 
@@ -276,7 +287,7 @@ export async function streamChatWithProvider<TApi extends Api>(
       isError,
       timestamp: Date.now(),
     })
-    return event
+    return { events, stop }
   }
 
   async function* run(): AsyncGenerator<ChatStreamEvent> {
@@ -294,7 +305,21 @@ export async function streamChatWithProvider<TApi extends Api>(
         if (item.type === "done") completed = item.message
       }
 
-      if (completed === undefined || completed.stopReason !== "toolUse") return
+      if (completed === undefined) {
+        throw new Error("The model stream ended without a completed response")
+      }
+      if (completed.stopReason === "error") {
+        throw new Error(completed.errorMessage ?? "The model could not finish this response")
+      }
+      if (completed.stopReason === "aborted") {
+        if (signal.aborted) throw signal.reason
+        throw new Error("The model request was aborted")
+      }
+      if (completed.stopReason !== "toolUse") {
+        const outcome = generatedInterfaceRepair.modelStopped()
+        if (outcome !== undefined) yield outcome
+        return
+      }
 
       const toolCalls = completed.content.filter((block) => block.type === "toolCall")
       if (toolCalls.length === 0) throw new Error("The model requested a tool without a tool call")
@@ -304,13 +329,9 @@ export async function streamChatWithProvider<TApi extends Api>(
 
       context.messages.push(completed)
       for (const toolCall of toolCalls) {
-        try {
-          const event = await executeTool(toolCall)
-          if (event !== undefined) yield event
-        } catch (error) {
-          if (error instanceof GeneratedInterfaceRepairError) yield error.rejection
-          throw error
-        }
+        const execution = await executeTool(toolCall)
+        for (const toolEvent of execution.events) yield toolEvent
+        if (execution.stop) return
       }
     }
   }
