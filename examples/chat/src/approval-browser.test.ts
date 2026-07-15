@@ -18,6 +18,7 @@ let browser: Browser | undefined
 let server: ServerType | undefined
 let origin = ""
 let directory = ""
+let preferences: JsonPreferenceStore | undefined
 
 const pageFixture = (surface: unknown, csrfToken: string): string => `<!doctype html>
 <meta name="chat-csrf" content="${csrfToken}">
@@ -29,7 +30,7 @@ before(async () => {
   const sessions = createAuthenticatedSessions()
   const session = sessions.create()
   const chatSession = await JsonlChatSession.open(join(directory, "chat.jsonl"))
-  const preferences = new JsonPreferenceStore(join(directory, "preferences.json"))
+  preferences = new JsonPreferenceStore(join(directory, "preferences.json"))
   const surface = await generatedUi.createSurface({
     subject: session.subject,
     content: `<button id="save">Save</button><output id="result"></output><script type="module">
@@ -72,8 +73,28 @@ after(async () => {
   await rm(directory, { recursive: true, force: true })
 })
 
+void test("CHAT-APR-006 denies without exchange or retry", async (context) => {
+  if (browser === undefined) throw new Error("Browser is unavailable.")
+  if (preferences === undefined) throw new Error("Preference store is unavailable.")
+  const page = await browser.newPage()
+  context.after(() => page.close())
+  const paths: string[] = []
+  page.on("request", (request) => {
+    if (request.method() === "POST" && new URL(request.url()).pathname.startsWith("/genui/"))
+      paths.push(new URL(request.url()).pathname)
+  })
+  page.once("dialog", (dialog) => dialog.dismiss())
+  await page.goto(origin)
+  const frame = page.frameLocator(".genui-surface iframe")
+  await frame.locator("#save").click()
+  await frame.locator("#result").getByText("Action was denied.").waitFor()
+  assert.deepEqual(paths, ["/genui/execute"])
+  assert.equal(await preferences.get(), undefined)
+})
+
 void test("CHAT-APR-012 approves once and confines approval material to the trusted parent", async (context) => {
   if (browser === undefined) throw new Error("Browser is unavailable.")
+  if (preferences === undefined) throw new Error("Preference store is unavailable.")
   const page = await browser.newPage()
   context.after(() => page.close())
   const requests: { readonly path: string; readonly body: unknown }[] = []
@@ -86,8 +107,9 @@ void test("CHAT-APR-012 approves once and confines approval material to the trus
   })
   page.once("dialog", (dialog) => dialog.accept())
   await page.goto(origin)
-  await page.locator("#save").click()
-  await page.locator("#result").getByText('{"preference":"City"}').waitFor()
+  const frame = page.frameLocator(".genui-surface iframe")
+  await frame.locator("#save").click()
+  await frame.locator("#result").getByText('{"preference":"City"}').waitFor()
   assert.deepEqual(
     requests.map((request) => request.path),
     ["/genui/execute", "/genui/approve", "/genui/execute"],
@@ -101,20 +123,9 @@ void test("CHAT-APR-012 approves once and confines approval material to the trus
     (first.body as { call: { callId: string } }).call.callId,
     (retry.body as { call: { callId: string } }).call.callId,
   )
-})
-
-void test("CHAT-APR-006 denies without exchange or retry", async (context) => {
-  if (browser === undefined) throw new Error("Browser is unavailable.")
-  const page = await browser.newPage()
-  context.after(() => page.close())
-  const paths: string[] = []
-  page.on("request", (request) => {
-    if (request.method() === "POST" && new URL(request.url()).pathname.startsWith("/genui/"))
-      paths.push(new URL(request.url()).pathname)
+  const saved = await preferences.get()
+  assert.deepEqual(saved, {
+    preferredTrip: "City",
+    updatedAt: saved?.updatedAt,
   })
-  page.once("dialog", (dialog) => dialog.dismiss())
-  await page.goto(origin)
-  await page.locator("#save").click()
-  await page.locator("#result").getByText("Action was denied.").waitFor()
-  assert.deepEqual(paths, ["/genui/execute"])
 })
