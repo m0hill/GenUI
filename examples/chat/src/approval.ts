@@ -27,6 +27,8 @@ const canonicalJson = (input: unknown): string => {
 export interface PendingApprovalEnvelope {
   readonly surfaceId: string
   readonly callId: string
+  readonly action: string
+  readonly input: unknown
   readonly token: string
 }
 
@@ -49,34 +51,61 @@ export interface ApprovalResponse {
 }
 
 const parsePendingApprovalEnvelope = (value: unknown): PendingApprovalEnvelope | undefined => {
-  if (!isRecord(value) || !hasOnlyKeys(value, ["surfaceId", "callId", "token"])) return undefined
-  return typeof value.surfaceId === "string" &&
-    typeof value.callId === "string" &&
-    typeof value.token === "string"
-    ? { surfaceId: value.surfaceId, callId: value.callId, token: value.token }
-    : undefined
+  if (!isRecord(value) || !hasOnlyKeys(value, ["surfaceId", "callId", "action", "input", "token"]))
+    return undefined
+  const call = parseActionCall(value)
+  if (
+    call === undefined ||
+    call.surfaceId.length === 0 ||
+    call.surfaceId.length > 256 ||
+    call.callId.length === 0 ||
+    call.callId.length > 256 ||
+    typeof value.token !== "string" ||
+    value.token.length === 0 ||
+    value.token.length > 256
+  )
+    return undefined
+  try {
+    const input: unknown = JSON.parse(canonicalJson(call.input))
+    return { ...call, input, token: value.token }
+  } catch {
+    return undefined
+  }
 }
 
 export const parseExecuteRequest = (value: unknown): ExecuteRequest | undefined => {
   if (!isRecord(value)) return undefined
-  const allowed = value.approvalRetryToken === undefined ? ["call"] : ["call", "approvalRetryToken"]
+  const hasRetryToken = Object.hasOwn(value, "approvalRetryToken")
+  const allowed = hasRetryToken ? ["call", "approvalRetryToken"] : ["call"]
   if (!hasOnlyKeys(value, allowed)) return undefined
+  if (!isRecord(value.call) || !hasOnlyKeys(value.call, ["surfaceId", "callId", "action", "input"]))
+    return undefined
   const call = parseActionCall(value.call)
+  const approvalRetryToken =
+    hasRetryToken && typeof value.approvalRetryToken === "string"
+      ? value.approvalRetryToken
+      : undefined
   if (
     call === undefined ||
-    (value.approvalRetryToken !== undefined && typeof value.approvalRetryToken !== "string")
+    call.surfaceId.length === 0 ||
+    call.surfaceId.length > 256 ||
+    call.callId.length === 0 ||
+    call.callId.length > 256 ||
+    (hasRetryToken &&
+      (approvalRetryToken === undefined ||
+        approvalRetryToken.length === 0 ||
+        approvalRetryToken.length > 256))
   ) {
     return undefined
   }
-  return {
-    call,
-    ...(value.approvalRetryToken === undefined
-      ? {}
-      : { approvalRetryToken: value.approvalRetryToken }),
-  }
+  if (!hasRetryToken) return { call }
+  return approvalRetryToken === undefined ? undefined : { call, approvalRetryToken }
 }
 
-export const parseExecuteEnvelope = (value: unknown): ExecuteEnvelope | undefined => {
+export const parseExecuteEnvelope = (
+  value: unknown,
+  call: Pick<ActionCall, "surfaceId" | "callId" | "action">,
+): ExecuteEnvelope | undefined => {
   if (!isRecord(value)) return undefined
   const result = parseActionResult(value.result)
   const pendingApproval = parsePendingApprovalEnvelope(value.pendingApproval)
@@ -87,6 +116,13 @@ export const parseExecuteEnvelope = (value: unknown): ExecuteEnvelope | undefine
     return undefined
   }
   if ((!result.ok && result.error.code === "approval_required") !== (pendingApproval !== undefined))
+    return undefined
+  if (
+    pendingApproval !== undefined &&
+    (pendingApproval.surfaceId !== call.surfaceId ||
+      pendingApproval.callId !== call.callId ||
+      pendingApproval.action !== call.action)
+  )
     return undefined
   return { result, ...(pendingApproval === undefined ? {} : { pendingApproval }) }
 }
@@ -100,13 +136,18 @@ export const parseApprovalExchangeRequest = (
 }
 
 export const parseApprovalResponse = (value: unknown): ApprovalResponse | undefined =>
-  isRecord(value) && hasOnlyKeys(value, ["retryToken"]) && typeof value.retryToken === "string"
+  isRecord(value) &&
+  hasOnlyKeys(value, ["retryToken"]) &&
+  typeof value.retryToken === "string" &&
+  value.retryToken.length > 0 &&
+  value.retryToken.length <= 256
     ? { retryToken: value.retryToken }
     : undefined
 
 interface ApprovalRecord {
   readonly subject: string
   readonly action: string
+  readonly input: unknown
   readonly inputFingerprint: string
   readonly pendingToken: string
   readonly expiresAt: number
@@ -128,38 +169,54 @@ export const createPendingApprovals = (
   }
 
   return {
+    matchesRetry(request: {
+      readonly subject: string
+      readonly call: Pick<ActionCall, "surfaceId" | "callId" | "action">
+      readonly retryToken: string
+    }): boolean {
+      clearExpired()
+      const approval = approvals.get(approvalKey(request.call.surfaceId, request.call.callId))
+      return (
+        approval !== undefined &&
+        approval.subject === request.subject &&
+        approval.action === request.call.action &&
+        approval.retryToken === request.retryToken
+      )
+    },
     check(request: {
       readonly subject: string
       readonly call: ActionCall
       readonly input: unknown
       readonly retryToken?: string
-    }): boolean | undefined {
+    }): "pending" | "rejected" | "approved" {
       clearExpired()
       const key = approvalKey(request.call.surfaceId, request.call.callId)
       const inputFingerprint = canonicalJson(request.input)
       const approval = approvals.get(key)
       if (approval === undefined) {
-        if (request.retryToken !== undefined) return false
+        if (request.retryToken !== undefined) return "rejected"
+        const canonicalInput: unknown = JSON.parse(inputFingerprint)
         approvals.set(key, {
           subject: request.subject,
           action: request.call.action,
+          input: canonicalInput,
           inputFingerprint,
           pendingToken: globalThis.crypto.randomUUID(),
           expiresAt: now() + lifetimeMs,
         })
-        return undefined
+        return "pending"
       }
       if (
         approval.subject !== request.subject ||
         approval.action !== request.call.action ||
         approval.inputFingerprint !== inputFingerprint
       )
-        return false
+        return "rejected"
       if (approval.retryToken === undefined)
-        return request.retryToken === undefined ? undefined : false
-      if (approval.retryToken !== request.retryToken) return false
+        return request.retryToken === undefined ? "pending" : "rejected"
+      if (approval.retryToken !== request.retryToken) return "rejected"
       approvals.delete(key)
-      return true
+      return "approved"
     },
     pending(
       call: Pick<ActionCall, "surfaceId" | "callId">,
@@ -171,13 +228,31 @@ export const createPendingApprovals = (
         approval.subject !== subject ||
         approval.retryToken !== undefined
         ? undefined
-        : { surfaceId: call.surfaceId, callId: call.callId, token: approval.pendingToken }
+        : {
+            surfaceId: call.surfaceId,
+            callId: call.callId,
+            action: approval.action,
+            input: approval.input,
+            token: approval.pendingToken,
+          }
     },
     exchange(request: PendingApprovalEnvelope, subject: string): string | false | undefined {
       clearExpired()
       const approval = approvals.get(approvalKey(request.surfaceId, request.callId))
       if (approval === undefined || approval.retryToken !== undefined) return undefined
-      if (approval.subject !== subject || approval.pendingToken !== request.token) return false
+      let inputFingerprint: string
+      try {
+        inputFingerprint = canonicalJson(request.input)
+      } catch {
+        return false
+      }
+      if (
+        approval.subject !== subject ||
+        approval.action !== request.action ||
+        approval.inputFingerprint !== inputFingerprint ||
+        approval.pendingToken !== request.token
+      )
+        return false
       approval.retryToken = globalThis.crypto.randomUUID()
       return approval.retryToken
     },

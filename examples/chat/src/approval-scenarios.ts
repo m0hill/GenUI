@@ -8,12 +8,28 @@ export const approvalScenarios = [
       "Chat creates a short-lived pending record bound to the subject, call, action, and canonical input.",
   },
   {
+    id: "CHAT-APR-002",
+    description: "Forged preapproval and guest-selected tokens create no authority.",
+    given: "An authenticated generated-interface request with no server-issued approval authority.",
+    when: "The request supplies preapproval fields or a token selected by the guest.",
+    expect:
+      "Chat rejects the request without creating pending or retry authority or executing an action.",
+  },
+  {
     id: "CHAT-APR-003",
     description: "Authenticated subject must match the surface subject.",
     given: "A generated surface bound to one authenticated chat subject.",
     when: "Another session, or an unauthenticated caller, executes or subscribes with its surface ID.",
     expect:
       "The request fails before action validation, approval, subscription startup, or execution.",
+  },
+  {
+    id: "CHAT-APR-004",
+    description: "Every approval request must match its pending authority.",
+    given: "A valid pending or retryable approval bound to one exact request.",
+    when: "The subject, surface, call, action, or canonical input differs.",
+    expect:
+      "Chat rejects without consuming or replacing the valid authority or executing an action.",
   },
   {
     id: "CHAT-APR-005",
@@ -36,6 +52,14 @@ export const approvalScenarios = [
     given: "A pending approval envelope.",
     when: "The approval exchange lacks a valid authenticated chat session or CSRF token.",
     expect: "The exchange rejects before issuing retry authority.",
+  },
+  {
+    id: "CHAT-APR-011",
+    description: "Malformed approval envelopes fail closed without sensitive diagnostics.",
+    given: "An approval request or response crossing a browser or server boundary.",
+    when: "A required field is missing, extra, incorrectly typed, empty, invalid, or inconsistent.",
+    expect:
+      "Chat returns a safe failure without approval material, sensitive diagnostics, or state changes.",
   },
   {
     id: "CHAT-APR-012",
