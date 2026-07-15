@@ -150,62 +150,93 @@ independently projects current policy into the authoritative stored grant.
 
 ## Execute through a server endpoint
 
-Parse the browser boundary with the protocol codec. Pass the call to the same
-`Genui` instance.
+Parse the complete app-owned execute envelope strictly. Pass its call to the
+same `Genui` instance.
 
 ```ts
-import { actionError, parseActionCall } from "genui/protocol"
+import { actionError } from "genui/protocol"
+import {
+  parseExecuteRequest,
+  type ExecuteEnvelope,
+} from "./host-codecs.js"
 
 const body: unknown = await request.json()
-const call =
-  typeof body === "object" && body !== null && "call" in body
-    ? parseActionCall(body.call)
-    : undefined
-const approvalRetryToken =
-  typeof body === "object" && body !== null && "approvalRetryToken" in body
-    ? body.approvalRetryToken
-    : undefined
+const executeRequest = parseExecuteRequest(body)
+if (executeRequest === undefined) {
+  return Response.json(
+    {
+      result: actionError("invalid_input", "Malformed execute request."),
+    } satisfies ExecuteEnvelope,
+    { status: 400 },
+  )
+}
 if (
-  call === undefined ||
-  (approvalRetryToken !== undefined && typeof approvalRetryToken !== "string")
-) {
-  return Response.json(actionError("invalid_input", "Malformed action call."), {
-    status: 400,
+  executeRequest.approvalRetryToken !== undefined &&
+  !pendingApprovals.matchesRetry({
+    subject: currentSession.id,
+    call: executeRequest.call,
+    retryToken: executeRequest.approvalRetryToken,
   })
+) {
+  return Response.json({
+    result: actionError("approval_denied", "Approval is unavailable."),
+  } satisfies ExecuteEnvelope)
 }
 
-const result = await genui.execute(call, appContext, {
+let approvalDecision: "pending" | "rejected" | "approved" | undefined
+const kernelResult = await genui.execute(executeRequest.call, appContext, {
   subject: currentSession.id,
-  approve: (action, canonicalInput) =>
-    pendingApprovals.check({
-      surfaceId: call.surfaceId,
-      callId: call.callId,
+  approve: (action, canonicalInput) => {
+    approvalDecision = pendingApprovals.check({
+      surfaceId: executeRequest.call.surfaceId,
+      callId: executeRequest.call.callId,
       subject: currentSession.id,
       action: action.name,
       input: canonicalInput,
-      retryToken: approvalRetryToken,
-    }),
+      retryToken: executeRequest.approvalRetryToken,
+    })
+    return approvalDecision === "approved" ? true : undefined
+  },
 })
-const responseApprovalToken =
-  !result.ok && result.error.code === "approval_required"
-    ? pendingApprovals.token({
-        surfaceId: call.surfaceId,
-        callId: call.callId,
+const result =
+  approvalDecision === "rejected" &&
+  !kernelResult.ok &&
+  kernelResult.error.code === "approval_required"
+    ? actionError("approval_denied", "Approval is unavailable.")
+    : kernelResult
+const pendingApproval =
+  approvalDecision === "pending" &&
+  !result.ok &&
+  result.error.code === "approval_required"
+    ? pendingApprovals.pending({
+        surfaceId: executeRequest.call.surfaceId,
+        callId: executeRequest.call.callId,
         subject: currentSession.id,
       })
     : undefined
 return Response.json({
   result,
-  ...(responseApprovalToken === undefined
-    ? {}
-    : { approvalToken: responseApprovalToken }),
-})
+  ...(pendingApproval === undefined ? {} : { pendingApproval }),
+} satisfies ExecuteEnvelope)
 ```
 
 Treat the kernel `approve` hook as authoritative. It runs after schema
 validation and receives canonical input. Return `undefined` while consent is
 pending, `false` for an explicit denial, and `true` only after trusted consent.
 Never approve from guest-rendered UI.
+
+Reserve `false` for trusted explicit denial. For an untrusted token or binding
+mismatch, return `undefined` to the kernel and map the provisional
+`approval_required` to a safe app-owned failure after `execute()` returns.
+This prevents the idempotency store from retaining a forged denial under the
+valid call ID.
+
+Before kernel dispatch, reject any supplied retry token whose subject, surface
+ID, call ID, action, or token value does not match Retryable authority. This
+non-consuming preflight prevents a token attached to a read or other
+non-approval action from being ignored while that action executes. Keep
+canonical-input matching and token consumption inside the post-validation
+`approve` callback.
 
 ## Implement the approval retry protocol
 
@@ -217,12 +248,13 @@ Apply every rule below:
 1. When `approve` first returns `undefined`, create a pending record bound to
    `(subject, surfaceId, callId, action, canonical input fingerprint)`. Give it
    an unpredictable token and a short expiry.
-2. Return the token only in an app-owned envelope consumed by the trusted
-   parent. Never put it in `ActionResult`, the surface grant, an audit event, or
-   any value sent into the sandbox.
-3. After trusted consent UI succeeds, send the token to an authenticated,
-   CSRF-protected approval endpoint. `callId` is a correlation key, not a
-   secret.
+2. Return a strict app-owned pending envelope containing the bound surface ID,
+   call ID, action, canonical input, and token. Only the trusted parent may
+   consume it. Never put it in `ActionResult`, the surface grant, an audit
+   event, or any value sent into the sandbox.
+3. After trusted consent UI succeeds, send that complete envelope to an
+   authenticated, CSRF-protected approval endpoint. `callId` is a correlation
+   key, not a secret.
 4. The approval endpoint must atomically consume an unused, unexpired approval
    token only when every bound field matches, then return a distinct,
    unpredictable one-time retry token. Reject missing, reused, expired, or
@@ -235,8 +267,8 @@ Apply every rule below:
    different replicas.
 
 Do not accept preapproval, an `approved: true` request field, or a token chosen
-by generated code. The reference playground implements this flow in
-`examples/playground/src/pending-approvals.ts`, `app.ts`, and `client.ts`.
+by generated code. The flagship chat implements this flow in
+`examples/chat/src/approval.ts`, `genui-routes.ts`, and `client.ts`.
 
 Authenticate the request before calling `surface()`, `execute()`, or
 `subscribe()`. Use the same opaque `subject` value for every operation. A
@@ -400,8 +432,9 @@ outcomes.
 ## Mount in the browser
 
 Parse server responses before mounting or returning transport results. Define
-an app-owned `parseExecuteEnvelope()` that requires an approval token exactly
-when its nested result is `approval_required`.
+an app-owned `parseExecuteEnvelope(value, call)` that requires a pending
+approval exactly when its nested result is `approval_required`. Reject it when
+its surface ID, call ID, or action differs from `call`.
 
 ```ts
 import {
@@ -415,12 +448,13 @@ import {
   parseApprovalResponse,
   parseExecuteEnvelope,
   parseSubscriptionOpenError,
+  type PendingApprovalEnvelope,
 } from "./host-codecs.js"
 
 const surface = parseSurface(await surfaceResponse.json())
 if (surface === undefined) throw new Error("Invalid surface response.")
 
-const approvalTokens = new Map<string, string>()
+const pendingApprovals = new Map<string, PendingApprovalEnvelope>()
 const retryTokens = new Map<string, string>()
 const callKey = (call: Pick<ActionCall, "surfaceId" | "callId">): string =>
   JSON.stringify([call.surfaceId, call.callId])
@@ -450,18 +484,14 @@ const mounted = mount(container, surface, {
   subscriptionTransport,
   confirm: async (_action, call, intent) => {
     const key = callKey(call)
-    const token = approvalTokens.get(key)
-    approvalTokens.delete(key)
-    if (token === undefined) throw new Error("Missing approval token.")
+    const pendingApproval = pendingApprovals.get(key)
+    pendingApprovals.delete(key)
+    if (pendingApproval === undefined) throw new Error("Missing pending approval.")
     if (!window.confirm(intent)) return false
     const response = await fetch("/genui/approve", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        surfaceId: call.surfaceId,
-        callId: call.callId,
-        token,
-      }),
+      body: JSON.stringify({ pendingApproval }),
     })
     if (!response.ok) return false
     const approval = parseApprovalResponse(await response.json())
@@ -482,12 +512,12 @@ const mounted = mount(container, surface, {
       }),
       signal,
     })
-    const envelope = parseExecuteEnvelope(await response.json())
+    const envelope = parseExecuteEnvelope(await response.json(), call)
     if (envelope === undefined) {
       return actionError("execution_failed", "Invalid action response.")
     }
-    if (envelope.approvalToken === undefined) approvalTokens.delete(key)
-    else approvalTokens.set(key, envelope.approvalToken)
+    if (envelope.pendingApproval === undefined) pendingApprovals.delete(key)
+    else pendingApprovals.set(key, envelope.pendingApproval)
     return envelope.result
   },
   onEvent: (event) => renderSurfaceEvent(event),

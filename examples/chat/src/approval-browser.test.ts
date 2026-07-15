@@ -132,3 +132,103 @@ void test("CHAT-APR-012 approves once and confines approval material to the trus
     updatedAt: saved?.updatedAt,
   })
 })
+
+void test("CHAT-APR-011 rejects an inconsistent execute envelope at the browser boundary", async (context) => {
+  if (browser === undefined) throw new Error("Browser is unavailable.")
+  if (preferences === undefined) throw new Error("Preference store is unavailable.")
+  const page = await browser.newPage()
+  context.after(() => page.close())
+  const paths: string[] = []
+  page.on("request", (request) => {
+    if (request.method() === "POST" && new URL(request.url()).pathname.startsWith("/genui/"))
+      paths.push(new URL(request.url()).pathname)
+  })
+  await page.route("**/genui/execute", async (route) => {
+    const response = await route.fetch()
+    const body = (await response.json()) as {
+      readonly result: unknown
+      readonly pendingApproval?: Readonly<Record<string, unknown>>
+    }
+    assert.ok(body.pendingApproval)
+    await route.fulfill({
+      response,
+      json: {
+        ...body,
+        pendingApproval: { ...body.pendingApproval, callId: "forged-call" },
+      },
+    })
+  })
+  const saved = await preferences.get()
+
+  await page.goto(origin)
+  const frame = page.frameLocator(".genui-surface iframe")
+  await frame.locator("#save").click()
+  await frame.locator("#result").getByText("The GenUI action returned an invalid result.").waitFor()
+  assert.deepEqual(paths, ["/genui/execute"])
+  assert.deepEqual(await preferences.get(), saved)
+})
+
+void test("CHAT-APR-004 rejects a forged canonical input without a browser retry", async (context) => {
+  if (browser === undefined) throw new Error("Browser is unavailable.")
+  if (preferences === undefined) throw new Error("Preference store is unavailable.")
+  const page = await browser.newPage()
+  context.after(() => page.close())
+  const paths: string[] = []
+  page.on("request", (request) => {
+    if (request.method() === "POST" && new URL(request.url()).pathname.startsWith("/genui/"))
+      paths.push(new URL(request.url()).pathname)
+  })
+  await page.route("**/genui/execute", async (route) => {
+    const response = await route.fetch()
+    const body = (await response.json()) as {
+      readonly result: unknown
+      readonly pendingApproval?: Readonly<Record<string, unknown>>
+    }
+    assert.ok(body.pendingApproval)
+    await route.fulfill({
+      response,
+      json: {
+        ...body,
+        pendingApproval: {
+          ...body.pendingApproval,
+          input: { preference: "Mountain" },
+        },
+      },
+    })
+  })
+  page.once("dialog", (dialog) => dialog.accept())
+  const saved = await preferences.get()
+
+  await page.goto(origin)
+  const frame = page.frameLocator(".genui-surface iframe")
+  await frame.locator("#save").click()
+  await frame.locator("#result").getByText("Action failed.").waitFor()
+  assert.deepEqual(paths, ["/genui/execute", "/genui/approve"])
+  assert.deepEqual(await preferences.get(), saved)
+})
+
+void test("CHAT-APR-011 rejects a malformed approval response without a browser retry", async (context) => {
+  if (browser === undefined) throw new Error("Browser is unavailable.")
+  if (preferences === undefined) throw new Error("Preference store is unavailable.")
+  const page = await browser.newPage()
+  context.after(() => page.close())
+  const paths: string[] = []
+  page.on("request", (request) => {
+    if (request.method() === "POST" && new URL(request.url()).pathname.startsWith("/genui/"))
+      paths.push(new URL(request.url()).pathname)
+  })
+  await page.route("**/genui/approve", async (route) => {
+    const response = await route.fetch()
+    const body = (await response.json()) as Readonly<Record<string, unknown>>
+    await route.fulfill({ response, json: { ...body, extra: true } })
+  })
+  page.once("dialog", (dialog) => dialog.accept())
+  const saved = await preferences.get()
+
+  await page.goto(origin)
+  const frame = page.frameLocator(".genui-surface iframe")
+  await frame.locator("#save").click()
+  await frame.locator("#result").getByText("Action failed.").waitFor()
+  assert.deepEqual(paths, ["/genui/execute", "/genui/approve"])
+  assert.deepEqual(await preferences.get(), saved)
+})

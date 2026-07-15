@@ -174,7 +174,7 @@ const executeAction: ActionTransport = async (call, options) => {
     }),
     signal: options.signal,
   })
-  const envelope = parseExecuteEnvelope(await response.json())
+  const envelope = parseExecuteEnvelope(await response.json(), call)
   if (envelope === undefined) {
     return actionError("execution_failed", "The GenUI action returned an invalid result.")
   }
