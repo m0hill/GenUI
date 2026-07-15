@@ -47,6 +47,28 @@ export const approvalScenarios = [
     expect: "The generated interface receives approval_denied and the write is not executed.",
   },
   {
+    id: "CHAT-APR-007",
+    description: "Expired pending or retry authority is rejected.",
+    given: "Pending or retryable authority whose short lifetime has elapsed.",
+    when: "The trusted parent exchanges or consumes its token.",
+    expect: "Chat removes the expired authority and rejects without executing the action.",
+  },
+  {
+    id: "CHAT-APR-008",
+    description: "Concurrent approval transitions have at most one winner.",
+    given: "Two trusted requests concurrently exchange or consume the same authority.",
+    when: "Both requests reach the application-owned transition.",
+    expect: "At most one transition succeeds and the approved action executes at most once.",
+  },
+  {
+    id: "CHAT-APR-009",
+    description: "Retry authority is consumed once before execution and cannot be replayed.",
+    given: "A matching retryable approval for an effectful action call.",
+    when: "Chat authorizes execution and the trusted parent repeats or changes the call.",
+    expect:
+      "Only the first consumption authorizes execution; an identical completed call may replay its stored result without executing again, while a conflict is rejected.",
+  },
+  {
     id: "CHAT-APR-010",
     description: "Missing authentication or invalid CSRF is rejected.",
     given: "A pending approval envelope.",
