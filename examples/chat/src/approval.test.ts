@@ -116,6 +116,129 @@ void test("CHAT-APR-001 and CHAT-APR-005 bind a kernel-created pending approval 
   )
 })
 
+void test("CHAT-APR-007 rejects expired pending and retry authority", () => {
+  let now = 1_000
+  const approvals = createPendingApprovals({ now: () => now, lifetimeMs: 10 })
+  const pendingCall = {
+    surfaceId: "surface-expiry",
+    callId: "pending-expiry",
+    action: "preferences.save",
+    input: { preference: "City" },
+  } satisfies ActionCall
+
+  assert.ok(approvalScenarios.some((scenario) => scenario.id === "CHAT-APR-007"))
+  assert.equal(
+    approvals.check({ subject: "owner", call: pendingCall, input: pendingCall.input }),
+    "pending",
+  )
+  const expiredPending = approvals.pending(pendingCall, "owner")
+  assert.ok(expiredPending)
+  now += 10
+  assert.equal(approvals.exchange(expiredPending, "owner"), undefined)
+
+  const retryCall = { ...pendingCall, callId: "retry-expiry" }
+  assert.equal(
+    approvals.check({ subject: "owner", call: retryCall, input: retryCall.input }),
+    "pending",
+  )
+  const pending = approvals.pending(retryCall, "owner")
+  assert.ok(pending)
+  const retryToken = approvals.exchange(pending, "owner")
+  assert.equal(typeof retryToken, "string")
+  if (typeof retryToken !== "string") throw new Error("Expected retry token.")
+  now += 10
+  assert.equal(
+    approvals.check({ subject: "owner", call: retryCall, input: retryCall.input, retryToken }),
+    "rejected",
+  )
+})
+
+void test("CHAT-APR-008 gives concurrent exchange and consumption one winner", async () => {
+  const tokens = ["pending-token", "retry-token"]
+  const approvals = createPendingApprovals({
+    randomToken: () => tokens.shift() ?? "unexpected-token",
+  })
+  const call = {
+    surfaceId: "surface-race",
+    callId: "call-race",
+    action: "preferences.save",
+    input: { preference: "City" },
+  } satisfies ActionCall
+
+  assert.ok(approvalScenarios.some((scenario) => scenario.id === "CHAT-APR-008"))
+  assert.equal(approvals.check({ subject: "owner", call, input: call.input }), "pending")
+  const pending = approvals.pending(call, "owner")
+  assert.equal(pending?.token, "pending-token")
+  assert.ok(pending)
+
+  const exchanges = await Promise.all([
+    Promise.resolve().then(() => approvals.exchange(pending, "owner")),
+    Promise.resolve().then(() => approvals.exchange(pending, "owner")),
+  ])
+  assert.deepEqual(
+    exchanges
+      .map((result) => (typeof result === "string" ? result : "rejected"))
+      .sort((left, right) => left.localeCompare(right)),
+    ["rejected", "retry-token"],
+  )
+
+  const consumptions = await Promise.all([
+    Promise.resolve().then(() =>
+      approvals.check({ subject: "owner", call, input: call.input, retryToken: "retry-token" }),
+    ),
+    Promise.resolve().then(() =>
+      approvals.check({ subject: "owner", call, input: call.input, retryToken: "retry-token" }),
+    ),
+  ])
+  assert.deepEqual(
+    consumptions.sort((left, right) => left.localeCompare(right)),
+    ["approved", "rejected"],
+  )
+})
+
+void test("CHAT-APR-009 consumes retry authority before permitting idempotent replay", () => {
+  const tokens = ["pending-token", "retry-token"]
+  const approvals = createPendingApprovals({
+    randomToken: () => tokens.shift() ?? "unexpected-token",
+  })
+  const call = {
+    surfaceId: "surface-replay",
+    callId: "call-replay",
+    action: "preferences.save",
+    input: { preference: "City" },
+  } satisfies ActionCall
+  const retry = {
+    subject: "owner",
+    call,
+    retryToken: "retry-token",
+  }
+
+  assert.ok(approvalScenarios.some((scenario) => scenario.id === "CHAT-APR-009"))
+  assert.equal(approvals.check({ subject: "owner", call, input: call.input }), "pending")
+  const pending = approvals.pending(call, "owner")
+  assert.ok(pending)
+  assert.equal(approvals.exchange(pending, "owner"), "retry-token")
+  assert.equal(approvals.check({ ...retry, input: call.input }), "approved")
+  assert.equal(approvals.matchesRetry(retry), true)
+  assert.equal(approvals.check({ ...retry, input: call.input }), "rejected")
+})
+
+void test("retry token generation fails closed rather than repeating the pending token", () => {
+  const approvals = createPendingApprovals({ randomToken: () => "repeated-token" })
+  const call = {
+    surfaceId: "surface-entropy",
+    callId: "call-entropy",
+    action: "preferences.save",
+    input: { preference: "City" },
+  } satisfies ActionCall
+
+  assert.equal(approvals.check({ subject: "owner", call, input: call.input }), "pending")
+  const pending = approvals.pending(call, "owner")
+  assert.ok(pending)
+  assert.equal(approvals.exchange(pending, "owner"), false)
+  assert.deepEqual(approvals.pending(call, "owner"), pending)
+})
+
 void test("CHAT-APR-004 keeps pending authority when the action binding mismatches", () => {
   const approvals = createPendingApprovals()
   const call = {

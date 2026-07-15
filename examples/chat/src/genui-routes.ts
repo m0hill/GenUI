@@ -9,6 +9,7 @@ import {
   type AuthenticatedSessionRegistry,
 } from "./authenticated-session.js"
 import {
+  createPendingApprovals,
   parseApprovalExchangeRequest,
   parseExecuteRequest,
   pendingApprovals,
@@ -51,8 +52,13 @@ export const createGenuiRoutes = (options: {
   readonly sessions: AuthenticatedSessionRegistry
   readonly chatSession: JsonlChatSession
   readonly preferences: JsonPreferenceStore
+  readonly approvalTesting?: Parameters<typeof createPendingApprovals>[0]
 }): Hono => {
   const routes = new Hono()
+  const approvals =
+    options.approvalTesting === undefined
+      ? pendingApprovals
+      : createPendingApprovals(options.approvalTesting)
 
   routes.post("/execute", async (context) => {
     const current = authenticatedRequest(options.sessions, context.req.raw)
@@ -75,7 +81,7 @@ export const createGenuiRoutes = (options: {
     }
     if (
       request.approvalRetryToken !== undefined &&
-      !pendingApprovals.matchesRetry({
+      !approvals.matchesRetry({
         subject: current.subject,
         call: request.call,
         retryToken: request.approvalRetryToken,
@@ -85,13 +91,13 @@ export const createGenuiRoutes = (options: {
         result: actionError("approval_denied", "Approval is unavailable."),
       } satisfies ExecuteEnvelope)
     }
-    let approvalDecision: ReturnType<typeof pendingApprovals.check> | undefined
+    let approvalDecision: ReturnType<typeof approvals.check> | undefined
     const kernelResult = await executeGeneratedUiAction(
       request.call,
       options.preferences,
       current.subject,
       (_action, input) => {
-        approvalDecision = pendingApprovals.check({
+        approvalDecision = approvals.check({
           subject: current.subject,
           call: request.call,
           input,
@@ -108,7 +114,7 @@ export const createGenuiRoutes = (options: {
         : kernelResult
     const pendingApproval =
       approvalDecision === "pending" && !result.ok && result.error.code === "approval_required"
-        ? pendingApprovals.pending(request.call, current.subject)
+        ? approvals.pending(request.call, current.subject)
         : undefined
     return context.json({
       result,
@@ -121,7 +127,7 @@ export const createGenuiRoutes = (options: {
     if (current === undefined) return context.json({ error: "Authentication is required." }, 401)
     const request = parseApprovalExchangeRequest(await requestJson(context.req.raw))
     if (request === undefined) return context.json({ error: "Malformed approval request." }, 400)
-    const retryToken = pendingApprovals.exchange(request.pendingApproval, current.subject)
+    const retryToken = approvals.exchange(request.pendingApproval, current.subject)
     if (retryToken === undefined || retryToken === false)
       return context.json({ error: "Approval is unavailable." }, 403)
     return context.json({ retryToken })

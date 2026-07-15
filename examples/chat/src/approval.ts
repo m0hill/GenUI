@@ -144,28 +144,51 @@ export const parseApprovalResponse = (value: unknown): ApprovalResponse | undefi
     ? { retryToken: value.retryToken }
     : undefined
 
-interface ApprovalRecord {
+interface ApprovalBinding {
   readonly subject: string
   readonly action: string
   readonly input: unknown
   readonly inputFingerprint: string
-  readonly pendingToken: string
-  readonly expiresAt: number
-  retryToken?: string
 }
+
+type ApprovalRecord = ApprovalBinding &
+  (
+    | {
+        readonly state: "pending"
+        readonly pendingToken: string
+        readonly expiresAt: number
+      }
+    | {
+        readonly state: "retryable"
+        readonly retryToken: string
+        readonly expiresAt: number
+      }
+    | {
+        readonly state: "consumed"
+        readonly retryToken: string
+      }
+  )
 
 const approvalKey = (surfaceId: string, callId: string): string =>
   JSON.stringify([surfaceId, callId])
 
 /** Chat's in-memory, single-process approval authority. */
 export const createPendingApprovals = (
-  options: { readonly now?: () => number; readonly lifetimeMs?: number } = {},
+  options: {
+    readonly now?: () => number
+    readonly lifetimeMs?: number
+    readonly randomToken?: () => string
+  } = {},
 ) => {
   const now = options.now ?? Date.now
   const lifetimeMs = options.lifetimeMs ?? 5 * 60_000
+  const randomToken = options.randomToken ?? (() => globalThis.crypto.randomUUID())
   const approvals = new Map<string, ApprovalRecord>()
   const clearExpired = (): void => {
-    for (const [key, approval] of approvals) if (approval.expiresAt <= now()) approvals.delete(key)
+    const currentTime = now()
+    for (const [key, approval] of approvals) {
+      if (approval.state !== "consumed" && approval.expiresAt <= currentTime) approvals.delete(key)
+    }
   }
 
   return {
@@ -178,6 +201,7 @@ export const createPendingApprovals = (
       const approval = approvals.get(approvalKey(request.call.surfaceId, request.call.callId))
       return (
         approval !== undefined &&
+        approval.state !== "pending" &&
         approval.subject === request.subject &&
         approval.action === request.call.action &&
         approval.retryToken === request.retryToken
@@ -197,11 +221,12 @@ export const createPendingApprovals = (
         if (request.retryToken !== undefined) return "rejected"
         const canonicalInput: unknown = JSON.parse(inputFingerprint)
         approvals.set(key, {
+          state: "pending",
           subject: request.subject,
           action: request.call.action,
           input: canonicalInput,
           inputFingerprint,
-          pendingToken: globalThis.crypto.randomUUID(),
+          pendingToken: randomToken(),
           expiresAt: now() + lifetimeMs,
         })
         return "pending"
@@ -212,10 +237,18 @@ export const createPendingApprovals = (
         approval.inputFingerprint !== inputFingerprint
       )
         return "rejected"
-      if (approval.retryToken === undefined)
+      if (approval.state === "pending")
         return request.retryToken === undefined ? "pending" : "rejected"
+      if (approval.state === "consumed") return "rejected"
       if (approval.retryToken !== request.retryToken) return "rejected"
-      approvals.delete(key)
+      approvals.set(key, {
+        state: "consumed",
+        subject: approval.subject,
+        action: approval.action,
+        input: approval.input,
+        inputFingerprint: approval.inputFingerprint,
+        retryToken: approval.retryToken,
+      })
       return "approved"
     },
     pending(
@@ -224,9 +257,7 @@ export const createPendingApprovals = (
     ): PendingApprovalEnvelope | undefined {
       clearExpired()
       const approval = approvals.get(approvalKey(call.surfaceId, call.callId))
-      return approval === undefined ||
-        approval.subject !== subject ||
-        approval.retryToken !== undefined
+      return approval === undefined || approval.state !== "pending" || approval.subject !== subject
         ? undefined
         : {
             surfaceId: call.surfaceId,
@@ -238,8 +269,9 @@ export const createPendingApprovals = (
     },
     exchange(request: PendingApprovalEnvelope, subject: string): string | false | undefined {
       clearExpired()
-      const approval = approvals.get(approvalKey(request.surfaceId, request.callId))
-      if (approval === undefined || approval.retryToken !== undefined) return undefined
+      const key = approvalKey(request.surfaceId, request.callId)
+      const approval = approvals.get(key)
+      if (approval === undefined || approval.state !== "pending") return undefined
       let inputFingerprint: string
       try {
         inputFingerprint = canonicalJson(request.input)
@@ -253,8 +285,18 @@ export const createPendingApprovals = (
         approval.pendingToken !== request.token
       )
         return false
-      approval.retryToken = globalThis.crypto.randomUUID()
-      return approval.retryToken
+      const retryToken = randomToken()
+      if (retryToken === approval.pendingToken) return false
+      approvals.set(key, {
+        state: "retryable",
+        subject: approval.subject,
+        action: approval.action,
+        input: approval.input,
+        inputFingerprint: approval.inputFingerprint,
+        retryToken,
+        expiresAt: approval.expiresAt,
+      })
+      return retryToken
     },
     clear(): void {
       approvals.clear()

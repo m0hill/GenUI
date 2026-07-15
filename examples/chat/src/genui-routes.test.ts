@@ -7,7 +7,7 @@ import { Hono } from "hono"
 import type { ActionCall, SubscriptionRequest } from "genui/protocol"
 import { generatedUi } from "./ai/genui.js"
 import { createAuthenticatedSessions, type AuthenticatedSession } from "./authenticated-session.js"
-import { parseExecuteEnvelope, pendingApprovals } from "./approval.js"
+import { createPendingApprovals, parseExecuteEnvelope, pendingApprovals } from "./approval.js"
 import { createGenuiRoutes } from "./genui-routes.js"
 import { JsonPreferenceStore } from "./preferences.js"
 import { JsonlChatSession } from "./session.js"
@@ -39,14 +39,72 @@ const postJson = (
     }),
   )
 
-const createRouteFixture = async () => {
+const createRequestBarrier = (participants: number) => {
+  let enabled = false
+  let arrivals = 0
+  let release: (() => void) | undefined
+  const released = new Promise<void>((resolve) => {
+    release = resolve
+  })
+
+  return {
+    enable: () => {
+      enabled = true
+    },
+    wait: async () => {
+      if (!enabled) return
+      arrivals += 1
+      if (arrivals === participants) release?.()
+      await released
+    },
+  }
+}
+
+class CountingPreferenceStore extends JsonPreferenceStore {
+  saves = 0
+  failNextSave = false
+
+  override save(
+    ...args: Parameters<JsonPreferenceStore["save"]>
+  ): ReturnType<JsonPreferenceStore["save"]> {
+    this.saves += 1
+    if (this.failNextSave) {
+      this.failNextSave = false
+      return Promise.reject(new Error("Injected preference write failure."))
+    }
+    return super.save(...args)
+  }
+}
+
+const createRouteFixture = async (
+  approvalOptions?: Parameters<typeof createPendingApprovals>[0],
+  requestBarriers: readonly {
+    readonly path: string
+    readonly wait: () => Promise<void>
+  }[] = [],
+) => {
   const directory = await mkdtemp(join(tmpdir(), "genui-chat-routes-"))
   const chatSession = await JsonlChatSession.open(join(directory, "chat.jsonl"))
-  const preferences = new JsonPreferenceStore(join(directory, "preferences.json"))
+  const preferences = new CountingPreferenceStore(join(directory, "preferences.json"))
   const sessions = createAuthenticatedSessions()
   const owner = sessions.create()
   const other = sessions.create()
-  const app = new Hono().route("/genui", createGenuiRoutes({ sessions, chatSession, preferences }))
+  const app = new Hono()
+  for (const barrier of requestBarriers) {
+    app.use(barrier.path, async (_context, next) => {
+      await barrier.wait()
+      await next()
+    })
+  }
+  app.route(
+    "/genui",
+    createGenuiRoutes({
+      sessions,
+      chatSession,
+      preferences,
+      ...(approvalOptions === undefined ? {} : { approvalTesting: approvalOptions }),
+    }),
+  )
   pendingApprovals.clear()
 
   return {
@@ -61,6 +119,290 @@ const createRouteFixture = async () => {
     },
   }
 }
+
+void test("CHAT-APR-007 rejects expired authority through the approval and execute routes", async () => {
+  let now = 1_000
+  const fixture = await createRouteFixture({ now: () => now, lifetimeMs: 10 })
+  try {
+    const surface = await generatedUi.createSurface({
+      content: "<p>Trips</p>",
+      subject: fixture.owner.subject,
+    })
+    const pendingCall = {
+      surfaceId: surface.id,
+      callId: "route-pending-expiry",
+      action: "preferences.save",
+      input: { preference: "City" },
+    } satisfies ActionCall
+    const pendingResponse = await postJson(
+      fixture.app,
+      "/genui/execute",
+      { call: pendingCall },
+      fixture.owner,
+    )
+    const expiredPending = parseExecuteEnvelope(
+      await pendingResponse.json(),
+      pendingCall,
+    )?.pendingApproval
+    assert.ok(expiredPending)
+
+    now += 10
+    const expiredExchange = await postJson(
+      fixture.app,
+      "/genui/approve",
+      { pendingApproval: expiredPending },
+      fixture.owner,
+    )
+    assert.equal(expiredExchange.status, 403)
+    assert.deepEqual(await expiredExchange.json(), { error: "Approval is unavailable." })
+
+    const retryCall = { ...pendingCall, callId: "route-retry-expiry" }
+    const retryPendingResponse = await postJson(
+      fixture.app,
+      "/genui/execute",
+      { call: retryCall },
+      fixture.owner,
+    )
+    const retryPending = parseExecuteEnvelope(
+      await retryPendingResponse.json(),
+      retryCall,
+    )?.pendingApproval
+    assert.ok(retryPending)
+    const exchange = await postJson(
+      fixture.app,
+      "/genui/approve",
+      { pendingApproval: retryPending },
+      fixture.owner,
+    )
+    const approval = await exchange.json()
+    assert.equal(typeof approval.retryToken, "string")
+
+    now += 10
+    const expiredRetry = await postJson(
+      fixture.app,
+      "/genui/execute",
+      { call: retryCall, approvalRetryToken: approval.retryToken },
+      fixture.owner,
+    )
+    assert.deepEqual(parseExecuteEnvelope(await expiredRetry.json(), retryCall), {
+      result: {
+        ok: false,
+        error: { code: "approval_denied", message: "Approval is unavailable." },
+      },
+    })
+    assert.equal(await fixture.preferences.get(), undefined)
+  } finally {
+    await fixture.dispose()
+  }
+})
+
+void test("CHAT-APR-008 gives concurrent route exchange and consumption one winner", async () => {
+  const exchangeBarrier = createRequestBarrier(2)
+  const consumptionBarrier = createRequestBarrier(2)
+  const fixture = await createRouteFixture(undefined, [
+    { path: "/genui/approve", wait: exchangeBarrier.wait },
+    { path: "/genui/execute", wait: consumptionBarrier.wait },
+  ])
+  try {
+    const surface = await generatedUi.createSurface({
+      content: "<p>Trips</p>",
+      subject: fixture.owner.subject,
+    })
+    const call = {
+      surfaceId: surface.id,
+      callId: "concurrent-route-consumption",
+      action: "preferences.save",
+      input: { preference: "City" },
+    } satisfies ActionCall
+    const pendingResponse = await postJson(fixture.app, "/genui/execute", { call }, fixture.owner)
+    const pending = parseExecuteEnvelope(await pendingResponse.json(), call)?.pendingApproval
+    assert.ok(pending)
+
+    exchangeBarrier.enable()
+    const exchanges = await Promise.all([
+      postJson(fixture.app, "/genui/approve", { pendingApproval: pending }, fixture.owner),
+      postJson(fixture.app, "/genui/approve", { pendingApproval: pending }, fixture.owner),
+    ])
+    assert.deepEqual(
+      exchanges.map((response) => response.status).sort((left, right) => left - right),
+      [200, 403],
+    )
+    const approvedExchange = exchanges.find((response) => response.status === 200)
+    assert.ok(approvedExchange)
+    const approval = await approvedExchange.json()
+    assert.equal(typeof approval.retryToken, "string")
+
+    consumptionBarrier.enable()
+    const retries = await Promise.all([
+      postJson(
+        fixture.app,
+        "/genui/execute",
+        { call, approvalRetryToken: approval.retryToken },
+        fixture.owner,
+      ),
+      postJson(
+        fixture.app,
+        "/genui/execute",
+        { call, approvalRetryToken: approval.retryToken },
+        fixture.owner,
+      ),
+    ])
+    const results = await Promise.all(
+      retries.map(async (response) => parseExecuteEnvelope(await response.json(), call)?.result),
+    )
+    assert.deepEqual(results, [
+      { ok: true, value: { preference: "City" } },
+      { ok: true, value: { preference: "City" } },
+    ])
+    assert.equal(fixture.preferences.saves, 1)
+  } finally {
+    await fixture.dispose()
+  }
+})
+
+void test("CHAT-APR-009 replays a completed result without reusing consumed authority", async () => {
+  const fixture = await createRouteFixture()
+  try {
+    const surface = await generatedUi.createSurface({
+      content: "<p>Trips</p>",
+      subject: fixture.owner.subject,
+    })
+    const call = {
+      surfaceId: surface.id,
+      callId: "completed-replay",
+      action: "preferences.save",
+      input: { preference: "City" },
+    } satisfies ActionCall
+    const pendingResponse = await postJson(fixture.app, "/genui/execute", { call }, fixture.owner)
+    const pending = parseExecuteEnvelope(await pendingResponse.json(), call)?.pendingApproval
+    assert.ok(pending)
+    const exchange = await postJson(
+      fixture.app,
+      "/genui/approve",
+      { pendingApproval: pending },
+      fixture.owner,
+    )
+    const approval = await exchange.json()
+    assert.equal(typeof approval.retryToken, "string")
+
+    const execute = await postJson(
+      fixture.app,
+      "/genui/execute",
+      { call, approvalRetryToken: approval.retryToken },
+      fixture.owner,
+    )
+    const completed = parseExecuteEnvelope(await execute.json(), call)
+    assert.deepEqual(completed, { result: { ok: true, value: { preference: "City" } } })
+    assert.equal(fixture.preferences.saves, 1)
+
+    const replay = await postJson(
+      fixture.app,
+      "/genui/execute",
+      { call, approvalRetryToken: approval.retryToken },
+      fixture.owner,
+    )
+    assert.deepEqual(parseExecuteEnvelope(await replay.json(), call), completed)
+    assert.equal(fixture.preferences.saves, 1)
+
+    const conflictCall = { ...call, input: { preference: "Mountain" } }
+    const conflict = await postJson(
+      fixture.app,
+      "/genui/execute",
+      { call: conflictCall, approvalRetryToken: approval.retryToken },
+      fixture.owner,
+    )
+    assert.deepEqual(parseExecuteEnvelope(await conflict.json(), conflictCall), {
+      result: {
+        ok: false,
+        error: { code: "invalid_input", message: "Call ID was reused with different input." },
+      },
+    })
+
+    const changedCall = { ...call, callId: "changed-call" }
+    const changed = await postJson(
+      fixture.app,
+      "/genui/execute",
+      { call: changedCall, approvalRetryToken: approval.retryToken },
+      fixture.owner,
+    )
+    assert.deepEqual(parseExecuteEnvelope(await changed.json(), changedCall), {
+      result: {
+        ok: false,
+        error: { code: "approval_denied", message: "Approval is unavailable." },
+      },
+    })
+    assert.equal(fixture.preferences.saves, 1)
+  } finally {
+    await fixture.dispose()
+  }
+})
+
+void test("CHAT-APR-009 consumes retry authority before a failed execution", async () => {
+  const fixture = await createRouteFixture()
+  try {
+    const surface = await generatedUi.createSurface({
+      content: "<p>Trips</p>",
+      subject: fixture.owner.subject,
+    })
+    const call = {
+      surfaceId: surface.id,
+      callId: "failed-replay",
+      action: "preferences.save",
+      input: { preference: "City" },
+    } satisfies ActionCall
+    const pendingResponse = await postJson(fixture.app, "/genui/execute", { call }, fixture.owner)
+    const pending = parseExecuteEnvelope(await pendingResponse.json(), call)?.pendingApproval
+    assert.ok(pending)
+    const exchange = await postJson(
+      fixture.app,
+      "/genui/approve",
+      { pendingApproval: pending },
+      fixture.owner,
+    )
+    const approval = await exchange.json()
+    assert.equal(typeof approval.retryToken, "string")
+    fixture.preferences.failNextSave = true
+
+    const execute = await postJson(
+      fixture.app,
+      "/genui/execute",
+      { call, approvalRetryToken: approval.retryToken },
+      fixture.owner,
+    )
+    const failed = parseExecuteEnvelope(await execute.json(), call)
+    assert.deepEqual(failed, {
+      result: { ok: false, error: { code: "execution_failed", message: "Action failed." } },
+    })
+    assert.equal(fixture.preferences.saves, 1)
+
+    const replay = await postJson(
+      fixture.app,
+      "/genui/execute",
+      { call, approvalRetryToken: approval.retryToken },
+      fixture.owner,
+    )
+    assert.deepEqual(parseExecuteEnvelope(await replay.json(), call), failed)
+    assert.equal(fixture.preferences.saves, 1)
+
+    const conflictCall = { ...call, input: { preference: "Mountain" } }
+    const conflict = await postJson(
+      fixture.app,
+      "/genui/execute",
+      { call: conflictCall, approvalRetryToken: approval.retryToken },
+      fixture.owner,
+    )
+    assert.deepEqual(parseExecuteEnvelope(await conflict.json(), conflictCall), {
+      result: {
+        ok: false,
+        error: { code: "invalid_input", message: "Call ID was reused with different input." },
+      },
+    })
+    assert.equal(fixture.preferences.saves, 1)
+    assert.equal(await fixture.preferences.get(), undefined)
+  } finally {
+    await fixture.dispose()
+  }
+})
 
 void test("CHAT-APR-003 crosses the execute HTTP authentication boundary", async () => {
   const fixture = await createRouteFixture()
