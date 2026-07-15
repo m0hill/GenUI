@@ -20,9 +20,12 @@ let origin = ""
 let directory = ""
 let preferences: JsonPreferenceStore | undefined
 
+const escapeSingleQuotedHtmlAttribute = (value: string): string =>
+  value.replaceAll("&", "&amp;").replaceAll("'", "&#39;")
+
 const pageFixture = (surface: unknown, csrfToken: string): string => `<!doctype html>
 <meta name="chat-csrf" content="${csrfToken}">
-<div class="genui-surface" data-genui-surface='${JSON.stringify(surface)}'>Loading</div>
+<div class="genui-surface" data-genui-surface='${escapeSingleQuotedHtmlAttribute(JSON.stringify(surface))}'>Loading</div>
 <script type="module" src="/assets/client.js"></script>`
 
 before(async () => {
