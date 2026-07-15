@@ -8,7 +8,12 @@ import {
   type AuthenticatedSession,
   type AuthenticatedSessionRegistry,
 } from "./authenticated-session.js"
-import { parseExecuteRequest, pendingApprovals, type ExecuteEnvelope } from "./approval.js"
+import {
+  parseApprovalExchangeRequest,
+  parseExecuteRequest,
+  pendingApprovals,
+  type ExecuteEnvelope,
+} from "./approval.js"
 import type { JsonPreferenceStore } from "./preferences.js"
 import { type JsonlChatSession, SurfaceSnapshot } from "./session.js"
 
@@ -74,19 +79,31 @@ export const createGenuiRoutes = (options: {
       current.subject,
       (_action, input) =>
         pendingApprovals.check({
+          subject: current.subject,
           call: request.call,
           input,
-          token: request.approvalToken,
+          retryToken: request.approvalRetryToken,
         }),
     )
-    const approvalToken =
+    const pendingApproval =
       !result.ok && result.error.code === "approval_required"
-        ? pendingApprovals.token(request.call)
+        ? pendingApprovals.pending(request.call, current.subject)
         : undefined
     return context.json({
       result,
-      ...(approvalToken === undefined ? {} : { approvalToken }),
+      ...(pendingApproval === undefined ? {} : { pendingApproval }),
     } satisfies ExecuteEnvelope)
+  })
+
+  routes.post("/approve", async (context) => {
+    const current = authenticatedRequest(options.sessions, context.req.raw)
+    if (current === undefined) return context.json({ error: "Authentication is required." }, 401)
+    const request = parseApprovalExchangeRequest(await requestJson(context.req.raw))
+    if (request === undefined) return context.json({ error: "Malformed approval request." }, 400)
+    const retryToken = pendingApprovals.exchange(request.pendingApproval, current.subject)
+    if (retryToken === undefined) return context.json({ error: "Approval is unavailable." }, 404)
+    if (retryToken === false) return context.json({ error: "Approval is not authorized." }, 403)
+    return context.json({ retryToken })
   })
 
   routes.post("/subscribe", async (context) => {
