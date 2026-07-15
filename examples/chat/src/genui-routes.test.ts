@@ -107,7 +107,7 @@ void test("CHAT-APR-003 crosses the execute HTTP authentication boundary", async
         error: { code: "not_granted", message: "Surface is not granted to this subject." },
       },
     })
-    assert.equal(pendingApprovals.token(otherCall), undefined)
+    assert.equal(pendingApprovals.pending(otherCall, fixture.other.subject), undefined)
     assert.equal(await fixture.preferences.get(), undefined)
 
     const ownerCall = { ...otherCall, callId: "owner-save" }
@@ -121,7 +121,62 @@ void test("CHAT-APR-003 crosses the execute HTTP authentication boundary", async
         message: 'Save "City" as your preferred trip',
       },
     })
-    assert.equal(typeof ownerEnvelope?.approvalToken, "string")
+    assert.equal(typeof ownerEnvelope?.pendingApproval?.token, "string")
+  } finally {
+    await fixture.dispose()
+  }
+})
+
+void test("CHAT-APR-005 and CHAT-APR-010 exchange only authenticated CSRF-protected pending authority", async () => {
+  const fixture = await createRouteFixture()
+  try {
+    const surface = await generatedUi.createSurface({
+      content: "<p>Trips</p>",
+      subject: fixture.owner.subject,
+    })
+    const call = {
+      surfaceId: surface.id,
+      callId: "exchange-save",
+      action: "preferences.save",
+      input: { preference: "City" },
+    } satisfies ActionCall
+    const first = await postJson(fixture.app, "/genui/execute", { call }, fixture.owner)
+    const pending = parseExecuteEnvelope(await first.json())?.pendingApproval
+    assert.ok(pending)
+
+    const unauthenticated = await postJson(fixture.app, "/genui/approve", {
+      pendingApproval: pending,
+    })
+    assert.equal(unauthenticated.status, 401)
+    const invalidCsrf = await postJson(
+      fixture.app,
+      "/genui/approve",
+      { pendingApproval: pending },
+      fixture.owner,
+      "invalid",
+    )
+    assert.equal(invalidCsrf.status, 401)
+
+    const approved = await postJson(
+      fixture.app,
+      "/genui/approve",
+      { pendingApproval: pending },
+      fixture.owner,
+    )
+    assert.equal(approved.status, 200)
+    const body = await approved.json()
+    assert.equal(typeof body.retryToken, "string")
+    assert.notEqual(body.retryToken, pending.token)
+    const retry = await postJson(
+      fixture.app,
+      "/genui/execute",
+      { call, approvalRetryToken: body.retryToken },
+      fixture.owner,
+    )
+    assert.deepEqual(parseExecuteEnvelope(await retry.json()), {
+      result: { ok: true, value: { preference: "City" } },
+    })
+    assert.equal((await fixture.preferences.get())?.preferredTrip, "City")
   } finally {
     await fixture.dispose()
   }

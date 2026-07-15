@@ -10,7 +10,11 @@ import {
   type UpdateModelContextParams,
 } from "genui/dom"
 import { actionError, parseSubscriptionError, parseSurface } from "genui/protocol"
-import { parseExecuteEnvelope } from "./approval.js"
+import {
+  parseApprovalResponse,
+  parseExecuteEnvelope,
+  type PendingApprovalEnvelope,
+} from "./approval.js"
 import { subscriptionDeliveries } from "./subscription-stream.js"
 
 const hostStyleVariables = {
@@ -94,7 +98,8 @@ const mounted = new Map<Element, Mounted>()
 const composer = document.querySelector<HTMLFormElement>(".composer")
 const prompt = document.querySelector<HTMLTextAreaElement>('textarea[data-bind="prompt"]')
 const modelContext = document.querySelector<HTMLInputElement>('input[data-bind="modelContext"]')
-const approvals = new Map<string, { readonly token: string; approved: boolean }>()
+const pendingApprovals = new Map<string, PendingApprovalEnvelope>()
+const retryTokens = new Map<string, string>()
 const csrfToken = document.querySelector<HTMLMetaElement>('meta[name="chat-csrf"]')?.content
 const callKey = (surfaceId: string, callId: string): string => JSON.stringify([surfaceId, callId])
 
@@ -158,14 +163,14 @@ const openLink = async (url: string): Promise<void> => {
 
 const executeAction: ActionTransport = async (call, options) => {
   const key = callKey(call.surfaceId, call.callId)
-  const approval = approvals.get(key)
-  if (approval?.approved) approvals.delete(key)
+  const retryToken = retryTokens.get(key)
+  retryTokens.delete(key)
   const response = await fetch("/genui/execute", {
     method: "POST",
     headers: { "content-type": "application/json", "x-chat-csrf": csrfToken ?? "" },
     body: JSON.stringify({
       call,
-      ...(approval?.approved === true ? { approvalToken: approval.token } : {}),
+      ...(retryToken === undefined ? {} : { approvalRetryToken: retryToken }),
     }),
     signal: options.signal,
   })
@@ -173,18 +178,29 @@ const executeAction: ActionTransport = async (call, options) => {
   if (envelope === undefined) {
     return actionError("execution_failed", "The GenUI action returned an invalid result.")
   }
-  if (envelope.approvalToken === undefined) approvals.delete(key)
-  else approvals.set(key, { token: envelope.approvalToken, approved: false })
+  if (envelope.pendingApproval === undefined) pendingApprovals.delete(key)
+  else pendingApprovals.set(key, envelope.pendingApproval)
   return envelope.result
 }
 
 const confirmAction: ActionConfirmationHandler = async (_action, call, intent) => {
   const key = callKey(call.surfaceId, call.callId)
-  const approval = approvals.get(key)
-  if (approval === undefined) throw new Error("The host did not issue an approval token.")
-  approval.approved = window.confirm(intent)
-  if (!approval.approved) approvals.delete(key)
-  return approval.approved
+  const pendingApproval = pendingApprovals.get(key)
+  if (pendingApproval === undefined) throw new Error("The host did not issue an approval request.")
+  if (!window.confirm(intent)) {
+    pendingApprovals.delete(key)
+    return false
+  }
+  const response = await fetch("/genui/approve", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-chat-csrf": csrfToken ?? "" },
+    body: JSON.stringify({ pendingApproval }),
+  })
+  const approval = response.ok ? parseApprovalResponse(await response.json()) : undefined
+  if (approval === undefined) throw new Error("The host could not approve this action.")
+  pendingApprovals.delete(key)
+  retryTokens.set(key, approval.retryToken)
+  return true
 }
 
 const subscribe: SubscriptionTransport = async (request, options) => {

@@ -6,7 +6,13 @@ import { join } from "node:path"
 import test from "node:test"
 import type { ActionCall } from "genui/protocol"
 import { executeGeneratedUiAction, generatedUi } from "./ai/genui.js"
-import { parseExecuteEnvelope, parseExecuteRequest, pendingApprovals } from "./approval.js"
+import {
+  createPendingApprovals,
+  parseApprovalExchangeRequest,
+  parseApprovalResponse,
+  parseExecuteEnvelope,
+  parseExecuteRequest,
+} from "./approval.js"
 import { approvalScenarios } from "./approval-scenarios.js"
 import { JsonPreferenceStore } from "./preferences.js"
 
@@ -57,8 +63,8 @@ void test("preferences.save requires approval and replays one completed result",
   )
 })
 
-void test("approval tokens bind one retry to the original call and input", () => {
-  pendingApprovals.clear()
+void test("CHAT-APR-001 and CHAT-APR-005 bind a kernel-created pending approval to one retry", () => {
+  const approvals = createPendingApprovals()
   const call = {
     surfaceId: "surface-1",
     callId: "call-1",
@@ -66,25 +72,30 @@ void test("approval tokens bind one retry to the original call and input", () =>
     input: { preference: "Mountain escape" },
   } satisfies ActionCall
 
-  assert.equal(pendingApprovals.check({ call, input: call.input }), undefined)
-  const approvalToken = pendingApprovals.token(call)
-  assert.equal(typeof approvalToken, "string")
-  assert.equal(pendingApprovals.check({ call, input: call.input, token: "wrong" }), false)
+  assert.ok(approvalScenarios.some((scenario) => scenario.id === "CHAT-APR-001"))
+  assert.ok(approvalScenarios.some((scenario) => scenario.id === "CHAT-APR-005"))
+  assert.equal(approvals.check({ subject: "owner", call, input: call.input }), undefined)
+  const pending = approvals.pending(call, "owner")
+  assert.equal(typeof pending?.token, "string")
   assert.equal(
-    pendingApprovals.check({ call, input: { preference: "City" }, token: approvalToken }),
+    approvals.check({ subject: "owner", call, input: call.input, retryToken: "wrong" }),
     false,
   )
-  assert.equal(
-    pendingApprovals.check({
-      call,
-      input: call.input,
-      token: approvalToken,
-    }),
-    true,
-  )
-  assert.equal(pendingApprovals.token(call), undefined)
+  assert.equal(approvals.check({ subject: "owner", call, input: { preference: "City" } }), false)
+  assert.ok(pending)
+  const retryToken = approvals.exchange(pending, "owner")
+  assert.equal(typeof retryToken, "string")
+  if (typeof retryToken !== "string") throw new Error("Expected retry token.")
+  assert.notEqual(retryToken, pending.token)
+  assert.equal(approvals.exchange(pending, "owner"), undefined)
+  assert.equal(approvals.check({ subject: "owner", call, input: call.input, retryToken }), true)
+  assert.equal(approvals.check({ subject: "owner", call, input: call.input, retryToken }), false)
 
-  assert.deepEqual(parseExecuteRequest({ call, approved: true }), { call })
+  assert.deepEqual(parseExecuteRequest({ call, approved: true }), undefined)
+  assert.deepEqual(parseApprovalExchangeRequest({ pendingApproval: pending }), {
+    pendingApproval: pending,
+  })
+  assert.deepEqual(parseApprovalResponse({ retryToken }), { retryToken })
   assert.equal(
     parseExecuteEnvelope({
       result: { ok: false, error: { code: "approval_required", message: "Confirm" } },
