@@ -1,5 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises"
-import { action, type ExecuteOptions, Genui, subscription } from "genui"
+import { action, type ExecuteOptions, Genui, type GenuiOptions, subscription } from "genui"
 import { type ActionCall, type ActionResult, type SubscriptionRequest } from "genui/protocol"
 import { z } from "zod"
 import { type JsonPreferenceStore, PreferredTripName } from "../preferences.js"
@@ -66,25 +66,37 @@ const timeTickSubscription = subscription({
   },
 })
 
-const runtime = new Genui<GenuiContext>({
-  actions: [webSearchAction, savePreferenceAction],
-  subscriptions: [timeTickSubscription],
-})
-export const generatedUi = runtime.generation({
-  actions: [webSearchAction, savePreferenceAction],
-  subscriptions: [timeTickSubscription],
-})
+/** Construct the chat runtime with optional trusted observability sinks. */
+export const createChatGenui = (
+  observers: Pick<GenuiOptions<GenuiContext>, "onCall" | "onError"> = {},
+) => {
+  const runtime = new Genui<GenuiContext>({
+    actions: [webSearchAction, savePreferenceAction],
+    subscriptions: [timeTickSubscription],
+    ...observers,
+  })
 
-export const executeGeneratedUiAction = (
-  call: ActionCall,
-  preferences: JsonPreferenceStore,
-  subject: string,
-  approve?: ExecuteOptions["approve"],
-): Promise<ActionResult> => runtime.execute(call, { preferences }, { subject, approve })
+  return {
+    generatedUi: runtime.generation({
+      actions: [webSearchAction, savePreferenceAction],
+      subscriptions: [timeTickSubscription],
+    }),
+    executeGeneratedUiAction: (
+      call: ActionCall,
+      preferences: JsonPreferenceStore,
+      subject: string,
+      approve?: ExecuteOptions["approve"],
+    ): Promise<ActionResult> => runtime.execute(call, { preferences }, { subject, approve }),
+    openGeneratedUiSubscription: (
+      request: SubscriptionRequest,
+      preferences: JsonPreferenceStore,
+      subject: string,
+      signal: AbortSignal,
+    ) => runtime.subscribe(request, { preferences }, { subject, signal }),
+  }
+}
 
-export const openGeneratedUiSubscription = (
-  request: SubscriptionRequest,
-  preferences: JsonPreferenceStore,
-  subject: string,
-  signal: AbortSignal,
-) => runtime.subscribe(request, { preferences }, { subject, signal })
+const chatGenui = createChatGenui()
+export const generatedUi = chatGenui.generatedUi
+export const executeGeneratedUiAction = chatGenui.executeGeneratedUiAction
+export const openGeneratedUiSubscription = chatGenui.openGeneratedUiSubscription

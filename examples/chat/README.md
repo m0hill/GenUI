@@ -32,6 +32,33 @@ The browser mounts only surfaces emitted after a successful check. GenUI's
 normal surface grant, broker, schema validation, approval, and authoritative
 reauthorization remain in force; the preflight check is not a security boundary.
 
+## Approval flow
+
+The chat application owns the authenticated session, CSRF check, consent UI,
+HTTP routes, approval state, and response presentation. GenUI owns action
+policy, validation, canonical input and intent, subject enforcement,
+idempotency, and execution.
+
+For a write action, the server creates short-lived Pending authority only after
+the GenUI kernel requests approval. It binds the authenticated subject,
+surface, call, action, and canonical input. The pending token is returned only
+to the trusted parent. After consent, the authenticated and CSRF-protected
+approval route atomically exchanges it for a distinct one-time retry token.
+The trusted parent retries the identical call, and the server consumes retry
+authority before allowing GenUI to execute. Denial, mismatch, expiry, replay,
+or session reset cannot execute the action.
+
+Approval tokens remain only in app-owned parent and server envelopes and
+private in-memory state. They never enter the generated sandbox, surface
+grant, `ActionResult`, audit entry, JSONL session, restored model context, or
+generic telemetry.
+
+This in-memory approval implementation is suitable only for this one-process
+example. Replicated hosts must keep Pending and Retryable authority in shared
+server-side storage whose exchange, consumption, expiry, and reset operations
+are atomic across every replica. Do not treat browser state or a `callId` as
+approval authority.
+
 From the repository root:
 
 ```sh

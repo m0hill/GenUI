@@ -16,6 +16,13 @@ import {
 import { approvalScenarios } from "./approval-scenarios.js"
 import { JsonPreferenceStore } from "./preferences.js"
 
+void test("canonical approval corpus contains CHAT-APR-001 through CHAT-APR-014", () => {
+  assert.deepEqual(
+    approvalScenarios.map((scenario) => scenario.id),
+    Array.from({ length: 14 }, (_value, index) => `CHAT-APR-${String(index + 1).padStart(3, "0")}`),
+  )
+})
+
 void test("preferences.save requires approval and replays one completed result", async (context) => {
   const filePath = join(tmpdir(), `genui-preference-${randomUUID()}.json`)
   context.after(() => rm(filePath, { force: true }))
@@ -221,6 +228,50 @@ void test("CHAT-APR-009 consumes retry authority before permitting idempotent re
   assert.equal(approvals.check({ ...retry, input: call.input }), "approved")
   assert.equal(approvals.matchesRetry(retry), true)
   assert.equal(approvals.check({ ...retry, input: call.input }), "rejected")
+})
+
+void test("CHAT-APR-014 reset invalidates every pending and retryable approval", () => {
+  const tokens = ["pending-one", "pending-two", "retry-two"]
+  const approvals = createPendingApprovals({
+    randomToken: () => tokens.shift() ?? "unexpected-token",
+  })
+  const pendingCall = {
+    surfaceId: "surface-reset",
+    callId: "pending-reset",
+    action: "preferences.save",
+    input: { preference: "City" },
+  } satisfies ActionCall
+  const retryableCall = { ...pendingCall, callId: "retryable-reset" }
+
+  assert.ok(approvalScenarios.some((scenario) => scenario.id === "CHAT-APR-014"))
+  assert.equal(
+    approvals.check({ subject: "owner", call: pendingCall, input: pendingCall.input }),
+    "pending",
+  )
+  assert.equal(
+    approvals.check({ subject: "owner", call: retryableCall, input: retryableCall.input }),
+    "pending",
+  )
+  const pending = approvals.pending(pendingCall, "owner")
+  const retryable = approvals.pending(retryableCall, "owner")
+  assert.ok(pending)
+  assert.ok(retryable)
+  const retryToken = approvals.exchange(retryable, "owner")
+  assert.equal(typeof retryToken, "string")
+  if (typeof retryToken !== "string") throw new Error("Expected retry authority.")
+
+  approvals.reset()
+
+  assert.equal(approvals.exchange(pending, "owner"), undefined)
+  assert.equal(
+    approvals.check({
+      subject: "owner",
+      call: retryableCall,
+      input: retryableCall.input,
+      retryToken,
+    }),
+    "rejected",
+  )
 })
 
 void test("retry token generation fails closed rather than repeating the pending token", () => {

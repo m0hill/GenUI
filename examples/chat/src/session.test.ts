@@ -385,7 +385,14 @@ void test("JSONL session reset deletes the conversation and starts a new session
       diagnosticCodes: outcome.diagnosticCodes,
     })
 
-    await session.reset()
+    let authorityExists = true
+    const resetting = session.reset(() => {
+      authorityExists = false
+    })
+    assert.equal(authorityExists, false)
+    authorityExists = true
+    await resetting
+    assert.equal(authorityExists, false)
 
     const lines = (await readFile(filePath, "utf8")).trim().split("\n")
     const newHeader = JSON.parse(lines[0] ?? "{}")
