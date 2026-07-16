@@ -212,6 +212,11 @@ repeated:
 - **Test at trust boundaries, not internal seams.** One Playwright suite
   driving a real iframe through the real pipeline (mount, call, denied call,
   oversized content) beats 20k lines of unit tests on message schemas.
+- **Keep a taste-check eval loop.** Product quality ≈ generation quality,
+  and it varies wildly by model and prompt. V1's real-sandbox eval (`nub run
+  eval`) was one of its good ideas: a folder of real prompts run through the
+  real stack and eyeballed whenever guidance, models, or the design system
+  change. A taste-check, not a benchmark suite.
 
 ---
 
@@ -497,6 +502,29 @@ point.
   Effect core extracts cleanly; only the coordination shell is
   Cloudflare-shaped.
 
+### Generation UX: streaming, repair, reuse
+
+The 15–30 seconds in which a surface comes into existence — and the times it
+arrives broken — determine perceived quality more than any architecture
+choice. Three rules:
+
+- **Stream the birth.** Progressive preview during generation (v1's
+  `SurfaceDraft` revision idea, kept) or at minimum a skeleton that
+  resolves. Nobody watches a spinner for a button.
+- **Bounded repair.** The iframe captures runtime errors and blank renders
+  and reports them to the host; the host feeds the error back to the model
+  for a fixed **new version** (§9a handles this for free), with an honest
+  terminal state after N attempts. Repair is bounded application policy,
+  never a silent infinite loop.
+- **Reuse before regenerate.** Same intent → reopen the existing surface
+  (with a data refresh); changed needs → the model *evolves* it as a new
+  version. Regenerating from scratch is slow, expensive, and — worst —
+  unfamiliar. Users build muscle memory; "it understands you" implies your
+  planner is *your* planner, recognizable tomorrow. Consequence: the product
+  grows a **surface library** — accumulated personalized interfaces. The
+  library is the stickiness moat and the stepping stone from "chat with
+  widgets" to the adaptive home screen.
+
 ### Surface lifecycle (one breath)
 
 User asks → model writes a tiny app (+ scripts) → checked, versioned, grant
@@ -646,8 +674,12 @@ the stack. None enters without amending this document:
   have one client).
 - No React/RSC in surfaces; no MCP Apps hosting (we may *consume* the pattern
   later; we don't implement the spec now).
-- No secret management / OAuth proxying (MCP servers own their auth; Executor
-  covers power users).
+- No secret management *platform* (vaults, rotation, org sharing — Executor
+  covers power users). But be honest about custody: a hosted MCP client
+  **does** hold users' OAuth tokens for connected servers, and user data
+  transits the gate. "The kernel is the user's agent" extends to data
+  handling: tokens encrypted at rest, per-user isolation, no training on
+  user data, deletion that works.
 
 ---
 
@@ -660,6 +692,14 @@ the stack. None enters without amending this document:
 > Thursday? ✓" — and it's still there, updated, tomorrow morning.
 
 ### Sequencing
+
+**Step zero — the walking skeleton (before any AI).** A *hand-written*
+surface fragment, mounted in the real iframe, calling one real MCP tool
+through a real DO gate, with one real approval prompt. Every trust decision
+gets exercised; no generation, no design system, no chat. Generation is step
+two. (V1 failed as code-without-direction; the inverse trap is
+direction-without-code. This document is complete enough — the next unit of
+progress is code.)
 
 | Phase | Pulls into existence | Explicitly absent |
 |---|---|---|
@@ -682,6 +722,11 @@ the stack. None enters without amending this document:
   cross-context data *when the user consents*). Product design, not kernel.
 - BYO-model mechanics: API keys vs. provider subscriptions/OAuth; which
   providers at launch; what (if anything) works with no key.
+- Mobile packaging (surfaces work in webviews and store rules permit
+  sandboxed web content, but push notifications and a decent mobile shell
+  are their own project — defer deliberately, don't discover it in v3).
+- Surface library UX: naming, pinning, search, when the model reuses vs.
+  evolves vs. creates fresh.
 - When (if ever) the kernel gets extracted and open-sourced — from strength,
   post-traction, never before.
 
