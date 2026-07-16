@@ -315,6 +315,42 @@ contract without amending this document.
 4. **Look native** — host-provided theme tokens (CSS variables), fonts, dark
    mode. Not a security feature, but "lovely to use" dies without it.
 
+### The surface language: code as substrate, design system as vocabulary
+
+The "freeform code vs. predefined components" question was examined once,
+deliberately. Predefined components promise two things: **visual
+consistency** and **structural safety**. Take the first without paying for
+the second — consistency is a styling problem and we own the styling seat;
+structural safety is the expressiveness ceiling we're betting against
+(components cap *behavior*, not just looks — no catalog contains the week
+planner's drag interaction, and a catalog-only agent is just another
+JSON-cards app with Beka's objection unanswered).
+
+The synthesis, three optional layers: **tokens → primitives → freeform
+code.**
+
+- The host injects a small, static, presentational bundle into every iframe:
+  theme tokens plus styled primitives for the boring 80% (buttons, inputs,
+  cards, lists, tables). Plain CSS classes / dependency-free web components —
+  stylesheet-weight, **no React, no runtime**.
+- Model guidance: *use the primitives for standard elements; write anything
+  for the rest.* The vocabulary lives in the stable, cacheable prompt
+  section.
+- Primitives are purely presentational — **zero capability implications**.
+  Authority still flows only through `genui.call`; the kernel doesn't know
+  the design system exists.
+
+Payoff: native-looking surfaces from day one, cheaper and more reliable
+generation (known vocabulary, fewer tokens than hand-rolled CSS), baked-in
+accessibility, and the model's effort spent on the novel interaction — while
+the ceiling stays infinite. A component catalog is just the degenerate case
+where the freeform layer is banned; we keep all three layers.
+
+Related routing note (product, not kernel): not every response deserves a
+surface — plain answers stay text, simple results can be standard chat
+cards, *tasks* get surfaces. The model routes per response, so generation is
+spent where interactivity earns it.
+
 ---
 
 ## 8. Tools — the primitive
@@ -639,7 +675,8 @@ the stack. None enters without amending this document:
   tools for businesses" was identified as the more sellable day-one wedge —
   revisit after the demo exists.
 - Snapshot triggering design (what marks a data dependency dirty in v1).
-- Exact theming/token contract; exact report-channel schema.
+- Exact theming/token contract, the v1 primitive set (which 10–15 elements
+  earn a styled primitive), and the report-channel schema.
 - Per-domain memory/workspace separation (Beka's point: a shopping context
   shouldn't share memory with a work context, while still being able to pull
   cross-context data *when the user consents*). Product design, not kernel.
