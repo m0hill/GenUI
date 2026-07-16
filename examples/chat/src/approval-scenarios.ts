@@ -91,4 +91,20 @@ export const approvalScenarios = [
     expect:
       "One identical retry executes the write and the sandbox receives only the nested ActionResult.",
   },
+  {
+    id: "CHAT-APR-013",
+    description: "Approval tokens remain confined to trusted authority envelopes.",
+    given: "A complete pending approval exchange and approved retry.",
+    when: "Chat crosses browser, kernel, persistence, restore, audit, and telemetry boundaries.",
+    expect:
+      "Pending and retry tokens never enter sandbox messages, grants, ActionResult, audit, JSONL, restored model context, or generic telemetry.",
+  },
+  {
+    id: "CHAT-APR-014",
+    description: "Session reset invalidates outstanding approval authority.",
+    given: "A chat session with pending and retryable approvals.",
+    when: "The session is reset.",
+    expect:
+      "Every outstanding approval becomes absent before the reset completes and cannot be exchanged or consumed.",
+  },
 ] as const

@@ -1,11 +1,14 @@
 import assert from "node:assert/strict"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 import { Hono } from "hono"
+import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai/providers/faux"
+import type { CallAuditEntry, GenuiErrorEvent } from "genui"
 import type { ActionCall, SubscriptionRequest } from "genui/protocol"
-import { generatedUi } from "./ai/genui.js"
+import { createChatGenui, generatedUi } from "./ai/genui.js"
+import { streamChatWithProvider } from "./ai/index.js"
 import { createAuthenticatedSessions, type AuthenticatedSession } from "./authenticated-session.js"
 import { createPendingApprovals, parseExecuteEnvelope, pendingApprovals } from "./approval.js"
 import { createGenuiRoutes } from "./genui-routes.js"
@@ -82,6 +85,7 @@ const createRouteFixture = async (
     readonly path: string
     readonly wait: () => Promise<void>
   }[] = [],
+  executeAction?: ReturnType<typeof createChatGenui>["executeGeneratedUiAction"],
 ) => {
   const directory = await mkdtemp(join(tmpdir(), "genui-chat-routes-"))
   const chatSession = await JsonlChatSession.open(join(directory, "chat.jsonl"))
@@ -103,22 +107,204 @@ const createRouteFixture = async (
       chatSession,
       preferences,
       ...(approvalOptions === undefined ? {} : { approvalTesting: approvalOptions }),
+      ...(executeAction === undefined ? {} : { executeGeneratedUiAction: executeAction }),
     }),
   )
-  pendingApprovals.clear()
+  pendingApprovals.reset()
 
   return {
     app,
     chatSession,
+    chatSessionPath: join(directory, "chat.jsonl"),
     preferences,
     owner,
     other,
     async dispose() {
-      pendingApprovals.clear()
+      pendingApprovals.reset()
       await rm(directory, { recursive: true, force: true })
     },
   }
 }
+
+void test("CHAT-APR-013 keeps tokens out of grants, ActionResult, audit, and telemetry", async () => {
+  const audit: CallAuditEntry[] = []
+  const telemetry: GenuiErrorEvent[] = []
+  const chatGenui = createChatGenui({
+    onCall: (entry) => {
+      audit.push(entry)
+    },
+    onError: (event) => {
+      telemetry.push(event)
+    },
+  })
+  const tokens = ["pending-authority", "retry-authority"]
+  const fixture = await createRouteFixture(
+    { randomToken: () => tokens.shift() ?? "unexpected-authority" },
+    [],
+    chatGenui.executeGeneratedUiAction,
+  )
+  try {
+    const surface = await chatGenui.generatedUi.createSurface({
+      content: "<p>Trips</p>",
+      subject: fixture.owner.subject,
+    })
+    const call = {
+      surfaceId: surface.id,
+      callId: "confined-approval",
+      action: "preferences.save",
+      input: { preference: "City" },
+    } satisfies ActionCall
+    const pendingResponse = await postJson(fixture.app, "/genui/execute", { call }, fixture.owner)
+    const pendingEnvelope = parseExecuteEnvelope(await pendingResponse.json(), call)
+    const pending = pendingEnvelope?.pendingApproval
+    assert.ok(pending)
+    const exchange = await postJson(
+      fixture.app,
+      "/genui/approve",
+      { pendingApproval: pending },
+      fixture.owner,
+    )
+    const approval: unknown = await exchange.json()
+    assert.ok(typeof approval === "object" && approval !== null && "retryToken" in approval)
+    const retryToken = approval.retryToken
+    assert.equal(typeof retryToken, "string")
+    if (typeof retryToken !== "string") throw new Error("Expected retry authority.")
+
+    fixture.preferences.failNextSave = true
+    const retryResponse = await postJson(
+      fixture.app,
+      "/genui/execute",
+      { call, approvalRetryToken: retryToken },
+      fixture.owner,
+    )
+    const retryEnvelope = parseExecuteEnvelope(await retryResponse.json(), call)
+    assert.ok(retryEnvelope)
+
+    await fixture.chatSession.appendTurn({
+      userId: "confined-user",
+      assistantId: "confined-assistant",
+      prompt: "Save my preference.",
+      assistantContent: [{ type: "surface", surface }],
+    })
+    const persisted = await readFile(fixture.chatSessionPath, "utf8")
+    const restored = await JsonlChatSession.open(fixture.chatSessionPath)
+    const faux = fauxProvider({ tokensPerSecond: 0 })
+    faux.setResponses([
+      (providerContext) => {
+        const modelInput = JSON.stringify(providerContext.messages)
+        assert.equal(modelInput.includes(pending.token) || modelInput.includes(retryToken), false)
+        return fauxAssistantMessage("The restored context is confined.")
+      },
+    ])
+    for await (const _event of await streamChatWithProvider(
+      {
+        history: restored.getHistory(),
+        prompt: "Continue.",
+        modelContext: undefined,
+        preferences: fixture.preferences,
+        subject: fixture.owner.subject,
+        signal: new AbortController().signal,
+      },
+      faux.provider,
+      faux.getModel(),
+      "test-key",
+    )) {
+      // Drain the real model-input construction seam.
+    }
+
+    const confinedValues = [
+      surface.grant,
+      pendingEnvelope.result,
+      retryEnvelope.result,
+      audit,
+      telemetry,
+      telemetry.map((event) => String(event.cause)),
+      persisted,
+      restored.getHistory(),
+    ]
+    assert.equal(
+      confinedValues.some((value) => {
+        const serialized = JSON.stringify(value)
+        return serialized.includes(pending.token) || serialized.includes(retryToken)
+      }),
+      false,
+    )
+  } finally {
+    await fixture.dispose()
+  }
+})
+
+void test("CHAT-APR-014 session reset invalidates pending and retryable route authority", async () => {
+  const fixture = await createRouteFixture()
+  try {
+    const surface = await generatedUi.createSurface({
+      content: "<p>Trips</p>",
+      subject: fixture.owner.subject,
+    })
+    const pendingCall = {
+      surfaceId: surface.id,
+      callId: "reset-pending-route",
+      action: "preferences.save",
+      input: { preference: "City" },
+    } satisfies ActionCall
+    const retryableCall = { ...pendingCall, callId: "reset-retryable-route" }
+    const pendingResponse = await postJson(
+      fixture.app,
+      "/genui/execute",
+      { call: pendingCall },
+      fixture.owner,
+    )
+    const pending = parseExecuteEnvelope(await pendingResponse.json(), pendingCall)?.pendingApproval
+    assert.ok(pending)
+    const retryableResponse = await postJson(
+      fixture.app,
+      "/genui/execute",
+      { call: retryableCall },
+      fixture.owner,
+    )
+    const retryable = parseExecuteEnvelope(
+      await retryableResponse.json(),
+      retryableCall,
+    )?.pendingApproval
+    assert.ok(retryable)
+    const exchange = await postJson(
+      fixture.app,
+      "/genui/approve",
+      { pendingApproval: retryable },
+      fixture.owner,
+    )
+    const approval: unknown = await exchange.json()
+    assert.ok(typeof approval === "object" && approval !== null && "retryToken" in approval)
+    const retryToken = approval.retryToken
+    assert.equal(typeof retryToken, "string")
+    if (typeof retryToken !== "string") throw new Error("Expected retry authority.")
+
+    await fixture.chatSession.reset(() => pendingApprovals.reset())
+
+    const pendingAfterReset = await postJson(
+      fixture.app,
+      "/genui/approve",
+      { pendingApproval: pending },
+      fixture.owner,
+    )
+    assert.equal(pendingAfterReset.status, 403)
+    const retryAfterReset = await postJson(
+      fixture.app,
+      "/genui/execute",
+      { call: retryableCall, approvalRetryToken: retryToken },
+      fixture.owner,
+    )
+    assert.deepEqual(await retryAfterReset.json(), {
+      result: {
+        ok: false,
+        error: { code: "approval_denied", message: "Approval is unavailable." },
+      },
+    })
+    assert.equal(fixture.preferences.saves, 0)
+  } finally {
+    await fixture.dispose()
+  }
+})
 
 void test("CHAT-APR-007 rejects expired authority through the approval and execute routes", async () => {
   let now = 1_000

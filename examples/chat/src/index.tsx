@@ -350,8 +350,7 @@ app.route(
 )
 
 app.post("/chat/new", async () => {
-  await session.reset()
-  pendingApprovals.clear()
+  await session.reset(() => pendingApprovals.reset())
   return reply.stream([
     event.patch(<Conversation turns={[]} />),
     event.signals(chatState.patch({ prompt: "", modelContext: "" })),

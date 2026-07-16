@@ -298,7 +298,7 @@ export const createPendingApprovals = (
       })
       return retryToken
     },
-    clear(): void {
+    reset(): void {
       approvals.clear()
     },
   }

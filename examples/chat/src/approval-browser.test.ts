@@ -37,6 +37,8 @@ before(async () => {
   const surface = await generatedUi.createSurface({
     subject: session.subject,
     content: `<button id="save">Save</button><output id="result"></output><script type="module">
+      window.__chatBoundaryMessages = []
+      window.addEventListener("message", (event) => window.__chatBoundaryMessages.push(event.data))
       document.querySelector("#save").onclick = async () => {
         try { document.querySelector("#result").textContent = JSON.stringify(await genui.call("preferences.save", { preference: "City" })) }
         catch (error) { document.querySelector("#result").textContent = error instanceof Error ? error.message : "error" }
@@ -95,7 +97,7 @@ void test("CHAT-APR-006 denies without exchange or retry", async (context) => {
   assert.equal(await preferences.get(), undefined)
 })
 
-void test("CHAT-APR-012 approves once and confines approval material to the trusted parent", async (context) => {
+void test("CHAT-APR-012 and CHAT-APR-013 approve once and confine authority to the trusted parent", async (context) => {
   if (browser === undefined) throw new Error("Browser is unavailable.")
   if (preferences === undefined) throw new Error("Preference store is unavailable.")
   const page = await browser.newPage()
@@ -125,6 +127,21 @@ void test("CHAT-APR-012 approves once and confines approval material to the trus
   assert.equal(
     (first.body as { call: { callId: string } }).call.callId,
     (retry.body as { call: { callId: string } }).call.callId,
+  )
+  const pendingToken = (approval.body as { pendingApproval: { token: string } }).pendingApproval
+    .token
+  const retryToken = (retry.body as { approvalRetryToken: string }).approvalRetryToken
+  const sandboxMessages = await frame
+    .locator("body")
+    .evaluate(() =>
+      JSON.stringify(
+        (window as unknown as { __chatBoundaryMessages?: readonly unknown[] })
+          .__chatBoundaryMessages ?? [],
+      ),
+    )
+  assert.equal(
+    sandboxMessages.includes(pendingToken) || sandboxMessages.includes(retryToken),
+    false,
   )
   const saved = await preferences.get()
   assert.deepEqual(saved, {

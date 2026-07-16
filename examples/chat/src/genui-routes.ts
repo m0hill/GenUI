@@ -53,12 +53,14 @@ export const createGenuiRoutes = (options: {
   readonly chatSession: JsonlChatSession
   readonly preferences: JsonPreferenceStore
   readonly approvalTesting?: Parameters<typeof createPendingApprovals>[0]
+  readonly executeGeneratedUiAction?: typeof executeGeneratedUiAction
 }): Hono => {
   const routes = new Hono()
   const approvals =
     options.approvalTesting === undefined
       ? pendingApprovals
       : createPendingApprovals(options.approvalTesting)
+  const executeAction = options.executeGeneratedUiAction ?? executeGeneratedUiAction
 
   routes.post("/execute", async (context) => {
     const current = authenticatedRequest(options.sessions, context.req.raw)
@@ -92,7 +94,7 @@ export const createGenuiRoutes = (options: {
       } satisfies ExecuteEnvelope)
     }
     let approvalDecision: ReturnType<typeof approvals.check> | undefined
-    const kernelResult = await executeGeneratedUiAction(
+    const kernelResult = await executeAction(
       request.call,
       options.preferences,
       current.subject,

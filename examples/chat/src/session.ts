@@ -327,12 +327,18 @@ export class JsonlChatSession {
     return this.surfaceSnapshots.get(surfaceId)
   }
 
-  reset(): Promise<void> {
+  /** Reset persisted chat state while closing approval races at both reset boundaries. */
+  reset(invalidateApprovalAuthority: () => void): Promise<void> {
+    invalidateApprovalAuthority()
     const write = this.writeQueue.then(async () => {
-      await rm(this.filePath, { force: true })
-      await createSessionFile(this.filePath)
-      this.entries.splice(0)
-      this.surfaceSnapshots.clear()
+      try {
+        await rm(this.filePath, { force: true })
+        await createSessionFile(this.filePath)
+        this.entries.splice(0)
+        this.surfaceSnapshots.clear()
+      } finally {
+        invalidateApprovalAuthority()
+      }
     })
 
     this.writeQueue = write.catch(() => undefined)
