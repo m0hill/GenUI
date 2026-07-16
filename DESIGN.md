@@ -502,6 +502,47 @@ point.
   Effect core extracts cleanly; only the coordination shell is
   Cloudflare-shaped.
 
+### The app shell stack: hypermedia, not a SPA
+
+The product has three UI zones: **surfaces** (generated, vanilla,
+framework-free — where nearly all rich interaction lives), **the shell**
+(chat thread, composer, library, settings, consent prompts), and **islands**
+inside the shell. The shell is **Datastar / hypermedia-driven with client
+islands**, not React. Reasoning:
+
+- The shell is a viewport onto server state: messages, approvals, snapshots,
+  diffs, and logs are all **born in the DO and pushed down**. React's core
+  value is managing client-owned state, which this app barely has; choosing
+  it means building a client-side mirror of DO state and keeping it in sync —
+  double bookkeeping, §4's responsibility-smearing disease in UI form.
+  Hypermedia-over-SSE makes the shell isomorphic to the architecture: the DO
+  pushes patches, the shell renders them.
+- One philosophy everywhere: dumb client, server owns state, push patches —
+  the same shape as snapshots-not-streams and the dumb browser host.
+- Highest personal velocity (datastar-kit is ours and vendored in
+  `repos/`); lighter shell; motivation is a resource on a solo product.
+
+Guardrails: client-dense corners (composer, scroll management, command
+palette) get **islands** — per-component, never a rewrite. Island policy:
+**vanilla + Datastar's client-side signals, packaged as web components**
+(server patches render `<chat-composer>`; the browser upgrades it — no
+hydration choreography, and the same delivery mechanism as the surface
+design-system primitives). Much "island-feeling" work is just Datastar
+attributes and needs no island at all. Named escalation if an island's
+internal state genuinely outgrows vanilla: **Solid** (signals like Datastar,
+no VDOM, coexists with morphing, few KB) — decided once here to avoid
+relitigating per island. **Not React for islands**: its VDOM fights
+morph-based patching, and its ecosystem gravity makes every island a
+beachhead for SPA-by-erosion. Engineering rule that outranks the framework
+choice: **island roots are fenced from morphing** — shell patches never
+reach inside an island's DOM; the island owns its interior, the server owns
+everything else. The shell is the least differentiated part of the product — if a
+feature fights Datastar for more than a day, island it and move on. If the
+approach ever drags, swapping the shell to React is a contained decision:
+the DO protocol and the surfaces don't care what renders the shell. Give
+agents a project skill + datastar-kit reference so they write shell code in
+the house patterns.
+
 ### Generation UX: streaming, repair, reuse
 
 The 15–30 seconds in which a surface comes into existence — and the times it
