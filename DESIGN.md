@@ -115,6 +115,38 @@ the seat we take, and the one seat nobody else in the stack can reach into.
   its whole governed catalog through the front door. Do not embed it; do
   borrow from it (see §10).
 
+### The daily-driver debate (the Rhys thread)
+
+Rhys Sullivan's widely-discussed thread frames the industry split: every
+company ships its own agent (Linear agent, Cloudflare agent — "each week a
+homepage falls to a chat interface"), but power users don't want fifty
+company agents. They want **their own daily-driver agent** to ingest every
+company's skills, knowledge, and APIs. dax's framing: everyone is confused
+between (1) every product needs an agent and (2) every product plugs into
+the agent you already use — and everyone is betting infra on one side.
+
+**We are the daily driver** — the thing companies plug into, not another
+company agent on the pile. Three consequences:
+
+- **Beka's objection is our thesis.** The strongest argument for per-company
+  agents (from the thread): "I wouldn't want Claude Code as a shopping agent —
+  I want a custom UI designed around how a shopping agent should work."
+  Every text-only general agent loses to that argument. **Generative UI is
+  the only answer that doesn't require fifty apps**: one agent that grows the
+  shopping UI when you shop and the planner when you plan. The pitch in its
+  final form: *your agent, with every product's custom experience generated
+  inside it.* (Nan Yu's "app-specific agents ARE the app" cuts the same way —
+  the experience is the product, and we generate the experience.)
+- **Bring your own model — a principle, not a detail.** Power users pay for
+  the best models and resent the quantized-cheap-model-in-a-widget economics
+  of company agents ("it's not your agent"). Users connect their own
+  keys/subscriptions: they always get their best model, and our costs don't
+  scale with their usage. Company agents structurally cannot offer this;
+  as an indie product we structurally must. Alignment, not compromise.
+- **Ingest skills, not just tools** (see §8) — the expertise companies
+  publish for daily-driver agents is a supply line that exists precisely
+  because of this debate.
+
 ### The honest risks
 
 1. **Incumbents.** Anthropic/OpenAI adding generated UI to their own clients
@@ -126,6 +158,15 @@ the seat we take, and the one seat nobody else in the stack can reach into.
 2. **The window is real but closing.** Generative UI appears in both MCP
    Apps' trajectory and Executor's vision. This argues for the small version
    of everything, shipped soon, over the careful version in six months.
+3. **Supply-side lockdown (dax's warning).** The wrestling match is coming:
+   companies locking down APIs, expensive API access, restricting which
+   clients may connect. As a challenger client we can be frontrun or fenced
+   out, and "the best outcome for the user wins" is not guaranteed. Partial
+   mitigations: MCP's momentum makes per-client discrimination harder; users
+   authenticate as themselves with their own credentials; and our
+   irrevocable value-add (the UI layer, the consent kernel, personal
+   context) is not the part a vendor can revoke. Recorded honestly: this
+   risk compounds the incumbent risk and cannot be fully engineered away.
 
 ---
 
@@ -298,6 +339,30 @@ supply conservative defaults; **visibility is separate from permission**;
 The tool layer stays thin — a few hundred lines over the MCP SDK. The heavy
 machinery Executor built (secret proxies, org scopes, OpenAPI importers)
 belongs to the middle-layer seat; users who want it connect Executor over MCP.
+
+### Skills — the knowledge primitive (v2)
+
+Tools are hands; **skills are knowledge**: markdown expertise packages
+(the emerging Agent Skills format — MCP Apps already ships them, companies
+are starting to publish them) that make the agent an *expert* in a product
+or domain. The Rhys thread's core ask — "the same expertise you embed in
+your UI and docs, accessible to my daily-driver agent" — arrives as skills,
+and we should be a first-class consumer: add the Linear skill and Jarvis
+breaks down projects the way Linear's own agent would.
+
+Two design notes:
+
+- Skills are prompt-layer, not authority-layer: they inform generation and
+  chat turns, they never grant capability. A skill that names tools still
+  passes through the same grant/policy gate. Skills are also untrusted
+  third-party text — prompt-injection surface; they get provenance and user
+  consent like any source.
+- **Skills × generative UI is our combination alone**: a company can ship
+  not just "how to query PostHog" but *"how a PostHog funnel should look"* —
+  surface-generation guidance that makes our generated UI render their data
+  the way their own dashboard would. No text-only agent and no per-company
+  agent can use that the way we can. Cheap to ingest (markdown), high
+  differentiation.
 
 ---
 
@@ -563,7 +628,7 @@ the stack. None enters without amending this document:
 | Phase | Pulls into existence | Explicitly absent |
 |---|---|---|
 | **v1 — the interactive demo** | Chat app; MCP client + thin tool layer; the gate (one DO class: grant, policy, approvals, WebSocket snapshots, log); iframe host + vanilla bootstrap; generation pipeline with versioned packages; consent UX; report channel; theming tokens | Dynamic Workers, derived tools, alarms, approval memory beyond allow/deny |
-| **v2 — the ambient dashboard** | Dynamic Workers + derived tools (one mechanism, three triggers); DO alarms; approval memory + graduation prompts; version diffs in consent UI | Workflows, user-authored tools |
+| **v2 — the ambient dashboard** | Dynamic Workers + derived tools (one mechanism, three triggers); DO alarms; approval memory + graduation prompts; version diffs in consent UI; skills ingestion (§8) | Workflows, user-authored tools |
 | **v3 — Jarvis** | User-authored custom tools; code-mode from chat; long-running routines (Workflows if alarms outgrow); multi-surface composition | Whatever v3 doesn't concretely pull |
 
 ### Standing open questions (decide when reached, record here)
@@ -575,6 +640,11 @@ the stack. None enters without amending this document:
   revisit after the demo exists.
 - Snapshot triggering design (what marks a data dependency dirty in v1).
 - Exact theming/token contract; exact report-channel schema.
+- Per-domain memory/workspace separation (Beka's point: a shopping context
+  shouldn't share memory with a work context, while still being able to pull
+  cross-context data *when the user consents*). Product design, not kernel.
+- BYO-model mechanics: API keys vs. provider subscriptions/OAuth; which
+  providers at launch; what (if anything) works with no key.
 - When (if ever) the kernel gets extracted and open-sourced — from strength,
   post-traction, never before.
 
